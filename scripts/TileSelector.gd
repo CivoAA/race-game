@@ -1,9 +1,7 @@
 extends CanvasLayer
 
-# Referenz auf Main, damit wir set_selected_tile() aufrufen können
 @onready var main: Node2D = get_parent()
 
-# Button → Tile-Typ Mapping
 const BUTTON_MAP = {
 	"BtnStraightH": "straight_h",
 	"BtnStraightV": "straight_v",
@@ -21,7 +19,7 @@ const LABEL_MAP = {
 	"curve_nw":   "Kurve\nNord-West",
 	"curve_se":   "Kurve\nSüd-Ost",
 	"curve_sw":   "Kurve\nSüd-West",
-	"delete":     "Löschen\n(Rechtsklick\nauch möglich)",
+	"delete":     "Löschen",
 }
 
 @onready var label_selected: Label = $Panel/VBox/LabelSelected
@@ -30,17 +28,19 @@ const LABEL_MAP = {
 func _ready() -> void:
 	_connect_buttons()
 
+	# Fahren-Button
+	var btn_fahren = get_node_or_null("Panel/VBox/BtnFahren")
+	if btn_fahren:
+		btn_fahren.pressed.connect(main._on_fahren_pressed)
+
 
 func _connect_buttons() -> void:
 	for btn_name in BUTTON_MAP.keys():
 		var btn = get_node_or_null("Panel/VBox/" + btn_name)
 		if btn:
 			btn.pressed.connect(_on_tile_button_pressed.bind(BUTTON_MAP[btn_name]))
-		else:
-			push_warning("TileSelector: Button '%s' nicht gefunden." % btn_name)
 
 
 func _on_tile_button_pressed(tile_type: String) -> void:
 	main.set_selected_tile(tile_type)
 	label_selected.text = "Ausgewählt:\n" + LABEL_MAP.get(tile_type, tile_type)
-	print("Tile-Typ gewählt: %s" % tile_type)
