@@ -1,0 +1,4 @@
+[gd_scene load_steps=2 format=3 uid="uid://curve_nw"]
+[ext_resource type="Script" path="res://scripts/tiles/CurveNW.gd" id="1"]
+[node name="CurveNW" type="Node2D"]
+script = ExtResource("1")

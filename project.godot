@@ -8,11 +8,22 @@
 
 config_version=5
 
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
 [application]
 
-config/name="raceIO"
-config/features=PackedStringArray("4.6", "Forward Plus")
+config/name="RaceTrackBuilder"
+config/description="2D Top-Down Rennbahn-Baukasten"
+run/main_scene="uid://main"
+config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=700
+window/size/viewport_height=620
 
 [physics]
 
@@ -21,3 +32,5 @@ config/icon="res://icon.svg"
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
