@@ -3,7 +3,7 @@ extends Node3D
 ## Position und Rotation werden von außen gesetzt (durch CarController).
 
 # Pfad zum 3D-Modell – passe das an falls deine Datei anders heißt
-const MODEL_PATH = "res://assets/car.glb"
+const MODEL_PATH = "res://assets/3D-models/default_car/car.glb"
 
 # Skalierung des Modells – anpassen falls zu groß/klein
 const MODEL_SCALE = Vector3(0.3, 0.3, 0.3)
