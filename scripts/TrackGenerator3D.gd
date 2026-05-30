@@ -18,6 +18,7 @@ func generate(grid_state: Array) -> void:
 				continue
 
 			var scene_path = SCENE_STRAIGHT if d["type"] == "straight" else SCENE_CURVE
+			# curve_alt hat dieselbe 3D-Form wie curve
 			var scene = load(scene_path)
 			if scene == null:
 				push_error("3D-Tile-Szene nicht gefunden: " + scene_path)

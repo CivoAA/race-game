@@ -39,6 +39,10 @@ text = "━ Gerade"
 layout_mode = 2
 text = "╰ Kurve"
 
+[node name="BtnCurveAlt" type="Button" parent="TileSelector/Panel/VBox" unique_id=1090275535]
+layout_mode = 2
+text = "╯ Kurve 2"
+
 [node name="Separator1" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=133667599]
 layout_mode = 2
 
@@ -56,8 +60,7 @@ horizontal_alignment = 1
 
 [node name="LabelHint" type="Label" parent="TileSelector/Panel/VBox" unique_id=2034533664]
 layout_mode = 2
-text = "[R] drehen
-[F] spiegeln"
+text = "[R] drehen"
 horizontal_alignment = 1
 autowrap_mode = 3
 
