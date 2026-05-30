@@ -25,38 +25,14 @@ offset_bottom = 612.0
 
 [node name="Label" type="Label" parent="TileSelector/Panel/VBox" unique_id=184580224]
 layout_mode = 2
-text = "TILES"
+text = "TRACK"
 horizontal_alignment = 1
-
-[node name="Separator0" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=1809663469]
-layout_mode = 2
-
-[node name="BtnStraight" type="Button" parent="TileSelector/Panel/VBox" unique_id=922669468]
-layout_mode = 2
-text = "━ Gerade"
-
-[node name="BtnCurve" type="Button" parent="TileSelector/Panel/VBox" unique_id=1090275534]
-layout_mode = 2
-text = "╰ Kurve"
-
-[node name="BtnCurveAlt" type="Button" parent="TileSelector/Panel/VBox" unique_id=1090275535]
-layout_mode = 2
-text = "╯ Kurve 2"
-
-[node name="Separator1" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=133667599]
-layout_mode = 2
-
-[node name="BtnDelete" type="Button" parent="TileSelector/Panel/VBox" unique_id=1932972934]
-layout_mode = 2
-text = "✕ Löschen"
-
-[node name="Separator2" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=1607411098]
-layout_mode = 2
 
 [node name="LabelSelected" type="Label" parent="TileSelector/Panel/VBox" unique_id=1069172234]
 layout_mode = 2
-text = "Gerade"
+text = ""
 horizontal_alignment = 1
+autowrap_mode = 3
 
 [node name="LabelHint" type="Label" parent="TileSelector/Panel/VBox" unique_id=2034533664]
 layout_mode = 2

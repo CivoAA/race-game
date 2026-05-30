@@ -29,6 +29,10 @@ window/size/viewport_height=620
 
 3d/physics_engine="Jolt Physics"
 
+[autoload]
+
+Economy="*res://scripts/Economy.gd"
+
 [rendering]
 
 rendering_device/driver.windows="d3d12"
