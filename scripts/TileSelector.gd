@@ -1,46 +1,20 @@
 extends CanvasLayer
 
 @onready var main: Node2D = get_parent()
-
-const BUTTON_MAP = {
-	"BtnStraightH": "straight_h",
-	"BtnStraightV": "straight_v",
-	"BtnCurveNE":   "curve_ne",
-	"BtnCurveNW":   "curve_nw",
-	"BtnCurveSE":   "curve_se",
-	"BtnCurveSW":   "curve_sw",
-	"BtnDelete":    "delete",
-}
-
-const LABEL_MAP = {
-	"straight_h": "Gerade\nHorizontal",
-	"straight_v": "Gerade\nVertikal",
-	"curve_ne":   "Kurve\nNord-Ost",
-	"curve_nw":   "Kurve\nNord-West",
-	"curve_se":   "Kurve\nSüd-Ost",
-	"curve_sw":   "Kurve\nSüd-West",
-	"delete":     "Löschen",
-}
-
 @onready var label_selected: Label = $Panel/VBox/LabelSelected
+@onready var label_hint: Label     = $Panel/VBox/LabelHint
 
 
 func _ready() -> void:
-	_connect_buttons()
-
-	# Fahren-Button
-	var btn_fahren = get_node_or_null("Panel/VBox/BtnFahren")
-	if btn_fahren:
-		btn_fahren.pressed.connect(main._on_fahren_pressed)
+	$Panel/VBox/BtnStraight.pressed.connect(func(): _select("straight"))
+	$Panel/VBox/BtnCurve.pressed.connect(func():    _select("curve"))
+	$Panel/VBox/BtnDelete.pressed.connect(func():   _select("delete"))
+	$Panel/VBox/BtnFahren.pressed.connect(main._on_fahren_pressed)
 
 
-func _connect_buttons() -> void:
-	for btn_name in BUTTON_MAP.keys():
-		var btn = get_node_or_null("Panel/VBox/" + btn_name)
-		if btn:
-			btn.pressed.connect(_on_tile_button_pressed.bind(BUTTON_MAP[btn_name]))
-
-
-func _on_tile_button_pressed(tile_type: String) -> void:
-	main.set_selected_tile(tile_type)
-	label_selected.text = "Ausgewählt:\n" + LABEL_MAP.get(tile_type, tile_type)
+func _select(type: String) -> void:
+	main.set_selected_type(type)
+	match type:
+		"straight": label_selected.text = "Gerade"
+		"curve":    label_selected.text = "Kurve"
+		"delete":   label_selected.text = "Löschen"

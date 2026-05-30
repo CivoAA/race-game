@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://straight_v"]
-
-[ext_resource type="Script" path="res://scripts/tiles/StraightV.gd" id="1"]
-
-[node name="StraightV" type="Node2D"]
-script = ExtResource("1")

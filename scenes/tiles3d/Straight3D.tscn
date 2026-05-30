@@ -1,0 +1,4 @@
+[gd_scene load_steps=2 format=3 uid="uid://straight3d"]
+[ext_resource type="Script" path="res://scripts/tiles3d/Straight3D.gd" id="1"]
+[node name="Straight3D" type="Node3D"]
+script = ExtResource("1")

@@ -35,16 +35,56 @@ func _ready() -> void:
 		Engine.remove_meta("pending_grid_state")
 	else:
 		# Testdaten für direkten Start von World3D.tscn
+		var sh  = {"type": "straight", "rotation": 0,  "flipped": false}  # horizontal
+		var sv  = {"type": "straight", "rotation": 90, "flipped": false}  # vertikal
+		# Ecken aus _get_connections Lookup:
+		# oben-links:   S+E offen → rot=180, flip=true
+		# oben-rechts:  W+S offen → rot=90,  flip=true
+		# unten-links:  E+N offen → rot=270, flip=true
+		# unten-rechts: N+W offen → rot=0,   flip=true
+		var c_ol = {"type": "curve", "rotation": 180, "flipped": true}
+		var c_or = {"type": "curve", "rotation": 90,  "flipped": true}
+		var c_ul = {"type": "curve", "rotation": 270, "flipped": true}
+		var c_ur = {"type": "curve", "rotation": 0,   "flipped": true}
 		grid_state = [
-			["curve_se",  "straight_h", "straight_h", "curve_sw"],
-			["straight_v", "",          "",            "straight_v"],
-			["straight_v", "",          "",            "straight_v"],
-			["curve_ne",  "straight_h", "straight_h", "curve_nw"],
+			[c_ol, sh,  sh,  c_or],
+			[sv,   "",  "",  sv  ],
+			[sv,   "",  "",  sv  ],
+			[c_ul, sh,  sh,  c_ur],
 		]
 
 	generator.generate(grid_state)
 	_start_car(grid_state)
 
+
+
+
+# ── Start-Tile ────────────────────────────────────────────────────────────────
+
+func _insert_start_tile(grid_state: Array) -> Array:
+	# Schon vorhanden?
+	for row in range(4):
+		for col in range(4):
+			var d = grid_state[row][col]
+			if typeof(d) == TYPE_DICTIONARY and d.get("is_start", false):
+				return grid_state
+
+	# Mittleres 2x2 bevorzugen
+	for pos in [[1,1],[1,2],[2,1],[2,2]]:
+		var r = pos[0]; var col = pos[1]
+		if typeof(grid_state[r][col]) != TYPE_DICTIONARY:
+			grid_state[r][col] = {"type":"straight","rotation":0,"flipped":false,"is_start":true}
+			print("Start-Tile bei [%d,%d]" % [r, col])
+			return grid_state
+
+	# Irgendein freies Feld
+	for row in range(4):
+		for col in range(4):
+			if typeof(grid_state[row][col]) != TYPE_DICTIONARY:
+				grid_state[row][col] = {"type":"straight","rotation":0,"flipped":false,"is_start":true}
+				return grid_state
+
+	return grid_state
 
 # ── Zurück zum Bauplan ────────────────────────────────────────────────────────
 
