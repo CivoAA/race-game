@@ -66,18 +66,12 @@ func _get_connections(data) -> Dictionary:
 	if typeof(data) != TYPE_DICTIONARY:
 		return {}
 
-	# Basis bei rot=0: Gerade=W+E, Kurve=N+E
 	var bn: bool; var be: bool; var bs: bool; var bw: bool
 	if data["type"] == "straight":
 		bn = false; be = true; bs = false; bw = true
-	else:
-		# Geometrisch berechnet aus Curve3D (cx,cz,Bogenwinkel):
-		# Geometrisch verifiziert (kombiniert aus beiden Scripts):
-		# rot=0:   N+W offen  (cx=-half,cz=-half, 0°→90°)
-		# rot=90:  N+E offen  (cx=+half,cz=-half, 90°→180°)
-		# rot=180: S+E offen  (cx=+half,cz=+half, 180°→270°)
-		# rot=270: S+W offen  (cx=-half,cz=+half, 270°→360°)
-		# rot=0:   S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
+	elif data["type"] == "curve" or data["type"] == "curve_alt":
+		# curve und curve_alt haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
+		# rot=0: S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
 		match data["rotation"]:
 			0:   bn = false; be = true;  bs = true;  bw = false
 			90:  bn = false; be = false; bs = true;  bw = true
@@ -85,6 +79,8 @@ func _get_connections(data) -> Dictionary:
 			270: bn = true;  be = true;  bs = false; bw = false
 			_:   bn = false; be = true;  bs = true;  bw = false
 		return {"N": bn, "E": be, "S": bs, "W": bw}
+	else:
+		return {}
 
 	# Rotation im Uhrzeigersinn: 90° CW dreht N→E, E→S, S→W, W→N
 	# Also: neues_N = altes_W, neues_E = altes_N, neues_S = altes_E, neues_W = altes_S
@@ -242,8 +238,7 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 		wps.append(center)
 		wps.append(center + _dir_to_vec(exit_dir) * half)
 
-	elif type == "curve":
-		# Alle 4 Fälle geometrisch verifiziert:
+	elif type == "curve" or type == "curve_alt":
 		var cx: float; var cz: float
 		var a_from: float; var a_to: float
 		match rot:
@@ -257,6 +252,10 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 				cx =  half; cz = -half; a_from = PI * 0.5;  a_to = PI
 			_:
 				cx =  half; cz =  half; a_from = PI;        a_to = PI * 1.5
+
+		# curve_alt: Auto fährt andersherum durch den Bogen
+		if type == "curve_alt":
+			var tmp = a_from; a_from = a_to; a_to = tmp
 
 		var steps = 10
 		for i in range(steps + 1):

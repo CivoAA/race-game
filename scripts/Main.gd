@@ -3,8 +3,9 @@ extends Node2D
 const GRID_SIZE = 4
 const TILE_SIZE = 120
 
-const SCENE_STRAIGHT = "res://scenes/tiles2d/Straight2D.tscn"
-const SCENE_CURVE    = "res://scenes/tiles2d/Curve2D.tscn"
+const SCENE_STRAIGHT   = "res://scenes/tiles2d/Straight2D.tscn"
+const SCENE_CURVE      = "res://scenes/tiles2d/Curve2D.tscn"
+const SCENE_CURVE_ALT  = "res://scenes/tiles2d/Curve2D_alt.tscn"
 
 var selected_type: String = "straight"
 var last_placed_row: int = -1
@@ -57,7 +58,11 @@ func _place_start_tile() -> void:
 # ── Tile spawnen ───────────────────────────────────────────────────────────────
 
 func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
-	var scene_path = SCENE_STRAIGHT if data["type"] == "straight" else SCENE_CURVE
+	var scene_path: String
+	match data["type"]:
+		"straight":   scene_path = SCENE_STRAIGHT
+		"curve_alt":  scene_path = SCENE_CURVE_ALT
+		_:            scene_path = SCENE_CURVE
 	var scene = load(scene_path)
 	if scene == null:
 		push_error("Szene nicht gefunden: " + scene_path)
@@ -113,7 +118,6 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_R: _rotate_last(90)
-			KEY_F: _flip_last()
 
 
 func _place_tile(row: int, col: int) -> void:
@@ -151,19 +155,6 @@ func _rotate_last(degrees: int) -> void:
 	# Einfach Node rotieren – kein Neuzeichnen nötig!
 	data["node"].rotation_degrees = data["rotation"]
 
-
-func _flip_last() -> void:
-	if last_placed_row < 0:
-		return
-	var data = grid[last_placed_row][last_placed_col]
-	if data == null:
-		return
-	# F = Pfeil/Fahrtrichtung umkehren ohne die Form zu ändern
-	data["direction"] = -data.get("direction", 1)
-	var node = data["node"]
-	if "direction" in node:
-		node.direction = data["direction"]
-		node.queue_redraw()
 
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
