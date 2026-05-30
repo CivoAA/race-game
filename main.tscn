@@ -7,21 +7,21 @@
 script = ExtResource("1")
 
 [node name="Grid" type="Node2D" parent="." unique_id=1496547757]
-position = Vector2(100, 60)
+position = Vector2(100, 40)
 
 [node name="TileSelector" type="CanvasLayer" parent="." unique_id=540876559]
 script = ExtResource("2")
 
 [node name="Panel" type="Panel" parent="TileSelector" unique_id=487200298]
 offset_right = 90.0
-offset_bottom = 620.0
+offset_bottom = 630.0
 
 [node name="VBox" type="VBoxContainer" parent="TileSelector/Panel" unique_id=228572821]
 layout_mode = 0
 offset_left = 8.0
 offset_top = 8.0
 offset_right = 82.0
-offset_bottom = 612.0
+offset_bottom = 622.0
 
 [node name="Label" type="Label" parent="TileSelector/Panel/VBox" unique_id=184580224]
 layout_mode = 2

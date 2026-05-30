@@ -1,16 +1,25 @@
 extends Node2D
 
-const GRID_SIZE = 4
-const TILE_SIZE = 120
+const GRID_ROWS = 5
+const GRID_COLS = 6
+const TILE_SIZE = 100
 
 const SCENE_STRAIGHT  = "res://scenes/tiles2d/Straight2D.tscn"
 const SCENE_CURVE     = "res://scenes/tiles2d/Curve2D.tscn"
 const SCENE_CURVE_ALT = "res://scenes/tiles2d/Curve2D_alt.tscn"
 
-const SHOP_TYPES      = ["straight", "curve", "curve_alt"]
+const SHOP_TYPES = ["straight", "curve", "curve_alt"]
+
+# 5 Varianten pro Tile-Typ: Punkte oder Multiplikator
+const TILE_VARIANTS = [
+	{"points": 1.0,  "multiplier": 1.0, "price": 2,  "variant_label": "+1"},
+	{"points": 5.0,  "multiplier": 1.0, "price": 5,  "variant_label": "+5"},
+	{"points": 10.0, "multiplier": 1.0, "price": 10, "variant_label": "+10"},
+	{"points": 0.0,  "multiplier": 1.5, "price": 8,  "variant_label": "×1.5"},
+	{"points": 0.0,  "multiplier": 0.5, "price": 1,  "variant_label": "×0.5"},
+]
+
 const SHOP_SLOT_COUNT = 5
-const SHOP_COST       = 2
-const REROLL_COST     = 1
 const SELL_VALUE      = 1
 
 # Grid state
@@ -24,7 +33,7 @@ var selected_grid_col: int = -1
 var _grid_highlight: Node2D = null
 
 # Shop / sell state
-var shop_slots:         Array = []
+var shop_slots:         Array = []   # Array of {type,points,multiplier,price,variant_label} or null
 var selected_shop_slot: int   = -1
 var sell_mode:          bool  = false
 
@@ -56,16 +65,16 @@ func _ready() -> void:
 
 func _init_grid() -> void:
 	grid = []
-	for row in range(GRID_SIZE):
+	for row in range(GRID_ROWS):
 		var cols = []
-		for col in range(GRID_SIZE):
+		for col in range(GRID_COLS):
 			cols.append(null)
 		grid.append(cols)
 
 
 func _draw_grid_background() -> void:
-	for row in range(GRID_SIZE):
-		for col in range(GRID_SIZE):
+	for row in range(GRID_ROWS):
+		for col in range(GRID_COLS):
 			var border = ColorRect.new()
 			border.size = Vector2(TILE_SIZE, TILE_SIZE)
 			border.position = _grid_to_world(row, col)
@@ -81,7 +90,10 @@ func _draw_grid_background() -> void:
 
 func _place_start_tile() -> void:
 	var row = 1; var col = 1
-	var data = {"type": "straight", "rotation": 0, "flipped": false, "is_start": true}
+	var data = {
+		"type": "straight", "rotation": 0, "flipped": false, "is_start": true,
+		"points": 0.0, "multiplier": 1.0, "variant_label": "",
+	}
 	_spawn_tile(row, col, data)
 	last_placed_row = row
 	last_placed_col = col
@@ -122,21 +134,21 @@ func _setup_shop_ui() -> void:
 	layer.layer = 2
 	add_child(layer)
 
-	# Currency label – top right (grid right edge = screen x 580, viewport = 700)
+	# Currency label – rechts neben dem Grid (Grid endet bei Bildschirm-x=700, Viewport=800)
 	_currency_label = Label.new()
-	_currency_label.position = Vector2(592, 10)
-	_currency_label.size = Vector2(100, 28)
+	_currency_label.position = Vector2(706, 10)
+	_currency_label.size = Vector2(88, 28)
 	_currency_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_currency_label.add_theme_font_size_override("font_size", 18)
 	_currency_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
 	layer.add_child(_currency_label)
 	_update_currency_label()
 
-	# Shop bar – below grid (grid bottom at screen y 540)
-	var shop_y = 543
+	# Shop-Bar – unterhalb des Grids (Grid-Unterkante bei Bildschirm-y=540)
+	var shop_y = 545
 	var shop_x = 100
-	var slot_w = 78
-	var slot_h = 56
+	var slot_w = 74
+	var slot_h = 68
 	var gap    = 4
 
 	for i in range(SHOP_SLOT_COUNT):
@@ -155,24 +167,24 @@ func _setup_shop_ui() -> void:
 		layer.add_child(panel)
 		_shop_panels.append(panel)
 
-	# Reroll button (right of slots)
+	# Reroll-Button
 	var reroll_x = shop_x + SHOP_SLOT_COUNT * (slot_w + gap) + 4
 	var reroll = Button.new()
 	reroll.position = Vector2(reroll_x, shop_y)
-	reroll.size = Vector2(78, slot_h)
-	reroll.text = "🎲 Neu\n(%d💰)" % REROLL_COST
+	reroll.size = Vector2(80, slot_h)
+	reroll.text = "🎲 Neu\n(1💰)"
 	reroll.pressed.connect(_on_reroll_pressed)
 	layer.add_child(reroll)
 
-	# Sell button (right of reroll)
-	var sell_x = reroll_x + 78 + 4
+	# Verkaufen-Panel
+	var sell_x = reroll_x + 80 + 4
 	_sell_panel = Panel.new()
 	_sell_panel.position = Vector2(sell_x, shop_y)
-	_sell_panel.size = Vector2(78, slot_h)
+	_sell_panel.size = Vector2(80, slot_h)
 	var sell_lbl = Label.new()
 	sell_lbl.name = "SellLabel"
 	sell_lbl.text = "💰\nVerkaufen"
-	sell_lbl.size = Vector2(78, slot_h)
+	sell_lbl.size = Vector2(80, slot_h)
 	sell_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sell_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	sell_lbl.add_theme_font_size_override("font_size", 12)
@@ -182,10 +194,22 @@ func _setup_shop_ui() -> void:
 	_update_sell_panel_style()
 
 
+func _random_shop_item() -> Dictionary:
+	var type    = SHOP_TYPES[randi() % SHOP_TYPES.size()]
+	var variant = TILE_VARIANTS[randi() % TILE_VARIANTS.size()]
+	return {
+		"type":          type,
+		"points":        variant["points"],
+		"multiplier":    variant["multiplier"],
+		"price":         variant["price"],
+		"variant_label": variant["variant_label"],
+	}
+
+
 func _fill_shop() -> void:
 	shop_slots.clear()
 	for i in range(SHOP_SLOT_COUNT):
-		shop_slots.append(SHOP_TYPES[randi() % SHOP_TYPES.size()])
+		shop_slots.append(_random_shop_item())
 	_update_shop_ui()
 
 
@@ -197,23 +221,25 @@ func _update_shop_ui() -> void:
 	for i in range(SHOP_SLOT_COUNT):
 		var panel = _shop_panels[i]
 		var lbl   = panel.get_node("TypeLabel") as Label
-		var typ   = shop_slots[i]
+		var slot  = shop_slots[i]
 
-		if typ == null:
+		if slot == null:
 			lbl.text = "—"
 		else:
-			match typ:
-				"straight":  lbl.text = "━━\nGerade"
-				"curve":     lbl.text = "╰\nKurve"
-				"curve_alt": lbl.text = "╯\nKurve 2"
+			var icon = ""
+			match slot["type"]:
+				"straight":  icon = "━━"
+				"curve":     icon = "╰"
+				"curve_alt": icon = "╯"
+			lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
 
 		var style = StyleBoxFlat.new()
 		style.set_corner_radius_all(3)
-		if i == selected_shop_slot and typ != null:
+		if i == selected_shop_slot and slot != null:
 			style.bg_color     = Color(0.28, 0.24, 0.08)
 			style.border_color = Color(1.0, 0.85, 0.0)
 			style.set_border_width_all(2)
-		elif typ == null:
+		elif slot == null:
 			style.bg_color     = Color(0.12, 0.12, 0.14)
 			style.border_color = Color(0.25, 0.25, 0.28)
 			style.set_border_width_all(1)
@@ -273,11 +299,11 @@ func _on_sell_panel_gui_input(event: InputEvent) -> void:
 
 
 func _on_reroll_pressed() -> void:
-	if not Economy.spend(REROLL_COST):
+	if not Economy.spend(1):
 		_flash_currency()
 		return
 	for i in range(SHOP_SLOT_COUNT):
-		shop_slots[i] = SHOP_TYPES[randi() % SHOP_TYPES.size()]
+		shop_slots[i] = _random_shop_item()
 	_update_currency_label()
 	_update_shop_ui()
 
@@ -345,6 +371,16 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		lbl.add_theme_color_override("font_color", Color(0.1, 0.9, 0.3))
 		lbl.add_theme_font_size_override("font_size", 11)
 		node.add_child(lbl)
+	elif data.get("variant_label", "") != "":
+		# Varianten-Label oben links im Tile
+		var vlbl = Label.new()
+		vlbl.text = data["variant_label"]
+		vlbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2)
+		vlbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.2))
+		vlbl.add_theme_font_size_override("font_size", 10)
+		vlbl.add_theme_constant_override("outline_size", 2)
+		vlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+		node.add_child(vlbl)
 
 	grid_node.add_child(node)
 	data["node"] = node
@@ -356,8 +392,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		var local_pos = grid_node.to_local(event.position)
-		var grid_pixel_size = GRID_SIZE * TILE_SIZE
-		if local_pos.x < 0 or local_pos.y < 0 or local_pos.x >= grid_pixel_size or local_pos.y >= grid_pixel_size:
+		if local_pos.x < 0 or local_pos.y < 0 or local_pos.x >= GRID_COLS * TILE_SIZE or local_pos.y >= GRID_ROWS * TILE_SIZE:
 			return
 		var cell = _world_to_grid(local_pos)
 		if not _is_valid_cell(cell):
@@ -386,7 +421,6 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 		if sell_mode:
 			_sell_grid_tile(row, col)
 		elif selected_grid_row == row and selected_grid_col == col:
-			# Click same tile again → deselect
 			selected_grid_row = -1
 			selected_grid_col = -1
 			_update_grid_highlight()
@@ -395,7 +429,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 			_select_grid_tile(row, col)
 		return
 
-	# Empty cell
+	# Leere Zelle
 	if selected_grid_row >= 0:
 		_move_selected_tile_to(row, col)
 	elif selected_shop_slot >= 0:
@@ -426,10 +460,13 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		return
 
 	var move_data = {
-		"type":      data["type"],
-		"rotation":  data["rotation"],
-		"flipped":   data.get("flipped", false),
-		"direction": data.get("direction", 1),
+		"type":          data["type"],
+		"rotation":      data["rotation"],
+		"flipped":       data.get("flipped", false),
+		"direction":     data.get("direction", 1),
+		"points":        data.get("points", 0.0),
+		"multiplier":    data.get("multiplier", 1.0),
+		"variant_label": data.get("variant_label", ""),
 	}
 	data["node"].queue_free()
 	grid[old_row][old_col] = null
@@ -444,13 +481,21 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 
 
 func _place_shop_tile(row: int, col: int) -> void:
-	var typ = shop_slots[selected_shop_slot]
-	if typ == null:
+	var slot = shop_slots[selected_shop_slot]
+	if slot == null:
 		return
-	if not Economy.spend(SHOP_COST):
+	if not Economy.spend(slot["price"]):
 		_flash_currency()
 		return
-	var data = {"type": typ, "rotation": 0, "flipped": false, "direction": 1}
+	var data = {
+		"type":          slot["type"],
+		"rotation":      0,
+		"flipped":       false,
+		"direction":     1,
+		"points":        slot["points"],
+		"multiplier":    slot["multiplier"],
+		"variant_label": slot["variant_label"],
+	}
 	_spawn_tile(row, col, data)
 	last_placed_row = row
 	last_placed_col = col
@@ -475,7 +520,6 @@ func _remove_tile(row: int, col: int) -> void:
 # ── Rotation ───────────────────────────────────────────────────────────────────
 
 func _rotate_active(degrees: int) -> void:
-	# Rotate selected grid tile; fall back to last placed
 	var row = selected_grid_row if selected_grid_row >= 0 else last_placed_row
 	var col = selected_grid_col if selected_grid_row >= 0 else last_placed_col
 	if row < 0:
@@ -503,36 +547,43 @@ func _world_to_grid(pos: Vector2) -> Vector2i:
 	return Vector2i(int(pos.y / TILE_SIZE), int(pos.x / TILE_SIZE))
 
 func _is_valid_cell(cell: Vector2i) -> bool:
-	return cell.x >= 0 and cell.x < GRID_SIZE and cell.y >= 0 and cell.y < GRID_SIZE
+	return cell.x >= 0 and cell.x < GRID_ROWS and cell.y >= 0 and cell.y < GRID_COLS
 
 
 # ── API ────────────────────────────────────────────────────────────────────────
 
 func get_grid_state() -> Array:
 	var state = []
-	for row in range(GRID_SIZE):
+	for row in range(GRID_ROWS):
 		var row_data = []
-		for col in range(GRID_SIZE):
+		for col in range(GRID_COLS):
 			var d = grid[row][col]
 			if d == null:
 				row_data.append("")
 			else:
 				row_data.append({
-					"type":      d["type"],
-					"rotation":  d["rotation"],
-					"flipped":   d["flipped"],
-					"direction": d.get("direction", 1),
-					"is_start":  d.get("is_start", false),
+					"type":          d["type"],
+					"rotation":      d["rotation"],
+					"flipped":       d.get("flipped", false),
+					"direction":     d.get("direction", 1),
+					"is_start":      d.get("is_start", false),
+					"points":        d.get("points", 0.0),
+					"multiplier":    d.get("multiplier", 1.0),
+					"variant_label": d.get("variant_label", ""),
 				})
 		state.append(row_data)
 	return state
 
 
 func _restore_grid(state: Array) -> void:
-	for row in range(GRID_SIZE):
-		for col in range(GRID_SIZE):
+	for row in range(GRID_ROWS):
+		if row >= state.size():
+			break
+		for col in range(GRID_COLS):
 			if row == 1 and col == 1:
-				continue  # start tile already placed
+				continue  # Start-Tile bereits gesetzt
+			if col >= state[row].size():
+				break
 			var d = state[row][col]
 			if typeof(d) != TYPE_DICTIONARY:
 				continue
@@ -546,7 +597,7 @@ func _restore_grid(state: Array) -> void:
 func _on_fahren_pressed() -> void:
 	var state = get_grid_state()
 	Engine.set_meta("pending_grid_state", state)
-	Engine.set_meta("saved_grid_state", state)
+	Engine.set_meta("saved_grid_state",   state)
 	var world_scene = load("res://scenes/World3D.tscn")
 	if world_scene:
 		get_tree().change_scene_to_packed(world_scene)
