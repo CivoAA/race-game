@@ -22,6 +22,24 @@ const TILE_VARIANTS = [
 const SHOP_SLOT_COUNT = 5
 const SELL_VALUE      = 1
 
+# Upgrade-Tabellen: points/multiplier pro combine_level (0–4)
+const POINT_UPGRADE_DATA = {
+	"+1":  {"points": [1.0,  3.0,  6.0,  10.0,  15.0],  "labels": ["+1",  "+3",  "+6",  "+10",  "+15"]},
+	"+5":  {"points": [5.0,  12.0, 22.0, 35.0,  50.0],  "labels": ["+5",  "+12", "+22", "+35",  "+50"]},
+	"+10": {"points": [10.0, 25.0, 45.0, 70.0,  100.0], "labels": ["+10", "+25", "+45", "+70",  "+100"]},
+}
+const MULT_UPGRADE_DATA = {
+	"×1.5": {"mult": [1.5, 2.0, 2.5, 3.0, 4.0], "labels": ["×1.5", "×2", "×2.5", "×3", "×4"]},
+}
+# self_modulate-Tönung pro combine_level (trifft nur Road-Zeichnung, nicht Kind-Labels)
+const COMBINE_TINTS = [
+	Color(1.0, 1.0,  1.0),   # 0 – normal
+	Color(1.0, 0.97, 0.78),  # 1 – warm creme
+	Color(1.0, 0.88, 0.48),  # 2 – gold
+	Color(1.0, 0.72, 0.20),  # 3 – orange-gold
+	Color(1.0, 0.50, 0.05),  # 4 – Feuer-gold
+]
+
 # Grid state
 var last_placed_row: int = -1
 var last_placed_col: int = -1
@@ -405,6 +423,23 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		vlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		node.add_child(vlbl)
 
+	# Kombinations-Visuell: self_modulate trifft nur _draw des Tile-Nodes, nicht Kind-Labels
+	var clvl = data.get("combine_level", 0)
+	if clvl > 0 and not data.get("is_dirt", false) and not data.get("is_start", false):
+		node.self_modulate = COMBINE_TINTS[clvl]
+		var rot_rad  = deg_to_rad(data.get("rotation", 0))
+		var slbl     = Label.new()
+		slbl.name    = "StarLabel"
+		slbl.text    = "★".repeat(clvl)
+		slbl.position = Vector2(0.0, TILE_SIZE / 2.0 - 14.0).rotated(-rot_rad)
+		slbl.rotation_degrees = -data.get("rotation", 0)
+		slbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		slbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.0))
+		slbl.add_theme_font_size_override("font_size", 11)
+		slbl.add_theme_constant_override("outline_size", 2)
+		slbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+		node.add_child(slbl)
+
 	grid_node.add_child(node)
 	data["node"] = node
 	grid[row][col] = data
@@ -521,6 +556,13 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 			_move_selected_tile_to(row, col)
 		return
 
+	# Kombinations-Check: Shop-Tile auf passendes Grid-Tile → Upgrade
+	if cell_data != null and selected_shop_slot >= 0 and not sell_mode:
+		var slot = shop_slots[selected_shop_slot]
+		if slot != null and _can_combine(slot, cell_data):
+			_do_combine(row, col, slot)
+			return
+
 	if cell_data != null:
 		if sell_mode:
 			_sell_grid_tile(row, col)
@@ -571,6 +613,8 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		"points":        data.get("points", 0.0),
 		"multiplier":    data.get("multiplier", 1.0),
 		"variant_label": data.get("variant_label", ""),
+		"series":        data.get("series", ""),
+		"combine_level": data.get("combine_level", 0),
 	}
 	data["node"].queue_free()
 	grid[old_row][old_col] = null
@@ -600,6 +644,8 @@ func _place_shop_tile(row: int, col: int) -> void:
 		"points":        slot["points"],
 		"multiplier":    slot["multiplier"],
 		"variant_label": slot["variant_label"],
+		"series":        slot["variant_label"],
+		"combine_level": 0,
 	}
 	_spawn_tile(row, col, data)
 	last_placed_row = row
@@ -624,6 +670,68 @@ func _remove_tile(row: int, col: int) -> void:
 	_invalidate_track()
 
 
+# ── Tile-Kombination ───────────────────────────────────────────────────────────
+
+func _can_combine(shop_data: Dictionary, grid_data: Dictionary) -> bool:
+	if grid_data.get("is_start", false) or grid_data.get("is_dirt", false):
+		return false
+	if shop_data["type"] != grid_data["type"]:
+		return false
+	var series = grid_data.get("series", "")
+	if series == "" or series == "+0":
+		return false
+	if shop_data.get("variant_label", "") != grid_data.get("series", ""):
+		return false
+	return grid_data.get("combine_level", 0) < 4
+
+
+func _do_combine(row: int, col: int, shop_data: Dictionary) -> void:
+	if not Economy.spend(shop_data["price"]):
+		_flash_currency()
+		return
+
+	var grid_data  = grid[row][col]
+	var series     = grid_data.get("series", "")
+	var new_level  = grid_data.get("combine_level", 0) + 1
+	var new_points = grid_data.get("points", 0.0)
+	var new_mult   = grid_data.get("multiplier", 1.0)
+	var new_label  = grid_data.get("variant_label", "")
+
+	if series in POINT_UPGRADE_DATA:
+		var tbl    = POINT_UPGRADE_DATA[series]
+		new_points = tbl["points"][new_level]
+		new_mult   = 1.0
+		new_label  = tbl["labels"][new_level]
+	elif series in MULT_UPGRADE_DATA:
+		var tbl   = MULT_UPGRADE_DATA[series]
+		new_mult  = tbl["mult"][new_level]
+		new_points = 0.0
+		new_label  = tbl["labels"][new_level]
+
+	grid_data["node"].queue_free()
+	grid[row][col] = null
+
+	_spawn_tile(row, col, {
+		"type":          grid_data["type"],
+		"rotation":      grid_data["rotation"],
+		"flipped":       grid_data.get("flipped", false),
+		"direction":     grid_data.get("direction", 1),
+		"points":        new_points,
+		"multiplier":    new_mult,
+		"variant_label": new_label,
+		"series":        series,
+		"combine_level": new_level,
+		"is_start":      false,
+	})
+
+	shop_slots[selected_shop_slot] = null
+	selected_shop_slot = -1
+	_update_currency_label()
+	_update_shop_ui()
+	_check_shop_auto_reroll()
+	_invalidate_track()
+
+
 # ── Rotation ───────────────────────────────────────────────────────────────────
 
 func _rotate_active(degrees: int) -> void:
@@ -636,12 +744,20 @@ func _rotate_active(degrees: int) -> void:
 		return
 	data["rotation"] = (data["rotation"] + degrees) % 360
 	data["node"].rotation_degrees = data["rotation"]
-	var vl = data["node"].get_node_or_null("VarLabel")
-	if vl is Label:
-		var r = deg_to_rad(data["rotation"])
-		vl.rotation_degrees = -data["rotation"]
-		vl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-r)
+	_update_node_labels(data["node"], data["rotation"])
 	_invalidate_track()
+
+
+func _update_node_labels(node: Node2D, rot_deg: int) -> void:
+	var r = deg_to_rad(rot_deg)
+	var vl = node.get_node_or_null("VarLabel")
+	if vl is Label:
+		vl.rotation_degrees = -rot_deg
+		vl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-r)
+	var sl = node.get_node_or_null("StarLabel")
+	if sl is Label:
+		sl.rotation_degrees = -rot_deg
+		sl.position = Vector2(0.0, TILE_SIZE / 2.0 - 14.0).rotated(-r)
 
 
 # ── Kurventyp umschalten (F) ───────────────────────────────────────────────────
@@ -717,6 +833,8 @@ func get_grid_state() -> Array:
 					"points":        d.get("points", 0.0),
 					"multiplier":    d.get("multiplier", 1.0),
 					"variant_label": d.get("variant_label", ""),
+					"series":        d.get("series", ""),
+					"combine_level": d.get("combine_level", 0),
 				})
 		state.append(row_data)
 	return state
@@ -834,76 +952,102 @@ func _auto_complete_track() -> void:
 		})
 
 
-# BFS: findet den kürzesten Weg vom offenen Streckenende zurück zu Start [1,1].
-# Gibt leeres Array zurück wenn kein Pfad gefunden oder Strecke bereits geschlossen.
+# 0-1-BFS: vorhandene Tiles kostenlos verfolgen (Kosten 0),
+# neue Dreck-Tiles setzen kostet 1. Findet die minimale Ergänzung
+# auch bei mehreren Lücken oder halb gebauten Strecken.
 func _build_completion_path() -> Array:
-	# Schritt 1: Strecke verfolgen bis zum offenen Ende
-	var row = 1; var col = 1; var exit_dir = "E"
-	var visited: Dictionary = {}
-	var open_row = -1; var open_col = -1; var open_exit = ""
+	var INF = GRID_ROWS * GRID_COLS + 1
 
-	for _i in range(GRID_ROWS * GRID_COLS * 2):
-		var key = "%d_%d" % [row, col]
-		if key in visited:
-			return []  # Strecke ist bereits geschlossen
-		visited[key] = true
-		var nxt = _ac_step(row, col, exit_dir)
-		if not _ac_in_bounds(nxt):
-			open_row = row; open_col = col; open_exit = exit_dir; break
-		var nxt_data = grid[nxt.x][nxt.y]
-		if nxt_data == null:
-			open_row = row; open_col = col; open_exit = exit_dir; break
-		var nxt_exit = _ac_through(nxt_data, _ac_opp(exit_dir))
-		if nxt_exit == "":
-			open_row = row; open_col = col; open_exit = exit_dir; break
-		row = nxt.x; col = nxt.y; exit_dir = nxt_exit
+	var dist: Dictionary      = {}
+	var came_from: Dictionary = {}
 
-	if open_row < 0:
+	# Bucket-Queue für 0-1-BFS: buckets[k] = alle Zustände mit Kosten k
+	var buckets: Array = []
+	for _i in range(INF + 2):
+		buckets.append([])
+
+	# Startpunkt: [1,1] verlässt nach Ost → erste zu prüfende Zelle ist [1,2]
+	var bfs0 = _ac_step(1, 1, "E")
+	if not _ac_in_bounds(bfs0):
 		return []
 
-	# Schritt 2: BFS vom offenen Ende zurück zu Start (Eintritt von West)
-	var bfs_start = _ac_step(open_row, open_col, open_exit)
-	if not _ac_in_bounds(bfs_start):
-		return []
-	var bfs_entry = _ac_opp(open_exit)
-	var start_key = "%d_%d_%s" % [bfs_start.x, bfs_start.y, bfs_entry]
+	var s0 = "%d_%d_W" % [bfs0.x, bfs0.y]
+	dist[s0]      = 0
+	came_from[s0] = null
+	buckets[0].append({"r": bfs0.x, "c": bfs0.y, "e": "W", "k": 0})
 
-	var queue: Array = [{"r": bfs_start.x, "c": bfs_start.y, "e": bfs_entry}]
-	var came_from: Dictionary = {start_key: null}
 	var goal_key = ""
+	var found    = false
 
-	while not queue.is_empty():
-		var s = queue.pop_front()
-		var sr = s["r"]; var sc = s["c"]; var se = s["e"]
-		var sk = "%d_%d_%s" % [sr, sc, se]
+	for cur_k in range(INF + 1):
+		if found: break
+		while not buckets[cur_k].is_empty():
+			var s  = buckets[cur_k].pop_back()
+			var sr = s["r"]; var sc = s["c"]; var se = s["e"]
+			var sk = "%d_%d_%s" % [sr, sc, se]
 
-		if sr == 1 and sc == 1 and se == "W":
-			goal_key = sk; break
+			if s["k"] > dist.get(sk, INF):
+				continue  # Veralteter Eintrag, überspringen
 
-		if not (sr == 1 and sc == 1):
-			if grid[sr][sc] != null:
+			# Ziel: Start-Tile [1,1] von Westen betreten
+			if sr == 1 and sc == 1 and se == "W":
+				goal_key = sk; found = true; break
+
+			# Start-Tile aus falscher Richtung → Sackgasse
+			if sr == 1 and sc == 1:
 				continue
 
-		for opt in _ac_tile_options(se):
-			var nc = _ac_step(sr, sc, opt["exit"])
-			if not _ac_in_bounds(nc):
+			if not _ac_in_bounds(Vector2i(sr, sc)):
 				continue
-			var nk = "%d_%d_%s" % [nc.x, nc.y, _ac_opp(opt["exit"])]
-			if nk in came_from:
-				continue
-			came_from[nk] = {"prev": sk, "type": opt["type"], "rot": opt["rot"], "dir": opt.get("dir", 1), "r": sr, "c": sc}
-			queue.append({"r": nc.x, "c": nc.y, "e": _ac_opp(opt["exit"])})
+
+			var cell = grid[sr][sc]
+			var is_user_tile = (cell != null
+				and not cell.get("is_dirt", false)
+				and not cell.get("is_start", false))
+
+			if is_user_tile:
+				# Vorhandenes User-Tile kostenlos verfolgen (wenn Richtung stimmt)
+				var exit_dir = _ac_through(cell, se)
+				if exit_dir != "":
+					var nc  = _ac_step(sr, sc, exit_dir)
+					if _ac_in_bounds(nc):
+						var ne  = _ac_opp(exit_dir)
+						var nk  = "%d_%d_%s" % [nc.x, nc.y, ne]
+						if cur_k < dist.get(nk, INF):
+							dist[nk]      = cur_k
+							came_from[nk] = {"prev": sk, "type": null, "r": sr, "c": sc}
+							buckets[cur_k].append({"r": nc.x, "c": nc.y, "e": ne, "k": cur_k})
+			else:
+				# Leere Zelle: Dreck-Tile setzen (Kosten +1)
+				var next_k = cur_k + 1
+				if next_k > INF:
+					continue
+				for opt in _ac_tile_options(se):
+					var nc = _ac_step(sr, sc, opt["exit"])
+					if not _ac_in_bounds(nc):
+						continue
+					var ne = _ac_opp(opt["exit"])
+					var nk = "%d_%d_%s" % [nc.x, nc.y, ne]
+					if next_k < dist.get(nk, INF):
+						dist[nk]      = next_k
+						came_from[nk] = {
+							"prev": sk, "type": opt["type"],
+							"rot":  opt["rot"], "dir": opt.get("dir", 1),
+							"r":    sr, "c": sc
+						}
+						buckets[next_k].append({"r": nc.x, "c": nc.y, "e": ne, "k": next_k})
 
 	if goal_key == "":
 		return []
 
-	# Schritt 3: Pfad rekonstruieren
+	# Pfad rekonstruieren: nur Dreck-Tile-Platzierungen (type != null) sammeln
 	var path: Array = []
 	var cur = goal_key
 	while cur != null and came_from.has(cur):
 		var cf = came_from[cur]
 		if cf == null: break
-		path.append(cf)
+		if cf.get("type", null) != null:
+			path.append(cf)
 		cur = cf["prev"]
 	path.reverse()
 	return path
