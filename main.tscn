@@ -7,21 +7,21 @@
 script = ExtResource("1")
 
 [node name="Grid" type="Node2D" parent="." unique_id=1496547757]
-position = Vector2(100, 60)
+position = Vector2(120, 40)
 
 [node name="TileSelector" type="CanvasLayer" parent="." unique_id=540876559]
 script = ExtResource("2")
 
 [node name="Panel" type="Panel" parent="TileSelector" unique_id=487200298]
-offset_right = 90.0
-offset_bottom = 620.0
+offset_right = 118.0
+offset_bottom = 630.0
 
 [node name="VBox" type="VBoxContainer" parent="TileSelector/Panel" unique_id=228572821]
 layout_mode = 0
-offset_left = 8.0
+offset_left = 6.0
 offset_top = 8.0
-offset_right = 82.0
-offset_bottom = 612.0
+offset_right = 112.0
+offset_bottom = 622.0
 
 [node name="Label" type="Label" parent="TileSelector/Panel/VBox" unique_id=184580224]
 layout_mode = 2
@@ -36,7 +36,8 @@ autowrap_mode = 3
 
 [node name="LabelHint" type="Label" parent="TileSelector/Panel/VBox" unique_id=2034533664]
 layout_mode = 2
-text = "[R] drehen"
+text = "[R] drehen
+[F] wenden"
 horizontal_alignment = 1
 autowrap_mode = 3
 
@@ -47,6 +48,12 @@ size_flags_vertical = 3
 [node name="Separator3" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=1203159159]
 layout_mode = 2
 
+[node name="BtnPruefen" type="Button" parent="TileSelector/Panel/VBox" unique_id=3847291045]
+layout_mode = 2
+text = "🔍 Prüfen &
+vervollständigen"
+
 [node name="BtnFahren" type="Button" parent="TileSelector/Panel/VBox" unique_id=13105268]
 layout_mode = 2
+disabled = true
 text = "▶ Fahren!"

@@ -7,6 +7,7 @@ extends CanvasLayer
 
 func _ready() -> void:
 	$Panel/VBox/BtnFahren.pressed.connect(main._on_fahren_pressed)
+	$Panel/VBox/BtnPruefen.pressed.connect(main._on_pruefen_pressed)
 
 
 func deselect() -> void:
@@ -15,3 +16,7 @@ func deselect() -> void:
 
 func set_status(text: String) -> void:
 	label_selected.text = text
+
+
+func set_fahren_enabled(enabled: bool) -> void:
+	$Panel/VBox/BtnFahren.disabled = not enabled

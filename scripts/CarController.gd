@@ -54,13 +54,6 @@ func _process(delta: float) -> void:
 
 
 # ── Verbindungs-Logik ──────────────────────────────────────────────────────────
-# Basis-Verbindungen VOR Rotation:
-# straight (0°): offen nach E und W
-# curve    (0°, flip=false): offen nach N und E  → Kurve dreht von N nach E
-# curve    (0°, flip=true):  offen nach N und W  → Kurve dreht von N nach W
-#
-# Rotation dreht im Uhrzeigersinn: N→E→S→W→N
-# D.h. bei 90°: was vorher N war ist jetzt E, was E war ist S usw.
 
 func _get_connections(data) -> Dictionary:
 	if typeof(data) != TYPE_DICTIONARY:
@@ -83,16 +76,13 @@ func _get_connections(data) -> Dictionary:
 		return {}
 
 	# Rotation im Uhrzeigersinn: 90° CW dreht N→E, E→S, S→W, W→N
-	# Also: neues_N = altes_W, neues_E = altes_N, neues_S = altes_E, neues_W = altes_S
 	var steps = (data["rotation"] / 90) % 4
 	var rn = bn; var re = be; var rs = bs; var rw = bw
 	for _i in range(steps):
 		var tmp_n = rw; var tmp_e = rn; var tmp_s = re; var tmp_w = rs
 		rn = tmp_n; re = tmp_e; rs = tmp_s; rw = tmp_w
 
-	# direction=-1: Fahrtrichtung umgekehrt → Rotation um 180° für Verbindungen
 	if data.get("direction", 1) == -1:
-		# Nochmal 2 Schritte drehen (= 180°)
 		for _j in range(2):
 			var tmp_n = rw; var tmp_e = rn; var tmp_s = re; var tmp_w = rs
 			rn = tmp_n; re = tmp_e; rs = tmp_s; rw = tmp_w
@@ -129,16 +119,16 @@ func _opposite(dir: String) -> String:
 # ── Wegpunkt-Berechnung ────────────────────────────────────────────────────────
 
 func _build_waypoints(grid_state: Array) -> Array[Vector3]:
-	# Startpunkt: das Start-Tile (horizontal Gerade) das World3D immer setzt
-	# Position wird aus grid_state gesucht: Tile mit meta "is_start" = true
-	# Fallback: erstes Tile mit E-Verbindung das einen gültigen Nachbarn hat
+	var grid_rows = grid_state.size()
+	var grid_cols = grid_state[0].size() if grid_rows > 0 else 0
+
 	var start_row = -1
 	var start_col = -1
 	var exit_dir  = "E"
 
-	# Start-Tile suchen (von World3D als {"type":"straight","rotation":0,"flipped":false,"is_start":true} gesetzt)
-	for row in range(4):
-		for col in range(4):
+	# Start-Tile suchen
+	for row in range(grid_rows):
+		for col in range(grid_cols):
 			var d = grid_state[row][col]
 			if typeof(d) == TYPE_DICTIONARY and d.get("is_start", false):
 				start_row = row
@@ -148,10 +138,10 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		if start_row >= 0:
 			break
 
-	# Fallback falls kein Start-Tile gefunden
+	# Fallback: erstes Tile das einen gültigen Nachbarn hat
 	if start_row < 0:
-		for row in range(4):
-			for col in range(4):
+		for row in range(grid_rows):
+			for col in range(grid_cols):
 				var d = grid_state[row][col]
 				if typeof(d) != TYPE_DICTIONARY:
 					continue
@@ -160,7 +150,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 					if not conns.get(dir, false):
 						continue
 					var nxt = _step(row, col, dir)
-					if nxt.x < 0 or nxt.x >= 4 or nxt.y < 0 or nxt.y >= 4:
+					if nxt.x < 0 or nxt.x >= grid_rows or nxt.y < 0 or nxt.y >= grid_cols:
 						continue
 					if typeof(grid_state[nxt.x][nxt.y]) != TYPE_DICTIONARY:
 						continue
@@ -174,20 +164,14 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	if start_row < 0:
 		return []
 
-	# Route verfolgen (max 32 Schritte = mehr als genug für 4x4)
+	# Route verfolgen – max Schritte = alle Tiles × 2, genug für jeden geschlossenen Kreis
+	var max_steps = grid_rows * grid_cols * 2
 	var visited: Dictionary = {}
 	var route: Array = []
 	var row = start_row
 	var col = start_col
 
-	# Auto direkt auf Mitte des Start-Tiles setzen
-	var start_center = Vector3(
-		start_col * TILE_SIZE + TILE_SIZE / 2.0,
-		0.05,
-		start_row * TILE_SIZE + TILE_SIZE / 2.0
-	)
-
-	for _i in range(32):
+	for _i in range(max_steps):
 		var key = "%d_%d" % [row, col]
 		if key in visited:
 			break
@@ -195,7 +179,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		route.append({"row": row, "col": col, "data": grid_state[row][col], "exit": exit_dir})
 
 		var next = _step(row, col, exit_dir)
-		if next.x < 0 or next.x >= 4 or next.y < 0 or next.y >= 4:
+		if next.x < 0 or next.x >= grid_rows or next.y < 0 or next.y >= grid_cols:
 			break
 		var next_data = grid_state[next.x][next.y]
 		if typeof(next_data) != TYPE_DICTIONARY:
@@ -230,11 +214,9 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 	var half = TILE_SIZE / 2.0
 	var type    = data["type"]
 	var rot     = data["rotation"]
-	var flipped = data["flipped"]
+	var flipped = data.get("flipped", false)
 
 	if type == "straight":
-		# Vom Tile-Mittelpunkt zum Ausgang fahren
-		# (kein Eingangs-Wegpunkt - verhindert dass Auto hinter Start spawnt)
 		wps.append(center)
 		wps.append(center + _dir_to_vec(exit_dir) * half)
 
@@ -253,7 +235,6 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 			_:
 				cx =  half; cz =  half; a_from = PI;        a_to = PI * 1.5
 
-		# curve_alt: Auto fährt andersherum durch den Bogen
 		if type == "curve_alt":
 			var tmp = a_from; a_from = a_to; a_to = tmp
 
@@ -266,8 +247,6 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 				0.05,
 				center.z + cz + sin(angle) * half
 			))
-
-
 
 	return wps
 

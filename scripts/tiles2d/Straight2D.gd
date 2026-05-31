@@ -1,7 +1,7 @@
 extends Node2D
 
-const TILE_SIZE  = 120.0
-const TRACK_W    = 50.0
+const TILE_SIZE  = 100.0
+const TRACK_W    = 42.0
 const ROAD_COL   = Color(0.25, 0.25, 0.28)
 const ASPH_COL   = Color(0.55, 0.55, 0.58)
 const LINE_COL   = Color(0.95, 0.85, 0.2, 0.9)
