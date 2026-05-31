@@ -1,9 +1,59 @@
 extends Node3D
 
 const TILE_SIZE = 1.2
+const ROAD_Y    = 0.01
 
 const SCENE_STRAIGHT = "res://scenes/tiles3d/Straight3D.tscn"
 const SCENE_CURVE    = "res://scenes/tiles3d/Curve3D.tscn"
+
+
+func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
+	var road_w = TILE_SIZE * 0.50
+	var kerb_w = TILE_SIZE * 0.07
+	var peak_h = 0.35
+	var segs   = 6
+	var ramp_col = Color(0.95, 0.55, 0.08)
+
+	for i in range(segs):
+		var t = (float(i) + 0.5) / segs
+		var h = peak_h * (t if is_start else (1.0 - t))
+		var x = -TILE_SIZE / 2.0 + TILE_SIZE * t
+		var seg_len = TILE_SIZE / segs + 0.01
+
+		# Fahrbahn-Segment bei dieser Höhe
+		node.add_child(_box(
+			Vector3(seg_len, 0.02, road_w),
+			Color(0.20, 0.20, 0.22),
+			Vector3(x, ROAD_Y + h, 0)
+		))
+		# Randsteine
+		for s in [-1, 1]:
+			node.add_child(_box(
+				Vector3(seg_len, 0.03, kerb_w),
+				Color(0.85, 0.82, 0.75),
+				Vector3(x, ROAD_Y + h + 0.01, s * (road_w / 2.0 + kerb_w / 2.0))
+			))
+
+	# Orange Markierung am höchsten Punkt (Absprung/Landung)
+	var peak_x = (TILE_SIZE / 2.0 - TILE_SIZE / segs) * (1.0 if is_start else -1.0)
+	node.add_child(_box(
+		Vector3(TILE_SIZE / segs, 0.015, road_w * 0.85),
+		ramp_col,
+		Vector3(peak_x, ROAD_Y + peak_h + 0.012, 0)
+	))
+
+
+func _box(size: Vector3, color: Color, pos: Vector3) -> MeshInstance3D:
+	var mi  = MeshInstance3D.new()
+	var box = BoxMesh.new()
+	box.size = size
+	mi.mesh  = box
+	var mat  = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness    = 0.85
+	mi.material_override = mat
+	mi.position = pos
+	return mi
 
 
 func _apply_dirt_material(node: Node) -> void:
@@ -36,6 +86,18 @@ func generate(grid_state: Array) -> void:
 				continue
 
 			# curve_alt hat dieselbe 3D-Form wie curve
+			# Rampe: programmatisch generiert, keine Szene
+			if d["type"] == "ramp_start" or d["type"] == "ramp_end":
+				var ramp_node = Node3D.new()
+				ramp_node.position = Vector3(
+					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
+					row * TILE_SIZE + TILE_SIZE / 2.0
+				)
+				ramp_node.rotation_degrees.y = -d["rotation"]
+				_build_ramp_mesh(ramp_node, d["type"] == "ramp_start")
+				add_child(ramp_node)
+				continue
+
 			var scene_path = SCENE_STRAIGHT if d["type"] == "straight" else SCENE_CURVE
 			var scene = load(scene_path)
 			if scene == null:

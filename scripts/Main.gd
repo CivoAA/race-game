@@ -21,6 +21,7 @@ const TILE_VARIANTS = [
 
 const SHOP_SLOT_COUNT = 5
 const SELL_VALUE      = 1
+const RAMP_PRICE      = 6   # Preis für ein Rampen-Paar
 
 # Upgrade-Tabellen: points/multiplier pro combine_level (0–4)
 const POINT_UPGRADE_DATA = {
@@ -54,6 +55,7 @@ var _grid_highlight: Node2D = null
 var shop_slots:         Array = []   # Array of {type,points,multiplier,price,variant_label} or null
 var selected_shop_slot: int   = -1
 var sell_mode:          bool  = false
+var ramp_preview_rot:   int   = 0     # Aktuelle Richtung für das nächste Rampen-Paar
 
 # UI nodes (created programmatically)
 var _currency_label: Label = null
@@ -213,6 +215,9 @@ func _setup_shop_ui() -> void:
 
 
 func _random_shop_item() -> Dictionary:
+	if randf() < 0.18:  # ~18 % Chance auf Rampe
+		return {"type": "ramp", "points": 0.0, "multiplier": 1.0,
+				"price": RAMP_PRICE, "variant_label": ""}
 	var type    = SHOP_TYPES[randi() % SHOP_TYPES.size()]
 	var variant = TILE_VARIANTS[randi() % TILE_VARIANTS.size()]
 	return {
@@ -244,12 +249,16 @@ func _update_shop_ui() -> void:
 		if slot == null:
 			lbl.text = "—"
 		else:
-			var icon = ""
-			match slot["type"]:
-				"straight":  icon = "━━"
-				"curve":     icon = "╰"
-				"curve_alt": icon = "╯"
-			lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
+			if slot["type"] == "ramp":
+				var dirs = ["→", "↓", "←", "↑"]
+				lbl.text = "⛰ %s\nRampe\n%d💰" % [dirs[ramp_preview_rot / 90], slot["price"]]
+			else:
+				var icon = ""
+				match slot["type"]:
+					"straight":  icon = "━━"
+					"curve":     icon = "╰"
+					"curve_alt": icon = "╯"
+				lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
 
 		var style = StyleBoxFlat.new()
 		style.set_corner_radius_all(3)
@@ -358,6 +367,17 @@ func _flash_currency() -> void:
 func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	if data.get("is_dirt", false):
 		var node = _create_dirt_node(data)
+		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
+		node.rotation_degrees = data["rotation"]
+		node.name = "Tile_%d_%d" % [row, col]
+		grid_node.add_child(node)
+		data["node"] = node
+		grid[row][col] = data
+		return
+
+	# Rampen-Tiles: programmatisch gezeichnet, keine Szene
+	if data["type"] in ["ramp_start", "ramp_end"]:
+		var node = _create_ramp_node(data)
 		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
 		node.rotation_degrees = data["rotation"]
 		node.name = "Tile_%d_%d" % [row, col]
@@ -511,6 +531,84 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 	return node
 
 
+# Rampen-Tile-Node (programmatisch, top-down Ansicht)
+# rot=0 Basislage: Eingang von links (W), Ausgang nach rechts (E).
+# Die Node-Rotation dreht das visuelle in die richtige Weltrichtung.
+func _create_ramp_node(data: Dictionary) -> Node2D:
+	var node      = Node2D.new()
+	var half      = TILE_SIZE / 2.0
+	var pw        = 42.0
+	var is_start  = data["type"] == "ramp_start"
+	var rot       = data.get("rotation", 0)
+	var rot_rad   = deg_to_rad(rot)
+
+	var road_col  = Color(0.25, 0.25, 0.28)
+	var asph_col  = Color(0.55, 0.55, 0.58)
+	var ramp_col  = Color(0.95, 0.55, 0.08)   # Orange für Rampen-Bereich
+
+	# Äußerer Rahmen
+	var outer = ColorRect.new()
+	outer.size     = Vector2(TILE_SIZE, pw + 6)
+	outer.position = Vector2(-half, -(pw + 6) / 2.0)
+	outer.color    = road_col
+	node.add_child(outer)
+
+	if is_start:
+		# Linke Hälfte: normaler Asphalt (Einfahrt)
+		var asp = ColorRect.new()
+		asp.size     = Vector2(half, pw)
+		asp.position = Vector2(-half, -pw / 2.0)
+		asp.color    = asph_col
+		node.add_child(asp)
+		# Rechte Hälfte: oranger Rampenbereich (Absprung)
+		var ramp = ColorRect.new()
+		ramp.size     = Vector2(half, pw)
+		ramp.position = Vector2(0.0, -pw / 2.0)
+		ramp.color    = ramp_col
+		node.add_child(ramp)
+		# Dreieck-Pfeil am Absprungpunkt
+		var tri = Polygon2D.new()
+		tri.polygon = PackedVector2Array([
+			Vector2(half - 3, 0), Vector2(half - 17, -13), Vector2(half - 17, 13)
+		])
+		tri.color = Color(1, 1, 1, 0.95)
+		node.add_child(tri)
+	else:
+		# Linke Hälfte: oranger Bereich (Landung)
+		var ramp = ColorRect.new()
+		ramp.size     = Vector2(half, pw)
+		ramp.position = Vector2(-half, -pw / 2.0)
+		ramp.color    = ramp_col
+		node.add_child(ramp)
+		# Rechte Hälfte: normaler Asphalt (Ausfahrt)
+		var asp = ColorRect.new()
+		asp.size     = Vector2(half, pw)
+		asp.position = Vector2(0.0, -pw / 2.0)
+		asp.color    = asph_col
+		node.add_child(asp)
+		# Dreieck-Pfeil am Landepunkt
+		var tri = Polygon2D.new()
+		tri.polygon = PackedVector2Array([
+			Vector2(-half + 3, 0), Vector2(-half + 17, -13), Vector2(-half + 17, 13)
+		])
+		tri.color = Color(1, 1, 1, 0.95)
+		node.add_child(tri)
+
+	# Etikett (gegen Rotation kompensiert)
+	var lbl = Label.new()
+	lbl.name             = "VarLabel"
+	lbl.text             = "⛰↑" if is_start else "⛰↓"
+	lbl.position         = Vector2(-half + 2, -half + 2).rotated(-rot_rad)
+	lbl.rotation_degrees = -rot
+	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_constant_override("outline_size", 2)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	node.add_child(lbl)
+
+	return node
+
+
 # ── Input ──────────────────────────────────────────────────────────────────────
 
 func _input(event: InputEvent) -> void:
@@ -531,10 +629,16 @@ func _input(event: InputEvent) -> void:
 				tile_selector.deselect()
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		_rotate_active(90)
+		# Wenn eine Rampe im Shop ausgewählt ist: Richtung der Rampe drehen
+		if selected_shop_slot >= 0 and shop_slots[selected_shop_slot] != null \
+				and shop_slots[selected_shop_slot]["type"] == "ramp":
+			ramp_preview_rot = (ramp_preview_rot + 90) % 360
+			_update_shop_ui()
+		else:
+			_rotate_active(90)
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
-		_flip_curve_active()
+		_flip_active()
 
 
 func _handle_grid_left_click(row: int, col: int) -> void:
@@ -554,6 +658,27 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 			cell_data["node"].queue_free()
 			grid[row][col] = null
 			_move_selected_tile_to(row, col)
+		return
+
+	# Rampen-Tiles: verkaufen oder ramp_start auswählen (für R-Drehen)
+	if cell_data != null and cell_data.get("type", "") in ["ramp_start", "ramp_end"]:
+		if sell_mode:
+			_sell_grid_tile(row, col)
+			return
+		# Bei ramp_end → zum ramp_start-Partner wechseln
+		var target_r = row; var target_c = col
+		if cell_data.get("type", "") == "ramp_end":
+			target_r = cell_data.get("ramp_partner_row", row)
+			target_c = cell_data.get("ramp_partner_col", col)
+		if selected_grid_row == target_r and selected_grid_col == target_c:
+			selected_grid_row = -1; selected_grid_col = -1
+			_update_grid_highlight(); tile_selector.deselect()
+		else:
+			selected_shop_slot = -1; sell_mode = false
+			_update_shop_ui(); _update_sell_panel_style()
+			selected_grid_row = target_r; selected_grid_col = target_c
+			_update_grid_highlight()
+			tile_selector.set_status("Rampe  [R] drehen")
 		return
 
 	# Kombinations-Check: Shop-Tile auf passendes Grid-Tile → Upgrade
@@ -579,7 +704,11 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 	if selected_grid_row >= 0:
 		_move_selected_tile_to(row, col)
 	elif selected_shop_slot >= 0:
-		_place_shop_tile(row, col)
+		var slot = shop_slots[selected_shop_slot]
+		if slot != null and slot["type"] == "ramp":
+			_place_ramp(row, col)
+		else:
+			_place_shop_tile(row, col)
 
 
 func _select_grid_tile(row: int, col: int) -> void:
@@ -603,6 +732,47 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		selected_grid_row = -1
 		selected_grid_col = -1
 		_update_grid_highlight()
+		return
+	# Rampen-Paar verschieben: beide Tiles zusammen an neue Position
+	if data.get("type", "") == "ramp_start":
+		var rot     = data["rotation"]
+		var new_end = _ramp_end_pos(new_row, new_col, rot)
+		var end_ok  = _ac_in_bounds(new_end) and (
+			grid[new_end.x][new_end.y] == null or
+			grid[new_end.x][new_end.y].get("type", "") == "ramp_end"
+		)
+		if not end_ok:
+			tile_selector.set_status("Kein Platz für Rampe")
+			selected_grid_row = -1; selected_grid_col = -1
+			_update_grid_highlight(); tile_selector.deselect()
+			return
+		# Altes Paar entfernen
+		var old_pr = data.get("ramp_partner_row", -1)
+		var old_pc = data.get("ramp_partner_col", -1)
+		if old_pr >= 0 and old_pc >= 0 and grid[old_pr][old_pc] != null:
+			grid[old_pr][old_pc]["node"].queue_free()
+			grid[old_pr][old_pc] = null
+		data["node"].queue_free()
+		grid[old_row][old_col] = null
+		# Neues Paar platzieren
+		_spawn_tile(new_row, new_col, {
+			"type": "ramp_start", "rotation": rot, "flipped": false,
+			"direction": 1, "points": 0.0, "multiplier": 1.0,
+			"variant_label": "", "series": "", "combine_level": 0,
+			"is_start": false, "is_dirt": false,
+			"ramp_partner_row": new_end.x, "ramp_partner_col": new_end.y,
+		})
+		_spawn_tile(new_end.x, new_end.y, {
+			"type": "ramp_end", "rotation": rot, "flipped": false,
+			"direction": 1, "points": 0.0, "multiplier": 1.0,
+			"variant_label": "", "series": "", "combine_level": 0,
+			"is_start": false, "is_dirt": false,
+			"ramp_partner_row": new_row, "ramp_partner_col": new_col,
+		})
+		last_placed_row = new_row; last_placed_col = new_col
+		selected_grid_row = -1; selected_grid_col = -1
+		_update_grid_highlight(); tile_selector.deselect()
+		_invalidate_track()
 		return
 
 	var move_data = {
@@ -662,12 +832,66 @@ func _remove_tile(row: int, col: int) -> void:
 	if grid[row][col] != null:
 		if grid[row][col].get("is_start", false) or grid[row][col].get("is_dirt", false):
 			return
+		# Rampen-Paar: Partner mitlöschen
+		var rtype = grid[row][col].get("type", "")
+		if rtype == "ramp_start" or rtype == "ramp_end":
+			var pr = grid[row][col].get("ramp_partner_row", -1)
+			var pc = grid[row][col].get("ramp_partner_col", -1)
+			if pr >= 0 and pc >= 0 and grid[pr][pc] != null:
+				grid[pr][pc]["node"].queue_free()
+				grid[pr][pc] = null
 		grid[row][col]["node"].queue_free()
 		grid[row][col] = null
 		if last_placed_row == row and last_placed_col == col:
 			last_placed_row = -1
 			last_placed_col = -1
 	_invalidate_track()
+
+
+# ── Rampe ──────────────────────────────────────────────────────────────────────
+
+func _ramp_end_pos(row: int, col: int, rot: int) -> Vector2i:
+	match rot:
+		0:   return Vector2i(row,     col + 2)
+		90:  return Vector2i(row + 2, col    )
+		180: return Vector2i(row,     col - 2)
+		270: return Vector2i(row - 2, col    )
+	return Vector2i(-1, -1)
+
+
+func _place_ramp(row: int, col: int) -> void:
+	# Versucht alle 4 Rotationen beginnend mit ramp_preview_rot
+	var rot = ramp_preview_rot
+	for _attempt in range(4):
+		var end = _ramp_end_pos(row, col, rot)
+		if _ac_in_bounds(end) and grid[end.x][end.y] == null:
+			if not Economy.spend(RAMP_PRICE):
+				_flash_currency()
+				return
+			_spawn_tile(row, col, {
+				"type": "ramp_start", "rotation": rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": end.x, "ramp_partner_col": end.y,
+			})
+			_spawn_tile(end.x, end.y, {
+				"type": "ramp_end", "rotation": rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": row, "ramp_partner_col": col,
+			})
+			ramp_preview_rot = rot
+			shop_slots[selected_shop_slot] = null
+			selected_shop_slot = -1
+			_update_currency_label()
+			_update_shop_ui()
+			_check_shop_auto_reroll()
+			_invalidate_track()
+			return
+		rot = (rot + 90) % 360
+	tile_selector.set_status("Kein Platz für Rampe (2 freie Felder in einer Richtung nötig)")
 
 
 # ── Tile-Kombination ───────────────────────────────────────────────────────────
@@ -740,12 +964,62 @@ func _rotate_active(degrees: int) -> void:
 	if row < 0:
 		return
 	var data = grid[row][col]
-	if data == null:
+	if data == null or data.get("is_start", false):
+		return
+	# Rampen-Rotation: End-Tile neu platzieren
+	if data.get("type", "") == "ramp_start":
+		_rotate_ramp(row, col, degrees)
 		return
 	data["rotation"] = (data["rotation"] + degrees) % 360
 	data["node"].rotation_degrees = data["rotation"]
 	_update_node_labels(data["node"], data["rotation"])
 	_invalidate_track()
+
+
+# Dreht ein Rampen-Paar: End-Tile wird entfernt und in neuer Richtung neu gesetzt.
+func _rotate_ramp(row: int, col: int, degrees: int) -> void:
+	var data    = grid[row][col]
+	var new_rot = (data["rotation"] + degrees) % 360
+	# Alle 4 Richtungen durchprobieren ab new_rot
+	for _attempt in range(4):
+		var new_end = _ramp_end_pos(row, col, new_rot)
+		var end_free = _ac_in_bounds(new_end) and (
+			grid[new_end.x][new_end.y] == null or
+			grid[new_end.x][new_end.y].get("type", "") == "ramp_end"
+		)
+		if end_free:
+			# Altes End-Tile entfernen
+			var old_pr = data.get("ramp_partner_row", -1)
+			var old_pc = data.get("ramp_partner_col", -1)
+			if old_pr >= 0 and old_pc >= 0 and grid[old_pr][old_pc] != null:
+				grid[old_pr][old_pc]["node"].queue_free()
+				grid[old_pr][old_pc] = null
+			# Ramp-Start neu spawnen (neue Rotation)
+			data["node"].queue_free()
+			grid[row][col] = null
+			_spawn_tile(row, col, {
+				"type": "ramp_start", "rotation": new_rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": new_end.x, "ramp_partner_col": new_end.y,
+			})
+			# Neues End-Tile spawnen
+			_spawn_tile(new_end.x, new_end.y, {
+				"type": "ramp_end", "rotation": new_rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": row, "ramp_partner_col": col,
+			})
+			# Selektion beibehalten
+			selected_grid_row = row; selected_grid_col = col
+			_update_grid_highlight()
+			tile_selector.set_status("Rampe  [R] drehen")
+			_invalidate_track()
+			return
+		new_rot = (new_rot + 90) % 360
+	tile_selector.set_status("Keine gültige Position für Rampen-Drehung")
 
 
 func _update_node_labels(node: Node2D, rot_deg: int) -> void:
@@ -760,9 +1034,9 @@ func _update_node_labels(node: Node2D, rot_deg: int) -> void:
 		sl.position = Vector2(0.0, TILE_SIZE / 2.0 - 14.0).rotated(-r)
 
 
-# ── Kurventyp umschalten (F) ───────────────────────────────────────────────────
+# ── F-Taste: Kurve flippen / Gerade umkehren / Rampe tauschen ─────────────────
 
-func _flip_curve_active() -> void:
+func _flip_active() -> void:
 	var row = selected_grid_row if selected_grid_row >= 0 else last_placed_row
 	var col = selected_grid_col if selected_grid_row >= 0 else last_placed_col
 	if row < 0:
@@ -771,35 +1045,96 @@ func _flip_curve_active() -> void:
 	if data == null or data.get("is_start", false):
 		return
 	var t = data["type"]
-	if t != "curve" and t != "curve_alt":
+
+	# Kurventyp wechseln
+	if t == "curve" or t == "curve_alt":
+		var new_type = "curve_alt" if t == "curve" else "curve"
+		var new_data = {
+			"type":          new_type,
+			"rotation":      data["rotation"],
+			"flipped":       data.get("flipped", false),
+			"direction":     -1 if new_type == "curve_alt" else 1,
+			"points":        data.get("points", 0.0),
+			"multiplier":    data.get("multiplier", 1.0),
+			"variant_label": data.get("variant_label", ""),
+			"is_start":      false,
+		}
+		data["node"].queue_free()
+		grid[row][col] = null
+		_spawn_tile(row, col, new_data)
+		if selected_grid_row >= 0:
+			tile_selector.set_status(_type_display_name(new_type))
 		return
 
-	var new_type = "curve_alt" if t == "curve" else "curve"
-	var new_data = {
-		"type":          new_type,
-		"rotation":      data["rotation"],
-		"flipped":       data.get("flipped", false),
-		"direction":     -1 if new_type == "curve_alt" else 1,
-		"points":        data.get("points", 0.0),
-		"multiplier":    data.get("multiplier", 1.0),
-		"variant_label": data.get("variant_label", ""),
-		"is_start":      false,
-	}
-	data["node"].queue_free()
-	grid[row][col] = null
-	_spawn_tile(row, col, new_data)
+	# Gerade: Fahrtrichtung umkehren
+	if t == "straight":
+		var new_dir = -1 if data.get("direction", 1) == 1 else 1
+		data["node"].queue_free()
+		grid[row][col] = null
+		_spawn_tile(row, col, {
+			"type":          "straight",
+			"rotation":      data["rotation"],
+			"flipped":       data.get("flipped", false),
+			"direction":     new_dir,
+			"points":        data.get("points", 0.0),
+			"multiplier":    data.get("multiplier", 1.0),
+			"variant_label": data.get("variant_label", ""),
+			"series":        data.get("series", ""),
+			"combine_level": data.get("combine_level", 0),
+			"is_start":      false,
+		})
+		_invalidate_track()
+		return
 
-	if selected_grid_row >= 0:
-		tile_selector.set_status(_type_display_name(new_type))
+	# Rampe: Start und Ende tauschen
+	if t == "ramp_start" or t == "ramp_end":
+		var s_row: int; var s_col: int; var e_row: int; var e_col: int
+		if t == "ramp_start":
+			s_row = row; s_col = col
+			e_row = data.get("ramp_partner_row", -1)
+			e_col = data.get("ramp_partner_col", -1)
+		else:
+			e_row = row; e_col = col
+			s_row = data.get("ramp_partner_row", -1)
+			s_col = data.get("ramp_partner_col", -1)
+		if s_row < 0 or e_row < 0:
+			return
+		var rot = grid[s_row][s_col]["rotation"]
+		grid[s_row][s_col]["node"].queue_free()
+		grid[s_row][s_col] = null
+		if grid[e_row][e_col] != null:
+			grid[e_row][e_col]["node"].queue_free()
+			grid[e_row][e_col] = null
+		# Tauschen: altes Ende wird Start, altes Start wird Ende
+		_spawn_tile(e_row, e_col, {
+			"type": "ramp_start", "rotation": rot, "flipped": false,
+			"direction": 1, "points": 0.0, "multiplier": 1.0,
+			"variant_label": "", "series": "", "combine_level": 0,
+			"is_start": false, "is_dirt": false,
+			"ramp_partner_row": s_row, "ramp_partner_col": s_col,
+		})
+		_spawn_tile(s_row, s_col, {
+			"type": "ramp_end", "rotation": rot, "flipped": false,
+			"direction": 1, "points": 0.0, "multiplier": 1.0,
+			"variant_label": "", "series": "", "combine_level": 0,
+			"is_start": false, "is_dirt": false,
+			"ramp_partner_row": e_row, "ramp_partner_col": e_col,
+		})
+		selected_grid_row = e_row; selected_grid_col = e_col
+		_update_grid_highlight()
+		tile_selector.set_status("Rampe  [R] drehen  [F] tauschen")
+		_invalidate_track()
 
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
 
 func _type_display_name(typ: String) -> String:
 	match typ:
-		"straight":  return "Gerade"
-		"curve":     return "Kurve"
-		"curve_alt": return "Kurve 2"
+		"straight":   return "Gerade"
+		"curve":      return "Kurve"
+		"curve_alt":  return "Kurve 2"
+		"ramp_start": return "Rampe  [R] drehen"
+		"ramp_end":   return "Rampe (Ende)"
 	return typ
 
 func _grid_to_world(row: int, col: int) -> Vector2:
@@ -833,8 +1168,10 @@ func get_grid_state() -> Array:
 					"points":        d.get("points", 0.0),
 					"multiplier":    d.get("multiplier", 1.0),
 					"variant_label": d.get("variant_label", ""),
-					"series":        d.get("series", ""),
-					"combine_level": d.get("combine_level", 0),
+					"series":           d.get("series", ""),
+					"combine_level":    d.get("combine_level", 0),
+					"ramp_partner_row": d.get("ramp_partner_row", -1),
+					"ramp_partner_col": d.get("ramp_partner_col", -1),
 				})
 		state.append(row_data)
 	return state
@@ -892,6 +1229,9 @@ func _is_track_valid() -> bool:
 			return (row == 1 and col == 1)
 		visited[key] = true
 		var nxt = _ac_step(row, col, exit_dir)
+		# ramp_start: Mittelfeld überspringen → direkt zur ramp_end
+		if grid[row][col] != null and grid[row][col].get("type", "") == "ramp_start":
+			if _ac_in_bounds(nxt): nxt = _ac_step(nxt.x, nxt.y, exit_dir)
 		if not _ac_in_bounds(nxt): return false
 		var nxt_data = grid[nxt.x][nxt.y]
 		if nxt_data == null: return false
@@ -1010,6 +1350,9 @@ func _build_completion_path() -> Array:
 				var exit_dir = _ac_through(cell, se)
 				if exit_dir != "":
 					var nc  = _ac_step(sr, sc, exit_dir)
+					# ramp_start: Mittelfeld überspringen
+					if cell.get("type", "") == "ramp_start" and _ac_in_bounds(nc):
+						nc = _ac_step(nc.x, nc.y, exit_dir)
 					if _ac_in_bounds(nc):
 						var ne  = _ac_opp(exit_dir)
 						var nk  = "%d_%d_%s" % [nc.x, nc.y, ne]
@@ -1085,7 +1428,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 	var t   = data.get("type", "")
 	var rot = int(data.get("rotation", 0)) % 360
 	var conns: Dictionary
-	if t == "straight":
+	if t == "straight" or t == "ramp_start" or t == "ramp_end":
 		var bn = false; var be = true; var bs = false; var bw = true
 		var steps = (rot / 90) % 4
 		for _i in range(steps):
