@@ -37,7 +37,7 @@ func _draw() -> void:
 
 	var a_mid     = (a_start + a_end) / 2.0
 	var arrow_pos = center + Vector2(cos(a_mid), sin(a_mid)) * radius
-	var tangent   = a_mid - PI / 2.0 * direction
+	var tangent   = a_mid + PI / 2.0 * direction
 	_draw_arrow(arrow_pos, tangent)
 
 
