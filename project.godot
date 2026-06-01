@@ -16,13 +16,14 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="RaceTrackBuilder"
 config/description="2D Top-Down Rennbahn-Baukasten"
-run/main_scene="uid://main"
+run/main_scene="uid://mainmenu"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
 [autoload]
 
 Economy="*res://scripts/Economy.gd"
+PauseMenu="*res://scripts/PauseMenu.gd"
 
 [display]
 
