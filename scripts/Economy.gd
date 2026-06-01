@@ -1,8 +1,7 @@
 extends Node
 ## Zentraler, persistenter Spielzustand: Währung + gekaufte Upgrades.
-## Wird als Autoload "Economy" geladen. Speichert nach user://savegame.json.
+## Wird als Autoload "Economy" geladen. Speichert in Slot-Dateien (user://savegame_slotN.dat).
 
-const SAVE_PATH       = "user://savegame.dat"
 const START_CURRENCY  = 500
 const BASE_SPEED      = 2.5    # Grund-Tempo eines Autos (bewusst langsam; via Upgrades schneller)
 
@@ -78,13 +77,49 @@ const GRID_STEPS = [
 	Vector2i(5, 6),
 ]
 
-var _currency: int             = START_CURRENCY
+var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke (Grid-State ohne Dreck-Tiles)
+var _current_slot:  int        = 0
 
 
 func _ready() -> void:
-	load_game()
+	pass  # Slot wird explizit aus dem Menü gesetzt
+
+
+# ── Slot-Management ────────────────────────────────────────────────────────────
+
+func get_save_path(slot: int) -> String:
+	return "user://savegame_slot%d.dat" % slot
+
+
+func slot_exists(slot: int) -> bool:
+	return FileAccess.file_exists(get_save_path(slot))
+
+
+func get_slot_info(slot: int) -> Dictionary:
+	if not slot_exists(slot):
+		return {}
+	var f = FileAccess.open(get_save_path(slot), FileAccess.READ)
+	if f == null:
+		return {}
+	var txt = f.get_as_text()
+	f.close()
+	var data = str_to_var(txt)
+	if typeof(data) != TYPE_DICTIONARY:
+		return {}
+	return {
+		"currency":  int(data.get("currency", 0)),
+		"timestamp": String(data.get("timestamp", "")),
+	}
+
+
+func set_active_slot(slot: int) -> void:
+	_current_slot = slot
+
+
+func get_active_slot() -> int:
+	return _current_slot
 
 
 # ── Währung ─────────────────────────────────────────────────────────────────────
@@ -274,22 +309,33 @@ func has_track() -> bool:
 
 # var_to_str/str_to_var statt JSON: erhält Typen exakt (z. B. int-Rotationen).
 func save_game() -> void:
-	var f = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	save_game_to_slot(_current_slot)
+
+
+func save_game_to_slot(slot: int) -> void:
+	var f = FileAccess.open(get_save_path(slot), FileAccess.WRITE)
 	if f == null:
-		push_warning("Speichern fehlgeschlagen: " + SAVE_PATH)
+		push_warning("Speichern fehlgeschlagen: " + get_save_path(slot))
 		return
 	f.store_string(var_to_str({
-		"currency": _currency,
-		"upgrades": upgrade_levels,
-		"track":    track,
+		"currency":  _currency,
+		"upgrades":  upgrade_levels,
+		"track":     track,
+		"timestamp": Time.get_datetime_string_from_system(false, true),
 	}))
 	f.close()
 
 
 func load_game() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return   # Defaults bleiben bestehen
-	var f = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	load_game_from_slot(_current_slot)
+
+
+func load_game_from_slot(slot: int) -> void:
+	_current_slot = slot
+	var path = get_save_path(slot)
+	if not FileAccess.file_exists(path):
+		return
+	var f = FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return
 	var txt = f.get_as_text()
@@ -297,15 +343,20 @@ func load_game() -> void:
 	var data = str_to_var(txt)
 	if typeof(data) != TYPE_DICTIONARY:
 		return
-	_currency = int(data.get("currency", START_CURRENCY))
-	var ups = data.get("upgrades", {})
+	_currency      = int(data.get("currency", START_CURRENCY))
+	var ups        = data.get("upgrades", {})
 	upgrade_levels = ups.duplicate() if typeof(ups) == TYPE_DICTIONARY else {}
-	var tr = data.get("track", [])
-	track = tr if typeof(tr) == TYPE_ARRAY else []
+	var tr         = data.get("track", [])
+	track          = tr if typeof(tr) == TYPE_ARRAY else []
+
+
+func reset_slot(slot: int) -> void:
+	_current_slot  = slot
+	_currency      = START_CURRENCY
+	upgrade_levels = {}
+	track          = []
+	save_game_to_slot(slot)
 
 
 func reset() -> void:
-	_currency = START_CURRENCY
-	upgrade_levels = {}
-	track = []
-	save_game()
+	reset_slot(_current_slot)
