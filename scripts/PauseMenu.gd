@@ -1,10 +1,9 @@
-extends Control
+extends CanvasLayer
 
 const SETTINGS_FILE = "user://settings.cfg"
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 
-const C_BG        := Color(0.07, 0.08, 0.12)
 const C_SURFACE   := Color(0.10, 0.115, 0.165)
 const C_SURFACE2  := Color(0.085, 0.095, 0.140)
 const C_ACCENT    := Color(1.00, 0.45, 0.08)
@@ -16,14 +15,9 @@ const C_LINE      := Color(0.14, 0.16, 0.23)
 
 var settings := ConfigFile.new()
 
-var _main_panel:         Control
-var _options_panel:      Control
+var _pause_panel:        Control
+var _settings_panel:     Control
 var _achievements_panel: Control
-var _slot_panel:         Control
-
-var _slot_is_load    := false
-var _slot_title_lbl: Label
-var _slot_btns:      Array[Button] = []
 
 var _lang_option:    OptionButton
 var _master_slider:  HSlider
@@ -38,262 +32,99 @@ var _loading_settings := false
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	layer = 10
+	visible = false
+
 	settings.load(SETTINGS_FILE)
-	_build_background()
-	_main_panel         = _build_main_panel()
-	_options_panel      = _build_options_panel()
-	_achievements_panel = _build_achievements_panel()
-	_slot_panel         = _build_slot_panel()
-	_show_main()
-	_apply_settings()
 
-
-# ── Hintergrund ───────────────────────────────────────────────────────────────
-
-func _build_background() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = C_BG
+	bg.color = Color(0, 0, 0, 0.78)
 	add_child(bg)
 
+	_pause_panel        = _build_pause_panel()
+	_settings_panel     = _build_settings_panel()
+	_achievements_panel = _build_achievements_panel()
 
-# ── Hauptmenü ─────────────────────────────────────────────────────────────────
+	_show_pause()
 
-func _build_main_panel() -> Control:
+
+func _input(event: InputEvent) -> void:
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	var scene := get_tree().current_scene
+	if scene == null or scene.name == "MainMenu":
+		return
+	get_viewport().set_input_as_handled()
+	if visible:
+		_resume()
+	else:
+		_open()
+
+
+# ── Öffnen / Schließen ────────────────────────────────────────────────────────
+
+func _open() -> void:
+	visible = true
+	get_tree().paused = true
+	_show_pause()
+
+
+func _resume() -> void:
+	get_tree().paused = false
+	visible = false
+
+
+# ── Pause-Hauptmenü ───────────────────────────────────────────────────────────
+
+func _build_pause_panel() -> Control:
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(440, 0)
+	vbox.custom_minimum_size = Vector2(400, 0)
 	vbox.add_theme_constant_override("separation", 5)
 	center.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "RACE ROGUE"
+	title.text = "PAUSE"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	title.add_theme_font_size_override("font_size", 46)
+	title.add_theme_font_size_override("font_size", 42)
 	title.add_theme_color_override("font_color", C_ACCENT)
 	vbox.add_child(title)
 
-	var subtitle := Label.new()
-	subtitle.text = "ROGUELIKE RENNSPIEL"
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	subtitle.add_theme_font_size_override("font_size", 11)
-	subtitle.add_theme_color_override("font_color", C_TEXT_DIM)
-	vbox.add_child(subtitle)
-
-	_add_spacer(vbox, 20)
+	_add_spacer(vbox, 14)
 
 	var divider := ColorRect.new()
-	divider.custom_minimum_size = Vector2(440, 1)
+	divider.custom_minimum_size = Vector2(400, 1)
 	divider.color = C_ACCENT
 	vbox.add_child(divider)
 
-	_add_spacer(vbox, 14)
+	_add_spacer(vbox, 12)
 
-	_add_menu_button(vbox, "01", "Neues Spiel",      C_ACCENT,    func(): _show_slot_panel(false))
-	_add_menu_button(vbox, "02", "Spiel laden",      C_ACCENT_MU, func(): _show_slot_panel(true))
-	_add_menu_button(vbox, "03", "Optionen",         C_ACCENT_MU, _show_options)
-	_add_menu_button(vbox, "04", "Errungenschaften", C_ACCENT_MU, _show_achievements)
+	_add_btn(vbox, "01", "Weiterspielen",    C_ACCENT,    _resume)
+	_add_btn(vbox, "02", "Einstellungen",    C_ACCENT_MU, _show_settings)
+	_add_btn(vbox, "03", "Errungenschaften", C_ACCENT_MU, _show_achievements)
 	_add_spacer(vbox, 10)
-	_add_menu_button(vbox, "05", "Beenden",          C_ACCENT_RD, _on_quit)
+	_add_btn(vbox, "04", "Hauptmenü",        C_ACCENT_RD, _go_main_menu)
 
 	return center
 
 
-func _add_menu_button(parent: VBoxContainer, num: String, label: String,
-		accent: Color, cb: Callable) -> Button:
-	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(440, 58)
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-
-	btn.add_theme_stylebox_override("normal",   _btn_style(C_SURFACE,                 accent.darkened(0.4)))
-	btn.add_theme_stylebox_override("hover",    _btn_style(C_SURFACE.lightened(0.05), accent))
-	btn.add_theme_stylebox_override("pressed",  _btn_style(C_SURFACE2,                accent))
-	btn.add_theme_stylebox_override("focus",    _btn_style(C_SURFACE,                 accent.darkened(0.4)))
-	btn.add_theme_stylebox_override("disabled", _btn_style(C_SURFACE2,                accent.darkened(0.6)))
-
-	var hbox := HBoxContainer.new()
-	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_theme_constant_override("separation", 0)
-	btn.add_child(hbox)
-
-	var lpad := Control.new()
-	lpad.custom_minimum_size = Vector2(18, 0)
-	lpad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(lpad)
-
-	var num_lbl := Label.new()
-	num_lbl.text = num
-	num_lbl.custom_minimum_size = Vector2(32, 0)
-	num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	num_lbl.add_theme_font_size_override("font_size", 11)
-	num_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	num_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(num_lbl)
-
-	var text_lbl := Label.new()
-	text_lbl.text = label.to_upper()
-	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	text_lbl.add_theme_font_size_override("font_size", 14)
-	text_lbl.add_theme_color_override("font_color", C_TEXT)
-	text_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(text_lbl)
-
-	var arrow := Label.new()
-	arrow.text = "▶"
-	arrow.custom_minimum_size = Vector2(48, 0)
-	arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	arrow.add_theme_font_size_override("font_size", 11)
-	arrow.add_theme_color_override("font_color", accent)
-	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(arrow)
-
-	btn.pressed.connect(cb)
-	parent.add_child(btn)
-	return btn
+func _go_main_menu() -> void:
+	get_tree().paused = false
+	visible = false
+	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 
 
-# ── Slot-Panel ────────────────────────────────────────────────────────────────
+# ── Einstellungen-Panel ───────────────────────────────────────────────────────
 
-func _build_slot_panel() -> Control:
-	var overlay := _make_overlay()
+func _build_settings_panel() -> Control:
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
-
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(480, 0)
-	panel.add_theme_stylebox_override("panel", _panel_style())
-	center.add_child(panel)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	panel.add_child(vbox)
-
-	_slot_title_lbl = Label.new()
-	_slot_title_lbl.text = "NEUES SPIEL"
-	_slot_title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_slot_title_lbl.add_theme_font_size_override("font_size", 28)
-	_slot_title_lbl.add_theme_color_override("font_color", C_ACCENT)
-	vbox.add_child(_slot_title_lbl)
-
-	_add_hline(vbox)
-	_add_spacer(vbox, 4)
-
-	_slot_btns.clear()
-	for i in 3:
-		var btn := _build_slot_button(i)
-		vbox.add_child(btn)
-		_slot_btns.append(btn)
-
-	_add_spacer(vbox, 8)
-	_add_back_button(vbox, _show_main)
-
-	return overlay
-
-
-func _build_slot_button(slot: int) -> Button:
-	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(424, 62)
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-
-	btn.add_theme_stylebox_override("normal",   _btn_style(C_SURFACE,                 C_ACCENT_MU))
-	btn.add_theme_stylebox_override("hover",    _btn_style(C_SURFACE.lightened(0.05), C_ACCENT))
-	btn.add_theme_stylebox_override("pressed",  _btn_style(C_SURFACE2,                C_ACCENT))
-	btn.add_theme_stylebox_override("focus",    _btn_style(C_SURFACE,                 C_ACCENT_MU))
-	btn.add_theme_stylebox_override("disabled", _btn_style(C_SURFACE2,                C_ACCENT_MU.darkened(0.5)))
-
-	var hbox := HBoxContainer.new()
-	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_theme_constant_override("separation", 0)
-	btn.add_child(hbox)
-
-	var lpad := Control.new()
-	lpad.custom_minimum_size = Vector2(18, 0)
-	lpad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(lpad)
-
-	var num_lbl := Label.new()
-	num_lbl.text = "0%d" % (slot + 1)
-	num_lbl.custom_minimum_size = Vector2(32, 0)
-	num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	num_lbl.add_theme_font_size_override("font_size", 11)
-	num_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	num_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(num_lbl)
-
-	var name_lbl := Label.new()
-	name_lbl.text = "SLOT %d" % (slot + 1)
-	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_lbl.add_theme_font_size_override("font_size", 14)
-	name_lbl.add_theme_color_override("font_color", C_TEXT)
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(name_lbl)
-
-	var info_lbl := Label.new()
-	info_lbl.text = "LEER"
-	info_lbl.name = "InfoLabel"
-	info_lbl.custom_minimum_size = Vector2(110, 0)
-	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	info_lbl.add_theme_font_size_override("font_size", 12)
-	info_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	info_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(info_lbl)
-
-	var arrow := Label.new()
-	arrow.text = "▶"
-	arrow.custom_minimum_size = Vector2(48, 0)
-	arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	arrow.add_theme_font_size_override("font_size", 11)
-	arrow.add_theme_color_override("font_color", C_ACCENT_MU)
-	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(arrow)
-
-	btn.pressed.connect(func(): _on_slot_selected(slot))
-	return btn
-
-
-func _show_slot_panel(is_load: bool) -> void:
-	_slot_is_load = is_load
-	_hide_all()
-	_slot_panel.visible = true
-
-	if is_load:
-		_slot_title_lbl.text = "SPIEL LADEN"
-		for btn in _slot_btns:
-			btn.disabled = true
-	else:
-		_slot_title_lbl.text = "NEUES SPIEL"
-		for btn in _slot_btns:
-			btn.disabled = false
-
-
-func _on_slot_selected(slot: int) -> void:
-	if _slot_is_load:
-		pass
-	else:
-		get_tree().change_scene_to_file("res://main.tscn")
-
-
-# ── Optionen-Panel ────────────────────────────────────────────────────────────
-
-func _build_options_panel() -> Control:
-	var overlay := _make_overlay()
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
+	add_child(center)
 
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(520, 0)
@@ -304,7 +135,7 @@ func _build_options_panel() -> Control:
 	vbox.add_theme_constant_override("separation", 12)
 	panel.add_child(vbox)
 
-	_add_panel_title(vbox, "OPTIONEN")
+	_add_panel_title(vbox, "EINSTELLUNGEN")
 	_add_hline(vbox)
 
 	_add_section_label(vbox, "SPRACHE")
@@ -347,21 +178,20 @@ func _build_options_panel() -> Control:
 	win_row.add_child(_window_option)
 
 	_add_spacer(vbox, 8)
-	_add_back_button(vbox, _show_main)
+	_add_back_button(vbox, _show_pause)
 
-	return overlay
+	return center
 
 
 # ── Errungenschaften-Panel ────────────────────────────────────────────────────
 
 func _build_achievements_panel() -> Control:
-	var overlay := _make_overlay()
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
+	add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(520, 480)
+	panel.custom_minimum_size = Vector2(520, 460)
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 
@@ -440,19 +270,91 @@ func _build_achievements_panel() -> Control:
 			list.add_child(sep)
 
 	_add_spacer(vbox, 4)
-	_add_back_button(vbox, _show_main)
+	_add_back_button(vbox, _show_pause)
 
-	return overlay
+	return center
+
+
+# ── Panel-Wechsel ─────────────────────────────────────────────────────────────
+
+func _hide_all() -> void:
+	_pause_panel.visible        = false
+	_settings_panel.visible     = false
+	_achievements_panel.visible = false
+
+
+func _show_pause() -> void:
+	_hide_all()
+	_pause_panel.visible = true
+
+
+func _show_settings() -> void:
+	_hide_all()
+	_settings_panel.visible = true
+	_sync_settings_ui()
+
+
+func _show_achievements() -> void:
+	_hide_all()
+	_achievements_panel.visible = true
 
 
 # ── UI-Hilfsfunktionen ────────────────────────────────────────────────────────
 
-func _make_overlay() -> ColorRect:
-	var overlay := ColorRect.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.color = Color(0, 0, 0, 0.78)
-	add_child(overlay)
-	return overlay
+func _add_btn(parent: VBoxContainer, num: String, label: String,
+		accent: Color, cb: Callable) -> Button:
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(400, 56)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	btn.add_theme_stylebox_override("normal",  _btn_style(C_SURFACE,                 accent.darkened(0.4)))
+	btn.add_theme_stylebox_override("hover",   _btn_style(C_SURFACE.lightened(0.05), accent))
+	btn.add_theme_stylebox_override("pressed", _btn_style(C_SURFACE2,                accent))
+	btn.add_theme_stylebox_override("focus",   _btn_style(C_SURFACE,                 accent.darkened(0.4)))
+
+	var hbox := HBoxContainer.new()
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_theme_constant_override("separation", 0)
+	btn.add_child(hbox)
+
+	var lpad := Control.new()
+	lpad.custom_minimum_size = Vector2(18, 0)
+	lpad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(lpad)
+
+	var num_lbl := Label.new()
+	num_lbl.text = num
+	num_lbl.custom_minimum_size = Vector2(32, 0)
+	num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	num_lbl.add_theme_font_size_override("font_size", 11)
+	num_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	num_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(num_lbl)
+
+	var text_lbl := Label.new()
+	text_lbl.text = label.to_upper()
+	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	text_lbl.add_theme_font_size_override("font_size", 14)
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(text_lbl)
+
+	var arrow := Label.new()
+	arrow.text = "▶"
+	arrow.custom_minimum_size = Vector2(48, 0)
+	arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	arrow.add_theme_font_size_override("font_size", 11)
+	arrow.add_theme_color_override("font_color", accent)
+	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(arrow)
+
+	btn.pressed.connect(cb)
+	parent.add_child(btn)
+	return btn
 
 
 func _btn_style(bg: Color, border: Color) -> StyleBoxFlat:
@@ -593,40 +495,9 @@ func _add_back_button(parent: VBoxContainer, cb: Callable) -> void:
 	parent.add_child(btn)
 
 
-# ── Panel-Wechsel ─────────────────────────────────────────────────────────────
+# ── Einstellungen Sync ────────────────────────────────────────────────────────
 
-func _hide_all() -> void:
-	_main_panel.visible         = false
-	_options_panel.visible      = false
-	_achievements_panel.visible = false
-	_slot_panel.visible         = false
-
-
-func _show_main() -> void:
-	_hide_all()
-	_main_panel.visible = true
-
-
-func _show_options() -> void:
-	_hide_all()
-	_options_panel.visible = true
-	_sync_options_ui()
-
-
-func _show_achievements() -> void:
-	_hide_all()
-	_achievements_panel.visible = true
-
-
-# ── Callbacks ─────────────────────────────────────────────────────────────────
-
-func _on_quit() -> void:
-	get_tree().quit()
-
-
-# ── Optionen: UI-Sync ─────────────────────────────────────────────────────────
-
-func _sync_options_ui() -> void:
+func _sync_settings_ui() -> void:
 	_loading_settings = true
 
 	var lang := settings.get_value("options", "language", "de") as String
@@ -681,23 +552,6 @@ func _on_window_mode_changed(index: int) -> void:
 	settings.set_value("options", "window_mode", index)
 	settings.save(SETTINGS_FILE)
 	_apply_window_mode(index)
-
-
-# ── Einstellungen anwenden ────────────────────────────────────────────────────
-
-func _apply_settings() -> void:
-	AudioServer.set_bus_volume_db(0,
-			_vol_db(settings.get_value("options", "master_volume", 100.0)))
-	var mi := AudioServer.get_bus_index("Music")
-	if mi >= 0:
-		AudioServer.set_bus_volume_db(mi,
-				_vol_db(settings.get_value("options", "music_volume", 80.0)))
-	var si := AudioServer.get_bus_index("SFX")
-	if si >= 0:
-		AudioServer.set_bus_volume_db(si,
-				_vol_db(settings.get_value("options", "sfx_volume", 100.0)))
-	_apply_window_mode(settings.get_value("options", "window_mode", 0))
-	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
 
 
 func _apply_window_mode(index: int) -> void:
