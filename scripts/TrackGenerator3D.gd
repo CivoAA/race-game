@@ -3,6 +3,10 @@ extends Node3D
 const TILE_SIZE = 1.2
 const ROAD_Y    = 0.01
 
+# Gerade GLB-Modelle laufen entlang einer Achse. Falls das Modell quer statt
+# längs in der Kachel liegt, hier 90 eintragen (Yaw-Korrektur in Grad).
+const STRAIGHT_MODEL_YAW_OFFSET = 90.0
+
 
 
 func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
@@ -39,6 +43,52 @@ func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
 		ramp_col,
 		Vector3(peak_x, ROAD_Y + peak_h + 0.012, 0)
 	))
+
+
+# Lädt ein Geraden-GLB, skaliert es auf TILE_SIZE und zentriert es auf der Kachel.
+func _make_straight_model(path: String) -> Node3D:
+	var holder = Node3D.new()
+	var scene = load(path)
+	if scene == null:
+		push_error("Geraden-Modell nicht gefunden: " + path)
+		return holder
+
+	var inst = scene.instantiate()
+	holder.add_child(inst)
+
+	var aabb = _local_aabb(inst)
+	if aabb.size.x > 0.0 and aabb.size.z > 0.0:
+		var longest = max(aabb.size.x, aabb.size.z)
+		var s = TILE_SIZE / longest
+		inst.scale = Vector3(s, s, s)
+		# horizontal mittig auf der Kachel, vertikal auf dem Boden (y=0)
+		inst.position = Vector3(
+			-(aabb.position.x + aabb.size.x / 2.0) * s,
+			-aabb.position.y * s,
+			-(aabb.position.z + aabb.size.z / 2.0) * s
+		)
+	return holder
+
+
+# Kombinierte AABB aller MeshInstance3D im lokalen Raum von root.
+func _local_aabb(root: Node3D) -> AABB:
+	var res: Array = [null]
+	if root is MeshInstance3D and root.mesh != null:
+		res[0] = root.mesh.get_aabb()
+	for child in root.get_children():
+		_aabb_recurse(child, Transform3D.IDENTITY, res)
+	return res[0] if res[0] != null else AABB()
+
+
+func _aabb_recurse(node: Node, xf: Transform3D, res: Array) -> void:
+	var cur = xf
+	if node is Node3D:
+		cur = xf * node.transform
+	if node is MeshInstance3D and node.mesh != null:
+		var a: AABB = cur * node.mesh.get_aabb()
+		res[0] = a if res[0] == null else (res[0] as AABB).merge(a)
+	for child in node.get_children():
+		_aabb_recurse(child, cur, res)
 
 
 func _box(size: Vector3, color: Color, pos: Vector3) -> MeshInstance3D:
@@ -96,18 +146,29 @@ func generate(grid_state: Array) -> void:
 				add_child(ramp_node)
 				continue
 
-			var scene_path = Paths.SCENE_TILE_STRAIGHT_3D if d["type"] == "straight" else Paths.SCENE_TILE_CURVE_3D
-			var scene = load(scene_path)
-			if scene == null:
-				push_error("3D-Tile-Szene nicht gefunden: " + scene_path)
-				continue
-
-			var node = scene.instantiate()
-			node.position = Vector3(
+			var tile_pos = Vector3(
 				col * TILE_SIZE + TILE_SIZE / 2.0,
 				0.0,
 				row * TILE_SIZE + TILE_SIZE / 2.0
 			)
+
+			# Gerade: GLB-Modell (Default = normal, Dirt = automatisch generiert)
+			if d["type"] == "straight":
+				var model_path = Paths.MODEL_TRACK_STRAIGHT_DIRT if d.get("is_dirt", false) else Paths.MODEL_TRACK_STRAIGHT_DEFAULT
+				var straight = _make_straight_model(model_path)
+				straight.position = tile_pos
+				straight.rotation_degrees.y = -d["rotation"] + STRAIGHT_MODEL_YAW_OFFSET
+				add_child(straight)
+				continue
+
+			# Kurve (curve / curve_alt): weiterhin prozedural
+			var scene = load(Paths.SCENE_TILE_CURVE_3D)
+			if scene == null:
+				push_error("3D-Tile-Szene nicht gefunden: " + Paths.SCENE_TILE_CURVE_3D)
+				continue
+
+			var node = scene.instantiate()
+			node.position = tile_pos
 			node.rotation_degrees.y = -d["rotation"]
 			add_child(node)
 			if d.get("is_dirt", false):

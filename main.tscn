@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://dc3ylxtd7ga7j"]
+[gd_scene format=3 uid="uid://d2d3n6v015se0"]
 
 [ext_resource type="Script" uid="uid://c0tudjeunwhla" path="res://scripts/Main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dh7iav6vvf4du" path="res://scripts/TileSelector.gd" id="2"]
