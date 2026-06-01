@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://main"]
+[gd_scene format=3 uid="uid://dc3ylxtd7ga7j"]
 
 [ext_resource type="Script" uid="uid://c0tudjeunwhla" path="res://scripts/Main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dh7iav6vvf4du" path="res://scripts/TileSelector.gd" id="2"]
@@ -46,6 +46,10 @@ size_flags_vertical = 3
 
 [node name="Separator3" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=1203159159]
 layout_mode = 2
+
+[node name="BtnUpgrades" type="Button" parent="TileSelector/Panel/VBox" unique_id=771049823]
+layout_mode = 2
+text = "⬆ Upgrades"
 
 [node name="BtnPruefen" type="Button" parent="TileSelector/Panel/VBox" unique_id=-447676251]
 layout_mode = 2

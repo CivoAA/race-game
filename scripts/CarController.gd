@@ -1,7 +1,24 @@
 extends Node3D
 
+signal lap_completed(reward: int)
+
 const TILE_SIZE = 1.2
-var speed: float = 4.5
+
+# Ertrag pro überfahrenem Tile: jedes Tile gibt flat +1 (Dreck-Tile nur +0.1).
+const PER_TILE_BONUS  = 1.0
+const DIRT_TILE_BONUS = 0.1
+
+var speed: float = 2.5
+
+# Pro-Auto-Parameter (von World3D vor start() gesetzt)
+var end_mult:    float = 1.0   # Multiplikator auf den Rundenertrag
+var tile_bonus:  float = 0.0   # + je überfahrenem Tile
+var start_delay: float = 0.0   # verzögerter Start (gestaffelt bei mehreren Autos)
+
+# Rundenertrag (in _build_waypoints berechnet)
+var lap_base:   float = 0.0
+var tile_count: int   = 0
+var _delay_remaining: float = 0.0
 
 var waypoints: Array[Vector3] = []
 var current_wp: int = 0
@@ -37,6 +54,7 @@ func start(grid_state: Array) -> void:
 		return
 	car.position = waypoints[0]
 	current_wp   = 1
+	_delay_remaining = start_delay
 	driving      = true
 	print("Route: %d Wegpunkte" % waypoints.size())
 
@@ -45,8 +63,18 @@ func stop() -> void:
 	driving = false
 
 
+func _on_lap_completed() -> void:
+	var reward = int(round((lap_base + tile_bonus * tile_count) * end_mult))
+	if reward != 0:
+		Economy.add(reward)
+	lap_completed.emit(reward)
+
+
 func _process(delta: float) -> void:
 	if not driving or waypoints.is_empty():
+		return
+	if _delay_remaining > 0.0:
+		_delay_remaining -= delta
 		return
 
 	var target = waypoints[current_wp]
@@ -54,7 +82,10 @@ func _process(delta: float) -> void:
 	var dist   = dir.length()
 
 	if dist < 0.04:
-		current_wp = (current_wp + 1) % waypoints.size()
+		var nxt = (current_wp + 1) % waypoints.size()
+		if nxt < current_wp:   # Wegpunkt-Liste umgebrochen → eine Runde fertig
+			_on_lap_completed()
+		current_wp = nxt
 		return
 
 	car.position += dir.normalized() * speed * delta
@@ -232,6 +263,23 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		exit_dir = next_exit
 
 	print("Route: %d Tiles gefunden" % route.size())
+
+	# Runden-Grundwert: flat +1 pro Tile (Dreck nur +0.1), plus Bonusfeld-Effekte.
+	# Bonusfeld +5/+10 = bonus_points (additiv), ×1.5 = bonus_mult (multipliziert die
+	# Summe am Ende, reihenfolge-unabhängig).
+	var add_sum   = 0.0
+	var mult_prod = 1.0
+	for r_step in route:
+		var d = r_step["data"]
+		if typeof(d) != TYPE_DICTIONARY:
+			continue
+		var base = DIRT_TILE_BONUS if d.get("is_dirt", false) else PER_TILE_BONUS
+		add_sum += base + d.get("bonus_points", 0.0)
+		var bm = d.get("bonus_mult", 1.0)
+		if bm != 1.0:
+			mult_prod *= bm
+	lap_base   = add_sum * mult_prod
+	tile_count = route.size()
 
 	# Wegpunkte aus Route bauen
 	var wps: Array[Vector3] = []
