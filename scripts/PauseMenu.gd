@@ -1,6 +1,5 @@
 extends CanvasLayer
 
-const SETTINGS_FILE = "user://settings.cfg"
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 
@@ -39,7 +38,7 @@ func _ready() -> void:
 	layer = 10
 	visible = false
 
-	settings.load(SETTINGS_FILE)
+	settings.load(Paths.SETTINGS_FILE)
 
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -182,7 +181,7 @@ func _build_quit_modal() -> Control:
 func _go_main_menu() -> void:
 	get_tree().paused = false
 	visible = false
-	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
+	get_tree().change_scene_to_file(Paths.SCENE_MAIN_MENU)
 
 
 # ── Einstellungen-Panel ───────────────────────────────────────────────────────
@@ -584,7 +583,7 @@ func _sync_settings_ui() -> void:
 func _on_language_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "language", LANGUAGES[index][1])
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	TranslationServer.set_locale(LANGUAGES[index][1])
 
 
@@ -592,7 +591,7 @@ func _on_master_volume_changed(value: float) -> void:
 	_lbl_master_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "master_volume", value)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	AudioServer.set_bus_volume_db(0, _vol_db(value))
 
 
@@ -600,7 +599,7 @@ func _on_music_volume_changed(value: float) -> void:
 	_lbl_music_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "music_volume", value)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("Music")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
 
@@ -609,7 +608,7 @@ func _on_sfx_volume_changed(value: float) -> void:
 	_lbl_sfx_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "sfx_volume", value)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("SFX")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
 
@@ -617,7 +616,7 @@ func _on_sfx_volume_changed(value: float) -> void:
 func _on_window_mode_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "window_mode", index)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	_apply_window_mode(index)
 
 

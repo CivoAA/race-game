@@ -1,6 +1,5 @@
 extends Control
 
-const SETTINGS_FILE = "user://settings.cfg"
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 
@@ -42,7 +41,7 @@ var _loading_settings := false
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	settings.load(SETTINGS_FILE)
+	settings.load(Paths.SETTINGS_FILE)
 	_build_background()
 	_main_panel         = _build_main_panel()
 	_options_panel      = _build_options_panel()
@@ -300,13 +299,13 @@ func _show_slot_panel(is_load: bool) -> void:
 func _on_slot_selected(slot: int) -> void:
 	if _slot_is_load:
 		Economy.load_game_from_slot(slot)
-		get_tree().change_scene_to_file("res://main.tscn")
+		get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 	else:
 		if Economy.slot_exists(slot):
 			_show_confirm_modal(slot)
 		else:
 			Economy.reset_slot(slot)
-			get_tree().change_scene_to_file("res://main.tscn")
+			get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
 
 # ── Bestätigungs-Modal (Spielstand überschreiben) ─────────────────────────────
@@ -339,7 +338,7 @@ func _build_confirm_modal() -> Control:
 
 	_add_menu_button(vbox, "→", "Neu starten", C_ACCENT_RD, func():
 		Economy.reset_slot(_confirm_slot)
-		get_tree().change_scene_to_file("res://main.tscn")
+		get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 	)
 	_add_menu_button(vbox, "←", "Abbrechen", C_ACCENT_MU, func():
 		_hide_all()
@@ -715,7 +714,7 @@ func _sync_options_ui() -> void:
 func _on_language_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "language", LANGUAGES[index][1])
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	TranslationServer.set_locale(LANGUAGES[index][1])
 
 
@@ -723,7 +722,7 @@ func _on_master_volume_changed(value: float) -> void:
 	_lbl_master_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "master_volume", value)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	AudioServer.set_bus_volume_db(0, _vol_db(value))
 
 
@@ -731,7 +730,7 @@ func _on_music_volume_changed(value: float) -> void:
 	_lbl_music_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "music_volume", value)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("Music")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
 
@@ -740,7 +739,7 @@ func _on_sfx_volume_changed(value: float) -> void:
 	_lbl_sfx_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "sfx_volume", value)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("SFX")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
 
@@ -748,7 +747,7 @@ func _on_sfx_volume_changed(value: float) -> void:
 func _on_window_mode_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "window_mode", index)
-	settings.save(SETTINGS_FILE)
+	settings.save(Paths.SETTINGS_FILE)
 	_apply_window_mode(index)
 
 

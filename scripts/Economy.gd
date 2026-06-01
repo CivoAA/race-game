@@ -90,7 +90,7 @@ func _ready() -> void:
 # ── Slot-Management ────────────────────────────────────────────────────────────
 
 func get_save_path(slot: int) -> String:
-	return "user://savegame_slot%d.dat" % slot
+	return Paths.save_slot_path(slot)
 
 
 func slot_exists(slot: int) -> bool:

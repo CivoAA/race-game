@@ -41,7 +41,7 @@ var _yaw_init: bool      = false
 
 
 func _ready() -> void:
-	var car_script = load("res://scripts/Car3D.gd")
+	var car_script = load(Paths.SCRIPT_CAR_3D)
 	car = Node3D.new()
 	car.set_script(car_script)
 	add_child(car)

@@ -11,7 +11,7 @@ const GROUND_Y      = -0.02
 const TILE_SIZE_3D  = 1.2
 const CAR_STAGGER   = 0.5   # Sekunden Startabstand zwischen mehreren Autos
 
-const CurrencyHudScript = preload("res://scripts/CurrencyHud.gd")
+var CurrencyHudScript = load(Paths.SCRIPT_CURRENCY_HUD)
 
 @onready var camera:     Camera3D           = $Camera3D
 @onready var sun:        DirectionalLight3D = $DirectionalLight3D
@@ -179,7 +179,7 @@ func _show_summary() -> void:
 # ── Auto(s) ─────────────────────────────────────────────────────────────────────
 
 func _start_cars(grid_state: Array) -> void:
-	var script = load("res://scripts/CarController.gd")
+	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
 	var count  = Economy.get_car_count()
 	for i in range(count):
 		var ctrl = Node3D.new()
@@ -199,7 +199,7 @@ func _start_cars(grid_state: Array) -> void:
 # ── Zurück zum Bauplan ────────────────────────────────────────────────────────
 
 func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file("res://Main.tscn")
+	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
 
 func _input(event: InputEvent) -> void:
@@ -210,7 +210,7 @@ func _input(event: InputEvent) -> void:
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 func _setup_generator() -> void:
-	var script = load("res://scripts/TrackGenerator3D.gd")
+	var script = load(Paths.SCRIPT_TRACK_GENERATOR)
 	generator = Node3D.new()
 	generator.set_script(script)
 	track_root.add_child(generator)
