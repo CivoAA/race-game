@@ -18,6 +18,9 @@ var settings := ConfigFile.new()
 var _pause_panel:        Control
 var _settings_panel:     Control
 var _achievements_panel: Control
+var _quit_modal:         Control
+
+var _save_status_lbl: Label
 
 var _lang_option:    OptionButton
 var _master_slider:  HSlider
@@ -46,6 +49,7 @@ func _ready() -> void:
 	_pause_panel        = _build_pause_panel()
 	_settings_panel     = _build_settings_panel()
 	_achievements_panel = _build_achievements_panel()
+	_quit_modal         = _build_quit_modal()
 
 	_show_pause()
 
@@ -108,7 +112,69 @@ func _build_pause_panel() -> Control:
 	_add_btn(vbox, "02", "Einstellungen",    C_ACCENT_MU, _show_settings)
 	_add_btn(vbox, "03", "Errungenschaften", C_ACCENT_MU, _show_achievements)
 	_add_spacer(vbox, 10)
-	_add_btn(vbox, "04", "Hauptmenü",        C_ACCENT_RD, _go_main_menu)
+	_add_btn(vbox, "04", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
+
+	_save_status_lbl = Label.new()
+	_save_status_lbl.text = "✓ Gespeichert!"
+	_save_status_lbl.visible = false
+	_save_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_save_status_lbl.add_theme_font_size_override("font_size", 12)
+	_save_status_lbl.add_theme_color_override("font_color", Color(0.4, 0.85, 0.4))
+	vbox.add_child(_save_status_lbl)
+
+	_add_btn(vbox, "05", "Spiel beenden",    C_ACCENT_RD, _on_quit_pressed)
+
+	return center
+
+
+func _on_save_pressed() -> void:
+	Economy.save_game()
+	_save_status_lbl.visible = true
+	get_tree().create_timer(2.0).timeout.connect(
+		func():
+			if is_instance_valid(_save_status_lbl):
+				_save_status_lbl.visible = false
+	)
+
+
+func _on_quit_pressed() -> void:
+	Economy.save_game()
+	_hide_all()
+	_quit_modal.visible = true
+
+
+# ── Beenden-Modal ─────────────────────────────────────────────────────────────
+
+func _build_quit_modal() -> Control:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "SPIEL BEENDEN")
+	_add_hline(vbox)
+
+	var text_lbl := Label.new()
+	text_lbl.text = "Dein Spielstand wurde gespeichert."
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(text_lbl)
+
+	_add_spacer(vbox, 8)
+
+	_add_btn(vbox, "→", "Zurück zum Hauptmenü", C_ACCENT_MU, _go_main_menu)
+	_add_btn(vbox, "→", "Zurück zum Desktop",   C_ACCENT_RD, func(): get_tree().quit())
+
+	_add_spacer(vbox, 4)
+	_add_back_button(vbox, _show_pause)
 
 	return center
 
@@ -281,6 +347,7 @@ func _hide_all() -> void:
 	_pause_panel.visible        = false
 	_settings_panel.visible     = false
 	_achievements_panel.visible = false
+	_quit_modal.visible         = false
 
 
 func _show_pause() -> void:

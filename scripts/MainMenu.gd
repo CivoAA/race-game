@@ -20,10 +20,13 @@ var _main_panel:         Control
 var _options_panel:      Control
 var _achievements_panel: Control
 var _slot_panel:         Control
+var _confirm_modal:      Control
 
-var _slot_is_load    := false
-var _slot_title_lbl: Label
-var _slot_btns:      Array[Button] = []
+var _slot_is_load     := false
+var _slot_title_lbl:  Label
+var _slot_btns:       Array[Button] = []
+var _slot_info_labels: Array[Label] = []
+var _confirm_slot:    int = 0
 
 var _lang_option:    OptionButton
 var _master_slider:  HSlider
@@ -45,6 +48,7 @@ func _ready() -> void:
 	_options_panel      = _build_options_panel()
 	_achievements_panel = _build_achievements_panel()
 	_slot_panel         = _build_slot_panel()
+	_confirm_modal      = _build_confirm_modal()
 	_show_main()
 	_apply_settings()
 
@@ -188,6 +192,7 @@ func _build_slot_panel() -> Control:
 	_add_spacer(vbox, 4)
 
 	_slot_btns.clear()
+	_slot_info_labels.clear()
 	for i in 3:
 		var btn := _build_slot_button(i)
 		vbox.add_child(btn)
@@ -243,13 +248,14 @@ func _build_slot_button(slot: int) -> Button:
 	var info_lbl := Label.new()
 	info_lbl.text = "LEER"
 	info_lbl.name = "InfoLabel"
-	info_lbl.custom_minimum_size = Vector2(110, 0)
+	info_lbl.custom_minimum_size = Vector2(130, 0)
 	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	info_lbl.add_theme_font_size_override("font_size", 12)
 	info_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	info_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hbox.add_child(info_lbl)
+	_slot_info_labels.append(info_lbl)
 
 	var arrow := Label.new()
 	arrow.text = "▶"
@@ -272,19 +278,81 @@ func _show_slot_panel(is_load: bool) -> void:
 
 	if is_load:
 		_slot_title_lbl.text = "SPIEL LADEN"
-		for btn in _slot_btns:
-			btn.disabled = true
 	else:
 		_slot_title_lbl.text = "NEUES SPIEL"
-		for btn in _slot_btns:
-			btn.disabled = false
+
+	for i in 3:
+		var info = Economy.get_slot_info(i)
+		if info.is_empty():
+			_slot_info_labels[i].text = "LEER"
+			_slot_info_labels[i].add_theme_color_override("font_color", C_TEXT_DIM)
+			_slot_btns[i].disabled = is_load
+		else:
+			var ts   = String(info.get("timestamp", ""))
+			var date = ts.substr(0, 10) if ts.length() >= 10 else ts
+			var time = ts.substr(11, 5) if ts.length() >= 16 else ""
+			var disp = "%s %s" % [date, time] if time != "" else date
+			_slot_info_labels[i].text = "%d G  %s" % [int(info.get("currency", 0)), disp]
+			_slot_info_labels[i].add_theme_color_override("font_color", C_ACCENT.darkened(0.1))
+			_slot_btns[i].disabled = false
 
 
 func _on_slot_selected(slot: int) -> void:
 	if _slot_is_load:
-		pass
-	else:
+		Economy.load_game_from_slot(slot)
 		get_tree().change_scene_to_file("res://main.tscn")
+	else:
+		if Economy.slot_exists(slot):
+			_show_confirm_modal(slot)
+		else:
+			Economy.reset_slot(slot)
+			get_tree().change_scene_to_file("res://main.tscn")
+
+
+# ── Bestätigungs-Modal (Spielstand überschreiben) ─────────────────────────────
+
+func _build_confirm_modal() -> Control:
+	var overlay := _make_overlay()
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "ÜBERSCHREIBEN?")
+	_add_hline(vbox)
+
+	var text_lbl := Label.new()
+	text_lbl.text = "Dieser Spielstand wird\nunwiderruflich überschrieben."
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(text_lbl)
+
+	_add_spacer(vbox, 6)
+
+	_add_menu_button(vbox, "→", "Neu starten", C_ACCENT_RD, func():
+		Economy.reset_slot(_confirm_slot)
+		get_tree().change_scene_to_file("res://main.tscn")
+	)
+	_add_menu_button(vbox, "←", "Abbrechen", C_ACCENT_MU, func():
+		_hide_all()
+		_slot_panel.visible = true
+	)
+
+	return overlay
+
+
+func _show_confirm_modal(slot: int) -> void:
+	_confirm_slot = slot
+	_hide_all()
+	_confirm_modal.visible = true
 
 
 # ── Optionen-Panel ────────────────────────────────────────────────────────────
@@ -600,6 +668,7 @@ func _hide_all() -> void:
 	_options_panel.visible      = false
 	_achievements_panel.visible = false
 	_slot_panel.visible         = false
+	_confirm_modal.visible      = false
 
 
 func _show_main() -> void:
