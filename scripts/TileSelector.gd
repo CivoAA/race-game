@@ -8,6 +8,7 @@ extends CanvasLayer
 func _ready() -> void:
 	$Panel/VBox/BtnFahren.pressed.connect(main._on_fahren_pressed)
 	$Panel/VBox/BtnPruefen.pressed.connect(main._on_pruefen_pressed)
+	$Panel/VBox/BtnUpgrades.pressed.connect(main._on_upgrades_pressed)
 
 
 func deselect() -> void:

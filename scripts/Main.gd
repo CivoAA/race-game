@@ -1,22 +1,24 @@
 extends Node2D
 
-const GRID_ROWS = 5
-const GRID_COLS = 6
+# Grid-Dimensionen: variabel, werden in _ready aus Economy (Upgrade) gesetzt
+var GRID_ROWS: int = 5
+var GRID_COLS: int = 6
 const TILE_SIZE = 100
 
 const SCENE_STRAIGHT  = "res://scenes/tiles2d/Straight2D.tscn"
 const SCENE_CURVE     = "res://scenes/tiles2d/Curve2D.tscn"
 const SCENE_CURVE_ALT = "res://scenes/tiles2d/Curve2D_alt.tscn"
 
+# Per Skript-Pfad geladen (reihenfolge-unabhängig, ohne class_name-Auflösung)
+const CurrencyHudScript = preload("res://scripts/CurrencyHud.gd")
+const UpgradeMenuScript  = preload("res://scripts/UpgradeMenu.gd")
+
 const SHOP_TYPES = ["straight", "curve"]
 
-# 5 Varianten pro Tile-Typ: Punkte oder Multiplikator
+# Tiles haben keine eigenen Boni mehr: eine uniforme Variante (Ertrag = +1 pro
+# überfahrenem Tile, im CarController berechnet – unabhängig vom Tile).
 const TILE_VARIANTS = [
-	{"points": 1.0,  "multiplier": 1.0, "price": 2,  "variant_label": "+1"},
-	{"points": 5.0,  "multiplier": 1.0, "price": 5,  "variant_label": "+5"},
-	{"points": 10.0, "multiplier": 1.0, "price": 10, "variant_label": "+10"},
-	{"points": 0.0,  "multiplier": 1.5, "price": 8,  "variant_label": "×1.5"},
-	{"points": 0.0,  "multiplier": 1.0, "price": 1,  "variant_label": "+0"},
+	{"points": 0.0, "multiplier": 1.0, "price": 3, "variant_label": ""},
 ]
 
 const SHOP_SLOT_COUNT = 5
@@ -28,9 +30,6 @@ const POINT_UPGRADE_DATA = {
 	"+1":  {"points": [1.0,  3.0,  6.0,  10.0,  15.0],  "labels": ["+1",  "+3",  "+6",  "+10",  "+15"]},
 	"+5":  {"points": [5.0,  12.0, 22.0, 35.0,  50.0],  "labels": ["+5",  "+12", "+22", "+35",  "+50"]},
 	"+10": {"points": [10.0, 25.0, 45.0, 70.0,  100.0], "labels": ["+10", "+25", "+45", "+70",  "+100"]},
-}
-const MULT_UPGRADE_DATA = {
-	"×1.5": {"mult": [1.5, 2.0, 2.5, 3.0, 4.0], "labels": ["×1.5", "×2", "×2.5", "×3", "×4"]},
 }
 # self_modulate-Tönung pro combine_level (trifft nur Road-Zeichnung, nicht Kind-Labels)
 const COMBINE_TINTS = [
@@ -46,6 +45,11 @@ var last_placed_row: int = -1
 var last_placed_col: int = -1
 var grid: Array = []
 
+# Bonusfelder (zellenbasiert, unabhängig von den Tiles)
+var bonus_grid: Array = []            # [r][c] = null oder {label, points, mult}
+var _bonus_marker_nodes: Array = []   # gezeichnete Marker-Nodes
+var _bonus_sig_on_open: String = ""   # Bonus-Signatur beim Öffnen des Upgrade-Menüs
+
 # Grid tile selection
 var selected_grid_row: int = -1
 var selected_grid_col: int = -1
@@ -58,16 +62,19 @@ var sell_mode:          bool  = false
 var ramp_preview_rot:   int   = 0     # Aktuelle Richtung für das nächste Rampen-Paar
 
 # UI nodes (created programmatically)
-var _currency_label: Label = null
+var _currency_hud           = null   # CurrencyHud-Instanz
 var _shop_panels:    Array = []
 var _sell_panel:     Panel = null
-var _flash_tween:    Tween = null
+var _upgrade_menu           = null   # UpgradeMenu-Instanz
+var _menu_open:      bool = false
 
 @onready var grid_node:    Node2D = $Grid
 @onready var tile_selector         = $TileSelector
 
 
 func _ready() -> void:
+	GRID_ROWS = Economy.get_grid_rows()
+	GRID_COLS = Economy.get_grid_cols()
 	_init_grid()
 	_draw_grid_background()
 	_place_start_tile()
@@ -77,19 +84,26 @@ func _ready() -> void:
 	if Engine.has_meta("saved_grid_state"):
 		_restore_grid(Engine.get_meta("saved_grid_state"))
 		Engine.remove_meta("saved_grid_state")
+	elif Economy.has_track():
+		_restore_grid(Economy.get_track())
 
 	_fill_shop()
+	_roll_bonus_fields()
 
 
 # ── Grid init ──────────────────────────────────────────────────────────────────
 
 func _init_grid() -> void:
 	grid = []
+	bonus_grid = []
 	for row in range(GRID_ROWS):
 		var cols = []
+		var bcols = []
 		for col in range(GRID_COLS):
 			cols.append(null)
+			bcols.append(null)
 		grid.append(cols)
+		bonus_grid.append(bcols)
 
 
 func _draw_grid_background() -> void:
@@ -154,15 +168,9 @@ func _setup_shop_ui() -> void:
 	layer.layer = 2
 	add_child(layer)
 
-	# Currency label – rechts neben dem Grid (Grid endet bei Bildschirm-x=720, Viewport=800)
-	_currency_label = Label.new()
-	_currency_label.position = Vector2(724, 10)
-	_currency_label.size = Vector2(70, 28)
-	_currency_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_currency_label.add_theme_font_size_override("font_size", 18)
-	_currency_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
-	layer.add_child(_currency_label)
-	_update_currency_label()
+	# Gemeinsame Währungs-HUD (oben mittig, identisch in 2D- und 3D-View)
+	_currency_hud = CurrencyHudScript.new()
+	add_child(_currency_hud)
 
 	# Shop-Bar – unterhalb des Grids (Grid-Unterkante bei Bildschirm-y=540)
 	var shop_y = 545
@@ -237,7 +245,8 @@ func _fill_shop() -> void:
 
 
 func _update_currency_label() -> void:
-	_currency_label.text = "💰 %d" % Economy.get_currency()
+	# Die CurrencyHud aktualisiert sich selbst jeden Frame – nichts zu tun.
+	pass
 
 
 func _update_shop_ui() -> void:
@@ -258,7 +267,10 @@ func _update_shop_ui() -> void:
 					"straight":  icon = "━━"
 					"curve":     icon = "╰"
 					"curve_alt": icon = "╯"
-				lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
+				if slot["variant_label"] == "":
+					lbl.text = "%s\n%d💰" % [icon, slot["price"]]
+				else:
+					lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
 
 		var style = StyleBoxFlat.new()
 		style.set_corner_radius_all(3)
@@ -355,11 +367,8 @@ func _check_shop_auto_reroll() -> void:
 
 
 func _flash_currency() -> void:
-	if _flash_tween:
-		_flash_tween.kill()
-	_flash_tween = create_tween()
-	_flash_tween.tween_property(_currency_label, "modulate", Color(1, 0.2, 0.2), 0.1)
-	_flash_tween.tween_property(_currency_label, "modulate", Color(1, 1, 1), 0.35)
+	if _currency_hud != null:
+		_currency_hud.flash()
 
 
 # ── Tile spawnen ───────────────────────────────────────────────────────────────
@@ -420,10 +429,10 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		lbl.add_theme_font_size_override("font_size", 11)
 		node.add_child(lbl)
 	elif data.get("is_dirt", false):
-		# Dreck-Pfad: grüne Gras-Tönung, nicht interaktiv, gibt ×0.5
+		# Dreck-Pfad: grüne Gras-Tönung, nicht interaktiv, gibt +0.1 statt +1
 		node.modulate = Color(0.42, 0.70, 0.25)
 		var dlbl = Label.new()
-		dlbl.text = "×0.5"
+		dlbl.text = "+0.1"
 		dlbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2)
 		dlbl.add_theme_color_override("font_color", Color(0.9, 1.0, 0.4))
 		dlbl.add_theme_font_size_override("font_size", 10)
@@ -517,9 +526,9 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 		arc.color   = soil
 		node.add_child(arc)
 
-	# ×0.5 Badge – position gegen Rotation kompensiert, immer lesbar
+	# +0.1 Badge – position gegen Rotation kompensiert, immer lesbar
 	var lbl = Label.new()
-	lbl.text             = "×0.5"
+	lbl.text             = "+0.1"
 	lbl.position         = Vector2(-half + 2.0, -half + 2.0).rotated(-rot_rad)
 	lbl.rotation_degrees = -rot
 	lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 0.4))
@@ -612,6 +621,8 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 # ── Input ──────────────────────────────────────────────────────────────────────
 
 func _input(event: InputEvent) -> void:
+	if _menu_open:
+		return   # Upgrade-Menü offen: Grid-/Tasten-Eingaben ignorieren
 	if event is InputEventMouseButton and event.pressed:
 		var local_pos = grid_node.to_local(event.position)
 		if local_pos.x < 0 or local_pos.y < 0 or local_pos.x >= GRID_COLS * TILE_SIZE or local_pos.y >= GRID_ROWS * TILE_SIZE:
@@ -651,9 +662,14 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 	# Dirt-Tiles können durch Shop-Tiles oder verschobene Tiles überschrieben werden
 	if cell_data != null and cell_data.get("is_dirt", false):
 		if selected_shop_slot >= 0:
-			cell_data["node"].queue_free()
-			grid[row][col] = null
-			_place_shop_tile(row, col)
+			var slot = shop_slots[selected_shop_slot]
+			if slot != null and slot["type"] == "ramp":
+				# Rampe braucht 2 Felder; _place_ramp überschreibt Dreck-Tiles selbst
+				_place_ramp(row, col)
+			else:
+				cell_data["node"].queue_free()
+				grid[row][col] = null
+				_place_shop_tile(row, col)
 		elif selected_grid_row >= 0:
 			cell_data["node"].queue_free()
 			grid[row][col] = null
@@ -859,15 +875,32 @@ func _ramp_end_pos(row: int, col: int, rot: int) -> Vector2i:
 	return Vector2i(-1, -1)
 
 
+# Ein Feld ist für eine Rampe nutzbar, wenn es leer oder ein Dreck-Tile ist.
+func _ramp_cell_free(row: int, col: int) -> bool:
+	var d = grid[row][col]
+	return d == null or d.get("is_dirt", false)
+
+
+# Entfernt ein automatisch generiertes Dreck-Tile an dieser Stelle (falls vorhanden).
+func _clear_dirt_cell(row: int, col: int) -> void:
+	var d = grid[row][col]
+	if d != null and d.get("is_dirt", false):
+		d["node"].queue_free()
+		grid[row][col] = null
+
+
 func _place_ramp(row: int, col: int) -> void:
 	# Versucht alle 4 Rotationen beginnend mit ramp_preview_rot
 	var rot = ramp_preview_rot
 	for _attempt in range(4):
 		var end = _ramp_end_pos(row, col, rot)
-		if _ac_in_bounds(end) and grid[end.x][end.y] == null:
+		if _ac_in_bounds(end) and _ramp_cell_free(row, col) and _ramp_cell_free(end.x, end.y):
 			if not Economy.spend(RAMP_PRICE):
 				_flash_currency()
 				return
+			# Automatisch generierte Dreck-Tiles unter der Rampe entfernen
+			_clear_dirt_cell(row, col)
+			_clear_dirt_cell(end.x, end.y)
 			_spawn_tile(row, col, {
 				"type": "ramp_start", "rotation": rot, "flipped": false,
 				"direction": 1, "points": 0.0, "multiplier": 1.0,
@@ -925,11 +958,6 @@ func _do_combine(row: int, col: int, shop_data: Dictionary) -> void:
 		var tbl    = POINT_UPGRADE_DATA[series]
 		new_points = tbl["points"][new_level]
 		new_mult   = 1.0
-		new_label  = tbl["labels"][new_level]
-	elif series in MULT_UPGRADE_DATA:
-		var tbl   = MULT_UPGRADE_DATA[series]
-		new_mult  = tbl["mult"][new_level]
-		new_points = 0.0
 		new_label  = tbl["labels"][new_level]
 
 	grid_data["node"].queue_free()
@@ -1196,6 +1224,61 @@ func _restore_grid(state: Array) -> void:
 	last_placed_col = -1
 
 
+func _on_upgrades_pressed() -> void:
+	if _menu_open:
+		return
+	_menu_open = true
+	_bonus_sig_on_open = _bonus_signature()
+	_upgrade_menu = UpgradeMenuScript.new()
+	_upgrade_menu.closed.connect(_on_upgrade_menu_closed)
+	add_child(_upgrade_menu)
+
+
+func _on_upgrade_menu_closed() -> void:
+	_menu_open = false
+	_upgrade_menu = null
+	# Grid-Größe könnte sich geändert haben → ggf. neu aufbauen (löscht auch Bonus-Marker)
+	var size_changed = (Economy.get_grid_rows() != GRID_ROWS or Economy.get_grid_cols() != GRID_COLS)
+	_rebuild_grid_for_size()
+	# Bonusfelder neu würfeln, wenn Grid neu gebaut wurde oder Bonus-Upgrades sich änderten
+	if size_changed or _bonus_signature() != _bonus_sig_on_open:
+		_roll_bonus_fields()
+
+
+# Baut das Grid in der aktuellen Economy-Größe neu auf, falls sie sich geändert hat.
+# Das Grid wächst nur (Origin oben-links bleibt fix), daher bleiben platzierte
+# Tiles an ihrer Position erhalten.
+func _rebuild_grid_for_size() -> void:
+	var new_rows = Economy.get_grid_rows()
+	var new_cols = Economy.get_grid_cols()
+	if new_rows == GRID_ROWS and new_cols == GRID_COLS:
+		return
+
+	_remove_all_dirt_tiles()
+	var saved = get_grid_state()   # alte Dimensionen
+
+	for c in grid_node.get_children():
+		c.queue_free()
+
+	GRID_ROWS = new_rows
+	GRID_COLS = new_cols
+	_init_grid()
+	_draw_grid_background()
+	_setup_grid_highlight()
+	_place_start_tile()
+	_restore_grid(saved)
+
+	selected_grid_row  = -1
+	selected_grid_col  = -1
+	selected_shop_slot = -1
+	sell_mode          = false
+	_update_grid_highlight()
+	_update_shop_ui()
+	_update_sell_panel_style()
+	tile_selector.deselect()
+	_invalidate_track()
+
+
 func _on_pruefen_pressed() -> void:
 	_auto_complete_track()
 	if _is_track_valid():
@@ -1209,12 +1292,109 @@ func _on_pruefen_pressed() -> void:
 func _on_fahren_pressed() -> void:
 	if not _is_track_valid():
 		return
-	var state = get_grid_state()
-	Engine.set_meta("pending_grid_state", state)
-	Engine.set_meta("saved_grid_state",   state)
+	_persist_track()
+	# Fahr-Zustand: Tiles auf Bonusfeldern bekommen den Effekt mitgegeben.
+	Engine.set_meta("pending_grid_state", _build_drive_state())
+	Engine.set_meta("saved_grid_state",   get_grid_state())
 	var world_scene = load("res://scenes/World3D.tscn")
 	if world_scene:
 		get_tree().change_scene_to_packed(world_scene)
+
+
+# Kopie des Grid-States, in der Tiles auf einem Bonusfeld bonus_points/bonus_mult tragen.
+func _build_drive_state() -> Array:
+	var state = get_grid_state()
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			if bonus_grid[r][c] != null and typeof(state[r][c]) == TYPE_DICTIONARY:
+				state[r][c]["bonus_points"] = bonus_grid[r][c]["points"]
+				state[r][c]["bonus_mult"]   = bonus_grid[r][c]["mult"]
+	return state
+
+
+# ── Bonusfelder ─────────────────────────────────────────────────────────────────
+
+# Kurzkennung des Bonus-Upgrade-Zustands (zum Erkennen von Änderungen im Menü).
+func _bonus_signature() -> String:
+	return "%d%d%d_%d" % [
+		int(Economy.is_bonus_unlocked("plus5")),
+		int(Economy.is_bonus_unlocked("plus10")),
+		int(Economy.is_bonus_unlocked("mult15")),
+		Economy.get_bonus_extra_count(),
+	]
+
+
+# Würfelt die Bonusfelder neu (auf leere Zellen, ohne sich gegenseitig zu überschreiben).
+func _roll_bonus_fields() -> void:
+	for n in _bonus_marker_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_bonus_marker_nodes.clear()
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			bonus_grid[r][c] = null
+
+	var types = Economy.get_unlocked_bonus_types()
+	if types.is_empty():
+		return
+
+	# Kandidaten: leere Zellen (Start-Tile + belegte Zellen sind dadurch ausgenommen)
+	var cells: Array = []
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			if grid[r][c] == null:
+				cells.append(Vector2i(r, c))
+	cells.shuffle()
+
+	# Je 1 Feld pro freigeschaltetem Typ + Extra-Felder in fester Reihenfolge
+	# (+5, dann +10, dann ×1.5, dann wieder +5 …; types ist bereits in dieser Reihenfolge).
+	var to_place: Array = []
+	for t in types:
+		to_place.append(t)
+	for i in range(Economy.get_bonus_extra_count()):
+		to_place.append(types[i % types.size()])
+
+	var idx = 0
+	for eff in to_place:
+		if idx >= cells.size():
+			break
+		var cell = cells[idx]; idx += 1
+		bonus_grid[cell.x][cell.y] = {
+			"label": eff["label"], "points": eff["points"], "mult": eff["mult"],
+		}
+		var marker = _make_bonus_marker(eff)
+		marker.position = _grid_to_world(cell.x, cell.y)
+		marker.z_index  = 6
+		grid_node.add_child(marker)
+		_bonus_marker_nodes.append(marker)
+
+
+func _make_bonus_marker(eff: Dictionary) -> Node2D:
+	var node = Node2D.new()
+	var col  = Color(0.3, 0.9, 0.3)
+	match eff["label"]:
+		"+5":   col = Color(0.3, 0.9, 0.3)
+		"+10":  col = Color(1.0, 0.82, 0.2)
+		"×1.5": col = Color(0.75, 0.45, 1.0)
+	var bw = 3
+	for i in range(4):
+		var r = ColorRect.new()
+		r.color = col
+		match i:
+			0: r.position = Vector2(0, 0);              r.size = Vector2(TILE_SIZE, bw)
+			1: r.position = Vector2(0, TILE_SIZE - bw); r.size = Vector2(TILE_SIZE, bw)
+			2: r.position = Vector2(0, 0);              r.size = Vector2(bw, TILE_SIZE)
+			3: r.position = Vector2(TILE_SIZE - bw, 0); r.size = Vector2(bw, TILE_SIZE)
+		node.add_child(r)
+	var lbl = Label.new()
+	lbl.text = eff["label"]
+	lbl.position = Vector2(4, 2)
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_constant_override("outline_size", 3)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	node.add_child(lbl)
+	return node
 
 
 # ── Strecken-Validierung ────────────────────────────────────────────────────────
@@ -1261,6 +1441,18 @@ func _is_curve_dir_ok(data: Dictionary, entry: String) -> bool:
 func _invalidate_track() -> void:
 	tile_selector.set_fahren_enabled(false)
 	tile_selector.set_status("")
+	_persist_track()
+
+
+# Speichert die aktuelle Strecke dauerhaft (ohne Dreck-Tiles, die per Prüfen neu entstehen).
+func _persist_track() -> void:
+	var st = get_grid_state()
+	for r in range(st.size()):
+		for c in range(st[r].size()):
+			var d = st[r][c]
+			if typeof(d) == TYPE_DICTIONARY and d.get("is_dirt", false):
+				st[r][c] = ""
+	Economy.save_track(st)
 
 
 # ── Auto-Vervollständigung ──────────────────────────────────────────────────────
@@ -1285,7 +1477,7 @@ func _auto_complete_track() -> void:
 			"flipped":       false,
 			"direction":     p.get("dir", 1),
 			"points":        0.0,
-			"multiplier":    0.5,
+			"multiplier":    0.1,
 			"variant_label": "",
 			"is_start":      false,
 			"is_dirt":       true,
