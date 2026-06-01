@@ -2,20 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpj5ptr7w5fiu"
-path.s3tc="res://.godot/imported/Dirt_straight_0.png-dce53d4b9bf49a2d3a83cc40747ec204.s3tc.ctex"
+uid="uid://cqdmnoajgxxgd"
+path.s3tc="res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "2f0d6d4643720dd2a0fb6f9bfa9ac6bf"
+"md5": "f6c0488e2a60d0316f717a536c3d5e1d"
 }
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/staight/Default/Dirt_straight_0.png"
-dest_files=["res://.godot/imported/Dirt_straight_0.png-dce53d4b9bf49a2d3a83cc40747ec204.s3tc.ctex"]
+source_file="res://assets/3D-models/tracks/staight/Default/Default_Street_0.png"
+dest_files=["res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.s3tc.ctex"]
 
 [params]
 

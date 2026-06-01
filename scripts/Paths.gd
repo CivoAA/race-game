@@ -24,6 +24,10 @@ const SCRIPT_TRACK_GENERATOR = "res://scripts/TrackGenerator3D.gd"
 # ── Assets ────────────────────────────────────────────────────────────────────
 const MODEL_DEFAULT_CAR = "res://assets/3D-models/cars/default_car/car.glb"
 
+# 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben)
+const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/Default/Default_Street.glb"
+const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/Dirt/Dirt_straight.glb"
+
 # ── Speicherung & Einstellungen ───────────────────────────────────────────────
 const SETTINGS_FILE = "user://settings.cfg"
 const SAVE_SLOT_FMT = "user://savegame_slot%d.dat"

@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cwifofo8o6b6r"
-path="res://.godot/imported/Dirt_straight.glb-4d2a56711af0aefb3e47e82cfc0ae178.scn"
+uid="uid://jtm6gywgwuvd"
+path="res://.godot/imported/Default_Street.glb-8c0f1e520215b55fea382053989136e9.scn"
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/staight/Default/Dirt_straight.glb"
-dest_files=["res://.godot/imported/Dirt_straight.glb-4d2a56711af0aefb3e47e82cfc0ae178.scn"]
+source_file="res://assets/3D-models/tracks/staight/Default/Default_Street.glb"
+dest_files=["res://.godot/imported/Default_Street.glb-8c0f1e520215b55fea382053989136e9.scn"]
 
 [params]
 
