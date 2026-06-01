@@ -3,8 +3,6 @@ extends Node3D
 const TILE_SIZE = 1.2
 const ROAD_Y    = 0.01
 
-const SCENE_STRAIGHT = "res://scenes/tiles3d/Straight3D.tscn"
-const SCENE_CURVE    = "res://scenes/tiles3d/Curve3D.tscn"
 
 
 func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
@@ -98,7 +96,7 @@ func generate(grid_state: Array) -> void:
 				add_child(ramp_node)
 				continue
 
-			var scene_path = SCENE_STRAIGHT if d["type"] == "straight" else SCENE_CURVE
+			var scene_path = Paths.SCENE_TILE_STRAIGHT_3D if d["type"] == "straight" else Paths.SCENE_TILE_CURVE_3D
 			var scene = load(scene_path)
 			if scene == null:
 				push_error("3D-Tile-Szene nicht gefunden: " + scene_path)

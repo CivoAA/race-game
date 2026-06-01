@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://b5bc8ice321c0"
-path="res://.godot/imported/Car_eric.glb-2723a3712e0129e86e8987012890ced2.scn"
+path="res://.godot/imported/Car_eric.glb-8d4fd1f5c4887c1512b00e1ea0c89fd0.scn"
 
 [deps]
 
-source_file="res://assets/3D-models/eric_car/Car_eric.glb"
-dest_files=["res://.godot/imported/Car_eric.glb-2723a3712e0129e86e8987012890ced2.scn"]
+source_file="res://assets/3D-models/cars/eric_car/Car_eric.glb"
+dest_files=["res://.godot/imported/Car_eric.glb-8d4fd1f5c4887c1512b00e1ea0c89fd0.scn"]
 
 [params]
 

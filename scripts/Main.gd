@@ -5,13 +5,8 @@ var GRID_ROWS: int = 5
 var GRID_COLS: int = 6
 const TILE_SIZE = 100
 
-const SCENE_STRAIGHT  = "res://scenes/tiles2d/Straight2D.tscn"
-const SCENE_CURVE     = "res://scenes/tiles2d/Curve2D.tscn"
-const SCENE_CURVE_ALT = "res://scenes/tiles2d/Curve2D_alt.tscn"
-
-# Per Skript-Pfad geladen (reihenfolge-unabhängig, ohne class_name-Auflösung)
-const CurrencyHudScript = preload("res://scripts/CurrencyHud.gd")
-const UpgradeMenuScript  = preload("res://scripts/UpgradeMenu.gd")
+var CurrencyHudScript = load(Paths.SCRIPT_CURRENCY_HUD)
+var UpgradeMenuScript  = load(Paths.SCRIPT_UPGRADE_MENU)
 
 const SHOP_TYPES = ["straight", "curve"]
 
@@ -397,9 +392,9 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 
 	var scene_path: String
 	match data["type"]:
-		"straight":  scene_path = SCENE_STRAIGHT
-		"curve_alt": scene_path = SCENE_CURVE_ALT
-		_:           scene_path = SCENE_CURVE
+		"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+		"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
+		_:           scene_path = Paths.SCENE_TILE_CURVE_2D
 	var scene = load(scene_path)
 	if scene == null:
 		push_error("Szene nicht gefunden: " + scene_path)
@@ -1296,7 +1291,7 @@ func _on_fahren_pressed() -> void:
 	# Fahr-Zustand: Tiles auf Bonusfeldern bekommen den Effekt mitgegeben.
 	Engine.set_meta("pending_grid_state", _build_drive_state())
 	Engine.set_meta("saved_grid_state",   get_grid_state())
-	var world_scene = load("res://scenes/World3D.tscn")
+	var world_scene = load(Paths.SCENE_WORLD3D)
 	if world_scene:
 		get_tree().change_scene_to_packed(world_scene)
 

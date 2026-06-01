@@ -2,9 +2,6 @@ extends Node3D
 ## Das Auto – lädt das 3D-Modell und fährt später eine Route ab.
 ## Position und Rotation werden von außen gesetzt (durch CarController).
 
-# Pfad zum 3D-Modell – passe das an falls deine Datei anders heißt
-const MODEL_PATH = "res://assets/3D-models/default_car/car.glb"
-
 # Skalierung des Modells – anpassen falls zu groß/klein
 const MODEL_SCALE = Vector3(0.3, 0.3, 0.3)
 
@@ -19,16 +16,16 @@ func _ready() -> void:
 
 
 func _load_model() -> void:
-	if ResourceLoader.exists(MODEL_PATH):
-		var scene = load(MODEL_PATH)
+	if ResourceLoader.exists(Paths.MODEL_DEFAULT_CAR):
+		var scene = load(Paths.MODEL_DEFAULT_CAR)
 		model = scene.instantiate()
 		model.scale = MODEL_SCALE
 		model.position.y = CAR_Y
 		add_child(model)
-		print("Auto-Modell geladen: ", MODEL_PATH)
+		print("Auto-Modell geladen: ", Paths.MODEL_DEFAULT_CAR)
 	else:
 		# Fallback: einfache Box wenn kein Modell gefunden
-		push_warning("Kein Modell unter '%s' gefunden – nutze Platzhalter-Box." % MODEL_PATH)
+		push_warning("Kein Modell unter '%s' gefunden – nutze Platzhalter-Box." % Paths.MODEL_DEFAULT_CAR)
 		_spawn_placeholder()
 
 

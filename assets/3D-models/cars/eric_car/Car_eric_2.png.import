@@ -2,20 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://xuqtua648ju3"
-path.s3tc="res://.godot/imported/Car_eric_1.png-aa679d1dc22a7013c59c5790ebb49ca9.s3tc.ctex"
+uid="uid://cyaaxr6a1lbf1"
+path.s3tc="res://.godot/imported/Car_eric_2.png-3f9e77f848eda330e0178f692f7edf34.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "aa943c7b94f54cfb30c46401397c2442"
+"md5": "fac0e0713bb5161f5fd51c60e72dabdd"
 }
 
 [deps]
 
-source_file="res://assets/3D-models/eric_car/Car_eric_1.png"
-dest_files=["res://.godot/imported/Car_eric_1.png-aa679d1dc22a7013c59c5790ebb49ca9.s3tc.ctex"]
+source_file="res://assets/3D-models/cars/eric_car/Car_eric_2.png"
+dest_files=["res://.godot/imported/Car_eric_2.png-3f9e77f848eda330e0178f692f7edf34.s3tc.ctex"]
 
 [params]
 
