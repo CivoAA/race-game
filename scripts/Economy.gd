@@ -81,6 +81,7 @@ var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke (Grid-State ohne Dreck-Tiles)
 var _current_slot:  int        = 0
+var _slot_name:     String     = ""
 
 
 func _ready() -> void:
@@ -111,6 +112,7 @@ func get_slot_info(slot: int) -> Dictionary:
 	return {
 		"currency":  int(data.get("currency", 0)),
 		"timestamp": String(data.get("timestamp", "")),
+		"name":      String(data.get("name", "")),
 	}
 
 
@@ -322,6 +324,7 @@ func save_game_to_slot(slot: int) -> void:
 		"upgrades":  upgrade_levels,
 		"track":     track,
 		"timestamp": Time.get_datetime_string_from_system(false, true),
+		"name":      _slot_name,
 	}))
 	f.close()
 
@@ -348,6 +351,7 @@ func load_game_from_slot(slot: int) -> void:
 	upgrade_levels = ups.duplicate() if typeof(ups) == TYPE_DICTIONARY else {}
 	var tr         = data.get("track", [])
 	track          = tr if typeof(tr) == TYPE_ARRAY else []
+	_slot_name     = String(data.get("name", ""))
 
 
 func reset_slot(slot: int) -> void:
@@ -355,7 +359,36 @@ func reset_slot(slot: int) -> void:
 	_currency      = START_CURRENCY
 	upgrade_levels = {}
 	track          = []
+	_slot_name     = ""
 	save_game_to_slot(slot)
+
+
+func rename_slot(slot: int, new_name: String) -> void:
+	if not slot_exists(slot):
+		return
+	var f = FileAccess.open(get_save_path(slot), FileAccess.READ)
+	if f == null:
+		return
+	var data = str_to_var(f.get_as_text())
+	f.close()
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	data["name"] = new_name
+	var fw = FileAccess.open(get_save_path(slot), FileAccess.WRITE)
+	if fw == null:
+		return
+	fw.store_string(var_to_str(data))
+	fw.close()
+	if slot == _current_slot:
+		_slot_name = new_name
+
+
+func delete_slot(slot: int) -> void:
+	if not slot_exists(slot):
+		return
+	var dir := DirAccess.open("user://")
+	if dir:
+		dir.remove(get_save_path(slot).get_file())
 
 
 func reset() -> void:

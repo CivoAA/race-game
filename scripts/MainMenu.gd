@@ -1,7 +1,7 @@
 extends Control
 
-const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
-const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
+const LANGUAGES    = [["Deutsch", "de"], ["English", "en"]]
+const WINDOW_MODES = ["Fenster", "Rahmenlos", "Vollbild"]
 
 const C_BG        := Color(0.07, 0.08, 0.12)
 const C_SURFACE   := Color(0.10, 0.115, 0.165)
@@ -20,12 +20,19 @@ var _options_panel:      Control
 var _achievements_panel: Control
 var _slot_panel:         Control
 var _confirm_modal:      Control
+var _rename_modal:       Control
+var _delete_modal:       Control
 
-var _slot_is_load     := false
-var _slot_title_lbl:  Label
-var _slot_btns:       Array[Button] = []
-var _slot_info_labels: Array[Label] = []
-var _confirm_slot:    int = 0
+var _slot_is_load      := false
+var _slot_title_lbl:   Label
+var _slot_btns:        Array[Button] = []
+var _slot_info_labels: Array[Label]  = []
+var _slot_name_labels: Array[Label]  = []
+var _slot_rename_btns: Array[Button] = []
+var _slot_delete_btns: Array[Button] = []
+var _confirm_slot:     int = 0
+var _action_slot:      int = 0
+var _rename_line_edit: LineEdit
 
 var _lang_option:    OptionButton
 var _master_slider:  HSlider
@@ -48,6 +55,8 @@ func _ready() -> void:
 	_achievements_panel = _build_achievements_panel()
 	_slot_panel         = _build_slot_panel()
 	_confirm_modal      = _build_confirm_modal()
+	_rename_modal       = _build_rename_modal()
+	_delete_modal       = _build_delete_modal()
 	_show_main()
 	_apply_settings()
 
@@ -96,8 +105,14 @@ func _build_main_panel() -> Control:
 
 	_add_spacer(vbox, 14)
 
-	_add_menu_button(vbox, "01", "Neues Spiel",      C_ACCENT,    func(): _show_slot_panel(false))
-	_add_menu_button(vbox, "02", "Spiel laden",      C_ACCENT_MU, func(): _show_slot_panel(true))
+	var _any_save = Economy.slot_exists(0) or Economy.slot_exists(1) or Economy.slot_exists(2)
+	if _any_save:
+		_add_menu_button(vbox, "01", "Spiel laden",  C_ACCENT,    func(): _show_slot_panel(true))
+		_add_menu_button(vbox, "02", "Neues Spiel",  C_ACCENT_MU, func(): _show_slot_panel(false))
+	else:
+		_add_menu_button(vbox, "01", "Neues Spiel",  C_ACCENT,    func(): _show_slot_panel(false))
+		_add_menu_button(vbox, "02", "Spiel laden",  C_ACCENT_MU, func(): _show_slot_panel(true))
+
 	_add_menu_button(vbox, "03", "Optionen",         C_ACCENT_MU, _show_options)
 	_add_menu_button(vbox, "04", "Errungenschaften", C_ACCENT_MU, _show_achievements)
 	_add_spacer(vbox, 10)
@@ -172,7 +187,7 @@ func _build_slot_panel() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(480, 0)
+	panel.custom_minimum_size = Vector2(560, 0)
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 
@@ -192,10 +207,12 @@ func _build_slot_panel() -> Control:
 
 	_slot_btns.clear()
 	_slot_info_labels.clear()
+	_slot_name_labels.clear()
+	_slot_rename_btns.clear()
+	_slot_delete_btns.clear()
+
 	for i in 3:
-		var btn := _build_slot_button(i)
-		vbox.add_child(btn)
-		_slot_btns.append(btn)
+		vbox.add_child(_build_slot_row(i))
 
 	_add_spacer(vbox, 8)
 	_add_back_button(vbox, _show_main)
@@ -203,12 +220,16 @@ func _build_slot_panel() -> Control:
 	return overlay
 
 
-func _build_slot_button(slot: int) -> Button:
+func _build_slot_row(slot: int) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+
+	# ── Haupt-Button ──
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(424, 62)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0, 62)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-
 	btn.add_theme_stylebox_override("normal",   _btn_style(C_SURFACE,                 C_ACCENT_MU))
 	btn.add_theme_stylebox_override("hover",    _btn_style(C_SURFACE.lightened(0.05), C_ACCENT))
 	btn.add_theme_stylebox_override("pressed",  _btn_style(C_SURFACE2,                C_ACCENT))
@@ -243,11 +264,11 @@ func _build_slot_button(slot: int) -> Button:
 	name_lbl.add_theme_color_override("font_color", C_TEXT)
 	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hbox.add_child(name_lbl)
+	_slot_name_labels.append(name_lbl)
 
 	var info_lbl := Label.new()
 	info_lbl.text = "LEER"
-	info_lbl.name = "InfoLabel"
-	info_lbl.custom_minimum_size = Vector2(130, 0)
+	info_lbl.custom_minimum_size = Vector2(120, 0)
 	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	info_lbl.add_theme_font_size_override("font_size", 12)
@@ -258,7 +279,7 @@ func _build_slot_button(slot: int) -> Button:
 
 	var arrow := Label.new()
 	arrow.text = "▶"
-	arrow.custom_minimum_size = Vector2(48, 0)
+	arrow.custom_minimum_size = Vector2(40, 0)
 	arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	arrow.add_theme_font_size_override("font_size", 11)
@@ -267,6 +288,36 @@ func _build_slot_button(slot: int) -> Button:
 	hbox.add_child(arrow)
 
 	btn.pressed.connect(func(): _on_slot_selected(slot))
+	row.add_child(btn)
+	_slot_btns.append(btn)
+
+	# ── Umbenennen-Button ──
+	var ren_btn := _build_action_btn("✎", C_ACCENT_MU)
+	ren_btn.pressed.connect(func(): _show_rename_modal(slot))
+	row.add_child(ren_btn)
+	_slot_rename_btns.append(ren_btn)
+
+	# ── Löschen-Button ──
+	var del_btn := _build_action_btn("✕", C_ACCENT_RD)
+	del_btn.pressed.connect(func(): _show_delete_modal(slot))
+	row.add_child(del_btn)
+	_slot_delete_btns.append(del_btn)
+
+	return row
+
+
+func _build_action_btn(icon: String, accent: Color) -> Button:
+	var btn := Button.new()
+	btn.text = icon
+	btn.custom_minimum_size = Vector2(54, 62)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal",  _btn_style(C_SURFACE,                 accent.darkened(0.4)))
+	btn.add_theme_stylebox_override("hover",   _btn_style(C_SURFACE.lightened(0.05), accent))
+	btn.add_theme_stylebox_override("pressed", _btn_style(C_SURFACE2,                accent))
+	btn.add_theme_stylebox_override("focus",   _btn_style(C_SURFACE,                 accent.darkened(0.4)))
+	btn.add_theme_color_override("font_color", C_TEXT)
+	btn.add_theme_font_size_override("font_size", 18)
 	return btn
 
 
@@ -274,26 +325,33 @@ func _show_slot_panel(is_load: bool) -> void:
 	_slot_is_load = is_load
 	_hide_all()
 	_slot_panel.visible = true
+	_slot_title_lbl.text = "SPIEL LADEN" if is_load else "NEUES SPIEL"
+	_refresh_slot_rows()
 
-	if is_load:
-		_slot_title_lbl.text = "SPIEL LADEN"
-	else:
-		_slot_title_lbl.text = "NEUES SPIEL"
 
+func _refresh_slot_rows() -> void:
 	for i in 3:
 		var info = Economy.get_slot_info(i)
-		if info.is_empty():
-			_slot_info_labels[i].text = "LEER"
-			_slot_info_labels[i].add_theme_color_override("font_color", C_TEXT_DIM)
-			_slot_btns[i].disabled = is_load
-		else:
+		var has_data = not info.is_empty()
+
+		if has_data:
+			var custom_name = String(info.get("name", ""))
+			_slot_name_labels[i].text = custom_name.to_upper() if custom_name != "" else "SLOT %d" % (i + 1)
+
 			var ts   = String(info.get("timestamp", ""))
 			var date = ts.substr(0, 10) if ts.length() >= 10 else ts
 			var time = ts.substr(11, 5) if ts.length() >= 16 else ""
 			var disp = "%s %s" % [date, time] if time != "" else date
 			_slot_info_labels[i].text = "%d G  %s" % [int(info.get("currency", 0)), disp]
 			_slot_info_labels[i].add_theme_color_override("font_color", C_ACCENT.darkened(0.1))
-			_slot_btns[i].disabled = false
+		else:
+			_slot_name_labels[i].text = "SLOT %d" % (i + 1)
+			_slot_info_labels[i].text = "LEER"
+			_slot_info_labels[i].add_theme_color_override("font_color", C_TEXT_DIM)
+
+		_slot_btns[i].disabled = _slot_is_load and not has_data
+		_slot_rename_btns[i].visible = has_data
+		_slot_delete_btns[i].visible = has_data
 
 
 func _on_slot_selected(slot: int) -> void:
@@ -306,6 +364,125 @@ func _on_slot_selected(slot: int) -> void:
 		else:
 			Economy.reset_slot(slot)
 			get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
+
+
+# ── Umbenennen-Modal ──────────────────────────────────────────────────────────
+
+func _build_rename_modal() -> Control:
+	var overlay := _make_overlay()
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "UMBENENNEN")
+	_add_hline(vbox)
+	_add_spacer(vbox, 2)
+
+	_rename_line_edit = LineEdit.new()
+	_rename_line_edit.placeholder_text = "Name eingeben..."
+	_rename_line_edit.custom_minimum_size = Vector2(0, 48)
+	_rename_line_edit.add_theme_color_override("font_color", C_TEXT)
+	_rename_line_edit.add_theme_color_override("font_placeholder_color", C_TEXT_DIM)
+	_rename_line_edit.add_theme_font_size_override("font_size", 15)
+
+	var le_style := StyleBoxFlat.new()
+	le_style.bg_color = C_SURFACE
+	le_style.border_width_left = 2
+	le_style.border_color = C_ACCENT_MU
+	le_style.content_margin_left   = 10
+	le_style.content_margin_right  = 10
+	le_style.content_margin_top    = 4
+	le_style.content_margin_bottom = 4
+	var le_focus := le_style.duplicate() as StyleBoxFlat
+	le_focus.border_color = C_ACCENT
+	_rename_line_edit.add_theme_stylebox_override("normal", le_style)
+	_rename_line_edit.add_theme_stylebox_override("focus",  le_focus)
+	_rename_line_edit.text_submitted.connect(func(_t): _confirm_rename())
+	vbox.add_child(_rename_line_edit)
+
+	_add_spacer(vbox, 4)
+	_add_menu_button(vbox, "→", "Speichern",  C_ACCENT,    _confirm_rename)
+	_add_menu_button(vbox, "←", "Abbrechen",  C_ACCENT_MU, func():
+		_hide_all()
+		_slot_panel.visible = true
+	)
+
+	return overlay
+
+
+func _show_rename_modal(slot: int) -> void:
+	_action_slot = slot
+	var info = Economy.get_slot_info(slot)
+	_rename_line_edit.text = String(info.get("name", ""))
+	_rename_line_edit.grab_focus()
+	_hide_all()
+	_rename_modal.visible = true
+
+
+func _confirm_rename() -> void:
+	var new_name = _rename_line_edit.text.strip_edges()
+	Economy.rename_slot(_action_slot, new_name)
+	_hide_all()
+	_slot_panel.visible = true
+	_refresh_slot_rows()
+
+
+# ── Löschen-Modal ─────────────────────────────────────────────────────────────
+
+func _build_delete_modal() -> Control:
+	var overlay := _make_overlay()
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "LÖSCHEN?")
+	_add_hline(vbox)
+
+	var text_lbl := Label.new()
+	text_lbl.text = "Dieser Spielstand wird\nunwiderruflich gelöscht."
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(text_lbl)
+
+	_add_spacer(vbox, 4)
+	_add_menu_button(vbox, "→", "Löschen",   C_ACCENT_RD, _confirm_delete)
+	_add_menu_button(vbox, "←", "Abbrechen", C_ACCENT_MU, func():
+		_hide_all()
+		_slot_panel.visible = true
+	)
+
+	return overlay
+
+
+func _show_delete_modal(slot: int) -> void:
+	_action_slot = slot
+	_hide_all()
+	_delete_modal.visible = true
+
+
+func _confirm_delete() -> void:
+	Economy.delete_slot(_action_slot)
+	_hide_all()
+	_slot_panel.visible = true
+	_refresh_slot_rows()
 
 
 # ── Bestätigungs-Modal (Spielstand überschreiben) ─────────────────────────────
@@ -335,7 +512,6 @@ func _build_confirm_modal() -> Control:
 	vbox.add_child(text_lbl)
 
 	_add_spacer(vbox, 6)
-
 	_add_menu_button(vbox, "→", "Neu starten", C_ACCENT_RD, func():
 		Economy.reset_slot(_confirm_slot)
 		get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
@@ -668,6 +844,8 @@ func _hide_all() -> void:
 	_achievements_panel.visible = false
 	_slot_panel.visible         = false
 	_confirm_modal.visible      = false
+	_rename_modal.visible       = false
+	_delete_modal.visible       = false
 
 
 func _show_main() -> void:
