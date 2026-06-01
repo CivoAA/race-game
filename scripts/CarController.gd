@@ -1,7 +1,7 @@
 extends Node3D
 
 const TILE_SIZE = 1.2
-var speed: float = 2.0
+var speed: float = 4.5
 
 var waypoints: Array[Vector3] = []
 var current_wp: int = 0
@@ -9,6 +9,18 @@ var driving: bool = false
 var car: Node3D = null
 
 const MODEL_ROTATION_OFFSET = PI / 2.0
+
+# Visuelles Roll (Kurvenneigung) und Pitch (Rampenneigung)
+const ROLL_FACTOR = 0.055   # rad Roll pro rad/s Gierrate
+const ROLL_MAX    = 0.30    # ~17° maximale Kurvenneigung
+const ROLL_SMOOTH = 12.0
+const PITCH_FACTOR = 0.14   # rad Pitch pro m/s Vertikalgeschwindigkeit
+const PITCH_MAX   = 0.50    # ~29° maximale Nasenneigung
+const PITCH_SMOOTH = 9.0
+
+var _prev_yaw: float     = 0.0
+var _prev_car_y: float   = 0.0
+var _yaw_init: bool      = false
 
 
 func _ready() -> void:
@@ -49,8 +61,27 @@ func _process(delta: float) -> void:
 
 	var flat_dir = Vector3(dir.x, 0, dir.z).normalized()
 	if flat_dir.length() > 0.001:
-		var angle = atan2(flat_dir.x, flat_dir.z)
-		car.rotation.y = angle + MODEL_ROTATION_OFFSET
+		var new_yaw = atan2(flat_dir.x, flat_dir.z)
+		car.rotation.y = new_yaw + MODEL_ROTATION_OFFSET
+
+		# ── Kurvenneigung (Roll) ──────────────────────────────────────────
+		if _yaw_init:
+			var dyaw = new_yaw - _prev_yaw
+			if dyaw >  PI: dyaw -= 2.0 * PI
+			if dyaw < -PI: dyaw += 2.0 * PI
+			var yaw_rate  = dyaw / max(delta, 0.001)
+			var roll_t    = clamp(-yaw_rate * ROLL_FACTOR, -ROLL_MAX, ROLL_MAX)
+			car.rotation.z = lerp(car.rotation.z, roll_t, delta * ROLL_SMOOTH)
+		else:
+			car.rotation.z = lerp(car.rotation.z, 0.0, delta * ROLL_SMOOTH)
+		_prev_yaw  = new_yaw
+		_yaw_init  = true
+
+	# ── Rampen-Neigung (Pitch) ────────────────────────────────────────────
+	var vy      = (car.position.y - _prev_car_y) / max(delta, 0.001)
+	var pitch_t = clamp(vy * PITCH_FACTOR, -PITCH_MAX, PITCH_MAX)
+	car.rotation.x = lerp(car.rotation.x, pitch_t, delta * PITCH_SMOOTH)
+	_prev_car_y = car.position.y
 
 
 # ── Verbindungs-Logik ──────────────────────────────────────────────────────────
@@ -60,7 +91,7 @@ func _get_connections(data) -> Dictionary:
 		return {}
 
 	var bn: bool; var be: bool; var bs: bool; var bw: bool
-	if data["type"] == "straight":
+	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end":
 		bn = false; be = true; bs = false; bw = true
 	elif data["type"] == "curve" or data["type"] == "curve_alt":
 		# curve und curve_alt haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
@@ -179,6 +210,12 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		route.append({"row": row, "col": col, "data": grid_state[row][col], "exit": exit_dir})
 
 		var next = _step(row, col, exit_dir)
+		# ramp_start: Mittelfeld (der Sprung) überspringen
+		if typeof(grid_state[row][col]) == TYPE_DICTIONARY:
+			if grid_state[row][col].get("type", "") == "ramp_start":
+				var skip = _step(next.x, next.y, exit_dir)
+				if skip.x >= 0 and skip.x < grid_rows and skip.y >= 0 and skip.y < grid_cols:
+					next = skip
 		if next.x < 0 or next.x >= grid_rows or next.y < 0 or next.y >= grid_cols:
 			break
 		var next_data = grid_state[next.x][next.y]
@@ -216,7 +253,26 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 	var rot     = data["rotation"]
 	var flipped = data.get("flipped", false)
 
-	if type == "straight":
+	if type == "ramp_start":
+		# Parabolischer Bogen: ramp_start-Mitte → über Mittelfeld → ramp_end-Ausgang
+		var d      = _dir_to_vec(exit_dir)
+		var peak_h = 0.55
+		var p_end  = Vector3(
+			center.x + d.x * TILE_SIZE * 2.5,
+			0.05,
+			center.z + d.z * TILE_SIZE * 2.5
+		)
+		var arc_steps = 16
+		for i in range(arc_steps + 1):
+			var t   = float(i) / arc_steps
+			var pos = center.lerp(p_end, t)
+			pos.y   = peak_h * 4.0 * t * (1.0 - t) + 0.05
+			wps.append(pos)
+
+	elif type == "ramp_end":
+		pass  # Bogen wurde bereits von ramp_start generiert
+
+	elif type == "straight":
 		wps.append(center)
 		wps.append(center + _dir_to_vec(exit_dir) * half)
 
