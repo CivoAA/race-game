@@ -131,19 +131,74 @@ func _setup_hud() -> void:
 	_currency_hud = CurrencyHudScript.new()
 	add_child(_currency_hud)
 
-	var layer = CanvasLayer.new()
-	layer.layer = 6
+	# Eigene HUD-Bar (Layer 9 = unter CurrencyHud Layer 10)
+	# Verstärkt den CurrencyHud-Streifen zu einem soliden, durchgängigen Balken
+	var layer := CanvasLayer.new()
+	layer.layer = 9
 	add_child(layer)
 
-	_timer_label = _make_hud_label(Vector2(0, 44), 20, Color(1, 1, 1))
+	# Dunkler, durchgehender Hintergrundbalken – volle Breite, kein sichtbarer Rand
+	var bar_bg := ColorRect.new()
+	bar_bg.position = Vector2(0, 0)
+	bar_bg.size     = Vector2(960, 46)
+	bar_bg.color    = Color(0.05, 0.06, 0.09, 0.88)
+	layer.add_child(bar_bg)
+
+	# Leuchtende Unterkante für Tiefe
+	var bar_line := ColorRect.new()
+	bar_line.position = Vector2(0, 45)
+	bar_line.size     = Vector2(960, 1)
+	bar_line.color    = Color(0.28, 0.34, 0.52, 0.90)
+	layer.add_child(bar_line)
+
+	# Timer – links, groß
+	_timer_label = Label.new()
+	_timer_label.position = Vector2(12, 8)
+	_timer_label.size     = Vector2(210, 30)
+	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_timer_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_timer_label.add_theme_font_size_override("font_size", 21)
+	_timer_label.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+	_timer_label.add_theme_constant_override("outline_size", 3)
+	_timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_timer_label)
 
-	# Laufende Runde (zählt pro Tile hoch)
-	_round_label = _make_hud_label(Vector2(0, 70), 18, Color(1.0, 0.92, 0.4))
+	# Trennlinie links nach Timer
+	var sep_l := ColorRect.new()
+	sep_l.position = Vector2(228, 8)
+	sep_l.size     = Vector2(1, 30)
+	sep_l.color    = Color(0.28, 0.34, 0.52, 0.50)
+	layer.add_child(sep_l)
+
+	# Trennlinie rechts vor Stats
+	var sep_r := ColorRect.new()
+	sep_r.position = Vector2(730, 8)
+	sep_r.size     = Vector2(1, 30)
+	sep_r.color    = Color(0.28, 0.34, 0.52, 0.50)
+	layer.add_child(sep_r)
+
+	# Laufende Runde – rechts oben
+	_round_label = Label.new()
+	_round_label.position = Vector2(736, 6)
+	_round_label.size     = Vector2(216, 17)
+	_round_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_round_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_round_label.add_theme_font_size_override("font_size", 14)
+	_round_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.35))
+	_round_label.add_theme_constant_override("outline_size", 3)
+	_round_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_round_label)
 
-	# Gesamter Lauf
-	_earned_label = _make_hud_label(Vector2(0, 94), 16, Color(0.6, 1.0, 0.6))
+	# Lauf gesamt – rechts unten
+	_earned_label = Label.new()
+	_earned_label.position = Vector2(736, 24)
+	_earned_label.size     = Vector2(216, 17)
+	_earned_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_earned_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_earned_label.add_theme_font_size_override("font_size", 13)
+	_earned_label.add_theme_color_override("font_color", Color(0.50, 0.95, 0.58))
+	_earned_label.add_theme_constant_override("outline_size", 3)
+	_earned_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_earned_label)
 
 
@@ -156,15 +211,15 @@ func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 	lbl.add_theme_font_size_override("font_size", font_size)
 	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_constant_override("outline_size", 4)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	return lbl
 
 
 func _update_run_hud() -> void:
 	if _timer_label != null:
-		_timer_label.text = "⏱ %.1f s" % _run_time_left
+		_timer_label.text = "⏱  %.1f s" % _run_time_left
 	if _earned_label != null:
-		_earned_label.text = "Lauf gesamt:  +%s 💰" % Economy.format_currency(_run_earned)
+		_earned_label.text = "Gesamt  +%s 💰" % Economy.format_currency(_run_earned)
 
 
 func _update_round_hud() -> void:
@@ -173,7 +228,7 @@ func _update_round_hud() -> void:
 	var sum := 0
 	for v in _lap_running:
 		sum += int(v)
-	_round_label.text = "Runde:  +%s 💰" % Economy.format_currency(sum)
+	_round_label.text = "Runde  +%s 💰" % Economy.format_currency(sum)
 
 
 func _show_summary() -> void:
@@ -181,29 +236,94 @@ func _show_summary() -> void:
 	layer.layer = 8
 	add_child(layer)
 
-	var panel = Panel.new()
-	panel.size     = Vector2(360, 200)
-	panel.position = Vector2((960 - 360) / 2.0, (540 - 200) / 2.0)
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.13, 0.16, 0.96)
-	style.border_color = Color(1.0, 0.85, 0.2)
-	style.set_border_width_all(2)
+	# Abdunkelnder Hintergrund
+	var dim := ColorRect.new()
+	dim.position = Vector2(0, 0)
+	dim.size     = Vector2(960, 540)
+	dim.color    = Color(0, 0, 0, 0.55)
+	layer.add_child(dim)
+
+	const PW = 400
+	const PH = 230
+
+	var panel := Panel.new()
+	panel.size     = Vector2(PW, PH)
+	panel.position = Vector2((960 - PW) / 2.0, (540 - PH) / 2.0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.09, 0.13, 0.97)
+	style.border_width_left   = 3
+	style.border_width_right  = 1
+	style.border_width_top    = 1
+	style.border_width_bottom = 1
+	style.border_color        = Color(1.0, 0.82, 0.18)
 	style.set_corner_radius_all(8)
+	style.content_margin_left   = 28
+	style.content_margin_right  = 28
+	style.content_margin_top    = 24
+	style.content_margin_bottom = 24
 	panel.add_theme_stylebox_override("panel", style)
 	layer.add_child(panel)
 
-	var title = _make_hud_label(Vector2(0, 24), 26, Color(1.0, 0.9, 0.3))
-	title.size = Vector2(360, 32); title.text = "Lauf beendet!"
+	# Titel
+	var title := Label.new()
+	title.text = "LAUF BEENDET"
+	title.position = Vector2(0, 16)
+	title.size = Vector2(PW, 34)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.20))
 	panel.add_child(title)
 
-	var earned = _make_hud_label(Vector2(0, 76), 22, Color(0.6, 1.0, 0.6))
-	earned.size = Vector2(360, 30); earned.text = "+%s 💰 verdient" % Economy.format_currency(_run_earned)
-	panel.add_child(earned)
+	# Trennlinie
+	var line := ColorRect.new()
+	line.position = Vector2(28, 58)
+	line.size     = Vector2(PW - 56, 1)
+	line.color    = Color(1.0, 0.82, 0.18, 0.30)
+	panel.add_child(line)
 
-	var btn = Button.new()
-	btn.text = "Zurück zum Bauplan"
-	btn.position = Vector2(80, 130)
-	btn.size = Vector2(200, 44)
+	# Verdient-Label
+	var earned_lbl := Label.new()
+	earned_lbl.text = "+%s 💰  verdient" % Economy.format_currency(_run_earned)
+	earned_lbl.position = Vector2(0, 72)
+	earned_lbl.size = Vector2(PW, 38)
+	earned_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	earned_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	earned_lbl.add_theme_font_size_override("font_size", 24)
+	earned_lbl.add_theme_color_override("font_color", Color(0.50, 1.0, 0.60))
+	earned_lbl.add_theme_constant_override("outline_size", 3)
+	earned_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	panel.add_child(earned_lbl)
+
+	# Info-Text
+	var info := Label.new()
+	info.text = "Der Betrag wurde deinem Konto gutgeschrieben."
+	info.position = Vector2(0, 118)
+	info.size = Vector2(PW, 22)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	info.add_theme_font_size_override("font_size", 12)
+	info.add_theme_color_override("font_color", Color(0.36, 0.40, 0.52))
+	panel.add_child(info)
+
+	# Zurück-Button
+	var btn := Button.new()
+	btn.text = "← Zurück zum Bauplan"
+	btn.position = Vector2(28, 152)
+	btn.size = Vector2(PW - 56, 50)
+	var btn_sb := StyleBoxFlat.new()
+	btn_sb.bg_color = Color(0.12, 0.14, 0.20)
+	btn_sb.border_width_left = 3
+	btn_sb.border_color = Color(1.0, 0.82, 0.18, 0.70)
+	btn_sb.set_corner_radius_all(4)
+	btn_sb.content_margin_top = 8; btn_sb.content_margin_bottom = 8
+	var btn_hov := btn_sb.duplicate() as StyleBoxFlat
+	btn_hov.bg_color = Color(0.18, 0.20, 0.28)
+	btn_hov.border_color = Color(1.0, 0.82, 0.18)
+	btn.add_theme_stylebox_override("normal",  btn_sb)
+	btn.add_theme_stylebox_override("hover",   btn_hov)
+	btn.add_theme_stylebox_override("pressed", btn_sb)
+	btn.add_theme_stylebox_override("focus",   btn_sb)
+	btn.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
+	btn.add_theme_font_size_override("font_size", 14)
 	btn.pressed.connect(_on_back_pressed)
 	panel.add_child(btn)
 

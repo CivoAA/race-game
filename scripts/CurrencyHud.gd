@@ -12,16 +12,16 @@ var _gain_tween: Tween = null
 func _ready() -> void:
 	layer = 10
 
-	# Dunkler Streifen über dem Grid-Bereich (links/rechts durch Panel-Bgs abgedeckt)
+	# Subtiler Streifen über voller Breite (in 2D kaum sichtbar, in 3D durch World3D-Bar überlagert)
 	var bg := ColorRect.new()
-	bg.position = Vector2(144, 0)
-	bg.size     = Vector2(608, 38)
-	bg.color    = Color(0, 0, 0, 0.40)
+	bg.position = Vector2(0, 0)
+	bg.size     = Vector2(VIEWPORT_WIDTH, 46)
+	bg.color    = Color(0, 0, 0, 0.22)
 	add_child(bg)
 
 	_label = Label.new()
-	_label.position = Vector2(144, 4)
-	_label.size = Vector2(608, 30)
+	_label.position = Vector2(0, 8)
+	_label.size = Vector2(VIEWPORT_WIDTH, 30)
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	_label.add_theme_font_size_override("font_size", 20)
@@ -34,7 +34,7 @@ func _ready() -> void:
 	# TEMP: Test-Cheatbutton (+1M Gold) – neben der Währung. Später wieder entfernen!
 	var cheat := Button.new()
 	cheat.text = "🐞 +1M"
-	cheat.position = Vector2(652, 5)
+	cheat.position = Vector2(752 + 4, 9)
 	cheat.size = Vector2(94, 28)
 	cheat.add_theme_font_size_override("font_size", 13)
 	cheat.pressed.connect(func(): Economy.add(1000000))
@@ -81,7 +81,7 @@ func gain(amount: int) -> void:
 	# Aufsteigendes "+N 💰" das ausblendet
 	var fl := Label.new()
 	fl.text = "+%s 💰" % Economy.format_currency(amount)
-	fl.position = Vector2(VIEWPORT_WIDTH / 2.0 - 60, 30)
+	fl.position = Vector2(VIEWPORT_WIDTH / 2.0 - 60, 46)
 	fl.size = Vector2(120, 28)
 	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
