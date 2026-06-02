@@ -33,6 +33,9 @@ var _run_active:    bool  = false
 
 var _timer_label:  Label       = null
 var _earned_label: Label       = null
+var _round_label:  Label       = null
+var _currency_hud              = null   # CurrencyHud-Instanz (für Gewinn-Effekt)
+var _lap_running:  Array       = []     # laufender Rundenertrag je Auto
 
 
 func _ready() -> void:
@@ -56,6 +59,7 @@ func _ready() -> void:
 	_run_time_left = Economy.get_drive_time()
 	_run_active    = true
 	_update_run_hud()
+	_update_round_hud()
 
 
 # ── Grid-Zustand ────────────────────────────────────────────────────────────────
@@ -95,8 +99,21 @@ func _process(delta: float) -> void:
 	_update_run_hud()
 
 
-func _on_lap_completed(reward: int) -> void:
+func _on_lap_completed(reward: int, idx: int) -> void:
 	_run_earned += reward
+	if idx >= 0 and idx < _lap_running.size():
+		_lap_running[idx] = 0   # Runde gutgeschrieben → laufender Zähler zurück
+	_update_round_hud()
+	_update_run_hud()
+	# Geld wird der Hauptwährung gutgeschrieben → hübsches Feedback
+	if _currency_hud != null:
+		_currency_hud.gain(reward)
+
+
+func _on_lap_progress(running: int, idx: int) -> void:
+	if idx >= 0 and idx < _lap_running.size():
+		_lap_running[idx] = running
+	_update_round_hud()
 
 
 func _end_run() -> void:
@@ -111,7 +128,8 @@ func _end_run() -> void:
 
 func _setup_hud() -> void:
 	# Gemeinsame Währungs-HUD (oben mittig, wie in der 2D-View)
-	add_child(CurrencyHudScript.new())
+	_currency_hud = CurrencyHudScript.new()
+	add_child(_currency_hud)
 
 	var layer = CanvasLayer.new()
 	layer.layer = 6
@@ -120,7 +138,12 @@ func _setup_hud() -> void:
 	_timer_label = _make_hud_label(Vector2(0, 44), 20, Color(1, 1, 1))
 	layer.add_child(_timer_label)
 
-	_earned_label = _make_hud_label(Vector2(0, 70), 18, Color(0.6, 1.0, 0.6))
+	# Laufende Runde (zählt pro Tile hoch)
+	_round_label = _make_hud_label(Vector2(0, 70), 18, Color(1.0, 0.92, 0.4))
+	layer.add_child(_round_label)
+
+	# Gesamter Lauf
+	_earned_label = _make_hud_label(Vector2(0, 94), 16, Color(0.6, 1.0, 0.6))
 	layer.add_child(_earned_label)
 
 
@@ -141,7 +164,16 @@ func _update_run_hud() -> void:
 	if _timer_label != null:
 		_timer_label.text = "⏱ %.1f s" % _run_time_left
 	if _earned_label != null:
-		_earned_label.text = "+%d 💰 diesen Lauf" % _run_earned
+		_earned_label.text = "Lauf gesamt:  +%s 💰" % Economy.format_currency(_run_earned)
+
+
+func _update_round_hud() -> void:
+	if _round_label == null:
+		return
+	var sum := 0
+	for v in _lap_running:
+		sum += int(v)
+	_round_label.text = "Runde:  +%s 💰" % Economy.format_currency(sum)
 
 
 func _show_summary() -> void:
@@ -165,7 +197,7 @@ func _show_summary() -> void:
 	panel.add_child(title)
 
 	var earned = _make_hud_label(Vector2(0, 76), 22, Color(0.6, 1.0, 0.6))
-	earned.size = Vector2(360, 30); earned.text = "+%d 💰 verdient" % _run_earned
+	earned.size = Vector2(360, 30); earned.text = "+%s 💰 verdient" % Economy.format_currency(_run_earned)
 	panel.add_child(earned)
 
 	var btn = Button.new()
@@ -181,6 +213,9 @@ func _show_summary() -> void:
 func _start_cars(grid_state: Array) -> void:
 	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
 	var count  = Economy.get_car_count()
+	_lap_running.clear()
+	_lap_running.resize(count)
+	_lap_running.fill(0)
 	for i in range(count):
 		var ctrl = Node3D.new()
 		ctrl.set_script(script)
@@ -189,7 +224,8 @@ func _start_cars(grid_state: Array) -> void:
 		ctrl.tile_bonus  = Economy.get_car_tile_bonus(i)
 		ctrl.start_delay = CAR_STAGGER * i
 		$CarRoot.add_child(ctrl)
-		ctrl.lap_completed.connect(_on_lap_completed)
+		ctrl.lap_completed.connect(_on_lap_completed.bind(i))
+		ctrl.lap_progress.connect(_on_lap_progress.bind(i))
 		car_controllers.append(ctrl)
 	await get_tree().process_frame
 	for ctrl in car_controllers:
