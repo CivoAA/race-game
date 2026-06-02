@@ -5,12 +5,12 @@ class_name UpgradeMenu
 
 signal closed
 
-# Nicht-Auto-Kategorien (Reihenfolge = Tab-Reihenfolge)
+# Kategorien (Reihenfolge = Tab-Reihenfolge). Pro-Auto-Tabs sind aktuell entfernt;
+# Tempo/End-Mult/Tile-Bonus liegen global unter "Allgemeines". Streckengröße: später per Prestige.
 const GENERAL_CATEGORIES = [
-	{"name": "Allgemeines", "ids": ["speed", "drive_time", "grid_size", "car_count"]},
-	{"name": "Bonusfelder", "ids": ["unlock_plus5", "unlock_plus10", "unlock_mult15", "bonus_count"]},
+	{"name": "Allgemeines", "ids": ["speed", "drive_time", "endmult", "tilebonus", "car_count"]},
+	{"name": "Bonusfelder", "ids": ["bonus_plus5", "bonus_plus10", "bonus_mult15"]},
 ]
-const CAR_SUFFIXES = ["speed", "endmult", "tilebonus"]
 const VIEW_W = 960
 const VIEW_H = 540
 
@@ -82,22 +82,12 @@ func _build_static() -> void:
 
 # ── Aufbau / Aktualisierung ─────────────────────────────────────────────────────
 
-func _general_count() -> int:
+func _category_count() -> int:
 	return GENERAL_CATEGORIES.size()
 
 
-func _category_count() -> int:
-	return _general_count() + Economy.get_car_count()
-
-
 func _ids_for_category(cat: int) -> Array:
-	if cat < _general_count():
-		return GENERAL_CATEGORIES[cat]["ids"]
-	var car_idx = cat - _general_count()
-	var ids: Array = []
-	for suffix in CAR_SUFFIXES:
-		ids.append("car%d_%s" % [car_idx, suffix])
-	return ids
+	return GENERAL_CATEGORIES[cat]["ids"]
 
 
 func _rebuild() -> void:
@@ -112,8 +102,6 @@ func _rebuild_categories() -> void:
 
 	for i in range(GENERAL_CATEGORIES.size()):
 		_add_cat_button(GENERAL_CATEGORIES[i]["name"], i)
-	for i in range(Economy.get_car_count()):
-		_add_cat_button("Auto %d" % (i + 1), _general_count() + i)
 
 
 func _add_cat_button(text: String, cat: int) -> void:
@@ -176,7 +164,7 @@ func _build_row(id: String) -> Control:
 		btn.text = "MAX"
 		btn.disabled = true
 	else:
-		btn.text = "%d 💰" % Economy.get_upgrade_cost(id)
+		btn.text = "%s 💰" % Economy.format_currency(Economy.get_upgrade_cost(id))
 		btn.disabled = not Economy.can_buy(id)
 		btn.pressed.connect(func(): _on_buy(id))
 	row.add_child(btn)

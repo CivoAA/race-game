@@ -2,8 +2,8 @@ extends Node
 ## Zentraler, persistenter Spielzustand: Währung + gekaufte Upgrades.
 ## Wird als Autoload "Economy" geladen. Speichert in Slot-Dateien (user://savegame_slotN.dat).
 
-const START_CURRENCY  = 500
-const BASE_SPEED      = 2.5    # Grund-Tempo eines Autos (bewusst langsam; via Upgrades schneller)
+const START_CURRENCY  = 0
+const BASE_SPEED      = 1.5    # Grund-Tempo (≈5 s für eine kleine 6-Tile-Runde; via Upgrades schneller)
 
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
@@ -12,60 +12,52 @@ const BASE_SPEED      = 2.5    # Grund-Tempo eines Autos (bewusst langsam; via U
 const UPGRADES = {
 	"speed": {
 		"category": "general", "name": "Tempo (alle Autos)",
-		"base_cost": 25, "growth": 1.6, "max_level": 10,
+		"base_cost": 50, "growth": 2.2, "max_level": 12,
 		"base": 0.0, "per_level": 0.5, "unit": " Tempo",
 	},
 	"drive_time": {
 		"category": "general", "name": "Fahrzeit",
-		"base_cost": 40, "growth": 1.8, "max_level": 8,
+		"base_cost": 250, "growth": 2.6, "max_level": 10,
 		"base": 10.0, "per_level": 5.0, "unit": "s",
 	},
+	# grid_size: aktuell NICHT im Shop (kommt später per Prestige) – Definition bleibt für die Getter.
 	"grid_size": {
-		"category": "general", "name": "Streckengröße",
-		"base_cost": 100, "growth": 3.0, "max_level": 3,
+		"category": "hidden", "name": "Streckengröße",
+		"base_cost": 100, "growth": 6.0, "max_level": 3,
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
 	"car_count": {
 		"category": "general", "name": "Zusätzliches Auto",
-		"base_cost": 150, "growth": 2.5, "max_level": 3,
+		"base_cost": 1000000, "growth": 5.0, "max_level": 3,
 		"base": 1.0, "per_level": 1.0, "unit": " Autos",
 	},
-	# Vorlagen für Pro-Auto-Upgrades (Key real: car0_speed, car1_endmult, …)
-	"car_speed": {
-		"category": "car", "name": "Tempo",
-		"base_cost": 20, "growth": 1.6, "max_level": 10,
-		"base": 0.0, "per_level": 0.5, "unit": " Tempo",
-	},
-	"car_endmult": {
-		"category": "car", "name": "End-Multiplikator",
-		"base_cost": 60, "growth": 2.0, "max_level": 8,
+	# End-Multiplikator & Tile-Bonus jetzt global (alle Autos), unter "Allgemeines".
+	"endmult": {
+		"category": "general", "name": "End-Multiplikator (alle Autos)",
+		"base_cost": 60, "growth": 3.0, "max_level": 10,
 		"base": 1.0, "per_level": 0.5, "unit": "×",
 	},
-	"car_tilebonus": {
-		"category": "car", "name": "Tile-Bonus (+ je Feld)",
-		"base_cost": 30, "growth": 1.7, "max_level": 12,
+	"tilebonus": {
+		"category": "general", "name": "Tile-Bonus (+ je Feld, alle Autos)",
+		"base_cost": 30, "growth": 2.3, "max_level": 14,
 		"base": 0.0, "per_level": 0.5, "unit": " /Feld",
 	},
-	# Bonusfelder: einmalige Freischaltungen (max_level 1) + Anzahl-Upgrade
-	"unlock_plus5": {
-		"category": "bonus", "name": "+5-Feld freischalten",
-		"base_cost": 50, "growth": 1.0, "max_level": 1,
-		"base": 0.0, "per_level": 0.0, "unit": "",
+	# Bonusfelder: je Typ max. 3 – das Upgrade-Level = Anzahl dieser Felder (Lv1 schaltet frei,
+	# Lv2 = zweites Feld, Lv3 = drittes). Kosten steigen idle-typisch steil.
+	"bonus_plus5": {
+		"category": "bonus", "name": "+5-Felder",
+		"base_cost": 50, "growth": 6.0, "max_level": 3,
+		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
-	"unlock_plus10": {
-		"category": "bonus", "name": "+10-Feld freischalten",
-		"base_cost": 120, "growth": 1.0, "max_level": 1,
-		"base": 0.0, "per_level": 0.0, "unit": "",
+	"bonus_plus10": {
+		"category": "bonus", "name": "+10-Felder",
+		"base_cost": 250, "growth": 8.0, "max_level": 3,
+		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
-	"unlock_mult15": {
-		"category": "bonus", "name": "×1.5-Feld freischalten",
-		"base_cost": 200, "growth": 1.0, "max_level": 1,
-		"base": 0.0, "per_level": 0.0, "unit": "",
-	},
-	"bonus_count": {
-		"category": "bonus", "name": "Mehr Bonusfelder",
-		"base_cost": 80, "growth": 1.8, "max_level": 6,
-		"base": 0.0, "per_level": 1.0, "unit": " extra",
+	"bonus_mult15": {
+		"category": "bonus", "name": "×1.5-Felder",
+		"base_cost": 1000, "growth": 10.0, "max_level": 3,
+		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
 }
 
@@ -80,8 +72,22 @@ const GRID_STEPS = [
 var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke (Grid-State ohne Dreck-Tiles)
+var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
 var _current_slot:  int        = 0
 var _slot_name:     String     = ""
+
+
+# ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
+
+func is_tile_unlocked(key: String) -> bool:
+	return key == "" or unlocked_tiles.get(key, false)
+
+
+func unlock_tile(key: String) -> void:
+	if key == "":
+		return
+	unlocked_tiles[key] = true
+	save_game()
 
 
 func _ready() -> void:
@@ -152,13 +158,6 @@ func get_upgrade_level(id: String) -> int:
 func _def_for(id: String) -> Dictionary:
 	if UPGRADES.has(id):
 		return UPGRADES[id]
-	# Pro-Auto-Key "car<idx>_<suffix>" → Vorlage "car_<suffix>"
-	if id.begins_with("car"):
-		var us = id.find("_")
-		if us > 0:
-			var tkey = "car_" + id.substr(us + 1)
-			if UPGRADES.has(tkey):
-				return UPGRADES[tkey]
 	return {}
 
 
@@ -221,8 +220,10 @@ func get_effect(id: String, level: int = -1) -> float:
 
 # Lesbarer Effekt-Text für eine bestimmte Stufe (Sonderfälle: grid_size, car_count).
 func effect_text(id: String, level: int) -> String:
-	if id.begins_with("unlock_"):
-		return "🔓 frei" if level >= 1 else "🔒 gesperrt"
+	if id.begins_with("bonus_"):
+		if level <= 0:
+			return "🔒 gesperrt"
+		return "%d Feld" % level if level == 1 else "%d Felder" % level
 	if id == "grid_size":
 		var lv = clampi(level, 0, GRID_STEPS.size() - 1)
 		return "%d×%d" % [GRID_STEPS[lv].x, GRID_STEPS[lv].y]
@@ -230,12 +231,43 @@ func effect_text(id: String, level: int) -> String:
 		return "%d Autos" % (1 + level)
 	var v = _effect_at(id, level)
 	var unit = get_upgrade_unit(id)
-	if id == "car_endmult":
+	if id == "endmult":
 		return "×%.2f" % v
 	# Ganzzahlig ohne Nachkommastellen, sonst eine Stelle
 	if absf(v - round(v)) < 0.001:
 		return "%d%s" % [int(round(v)), unit]
 	return "%.1f%s" % [v, unit]
+
+
+# ── Zahl-Formatierung (Idle-Stil: 1.23K, 4.56M, … sonst wissenschaftlich) ──────
+
+const _CURR_SUFFIX = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"]
+
+func format_currency(value) -> String:
+	var v = float(value)
+	var sign_str = "-" if v < 0.0 else ""
+	v = absf(v)
+	if v < 1000.0:
+		return sign_str + str(int(round(v)))
+	var tier = int(floor(log(v) / log(1000.0)))
+	if tier >= 1 and tier < _CURR_SUFFIX.size():
+		var scaled = v / pow(1000.0, tier)
+		return sign_str + _trim_num(scaled) + _CURR_SUFFIX[tier]
+	# Sehr groß → wissenschaftliche Notation (z. B. 1.23e40)
+	var exp = int(floor(log(v) / log(10.0)))
+	var mant = v / pow(10.0, exp)
+	return sign_str + ("%.2fe%d" % [mant, exp])
+
+
+# Zahl mit bis zu 2 Nachkommastellen, ohne überflüssige Nullen ("12.30"→"12.3", "5.00"→"5").
+func _trim_num(x: float) -> String:
+	var s = "%.2f" % x
+	if s.find(".") >= 0:
+		while s.ends_with("0"):
+			s = s.substr(0, s.length() - 1)
+		if s.ends_with("."):
+			s = s.substr(0, s.length() - 1)
+	return s
 
 
 # ── Abgeleitete Spielwerte ──────────────────────────────────────────────────────
@@ -256,41 +288,40 @@ func get_car_count() -> int:
 	return 1 + get_upgrade_level("car_count")
 
 
-func get_car_speed(i: int) -> float:
-	var global_bonus = _effect_at("speed", get_upgrade_level("speed"))
-	var car_bonus    = _effect_at("car_speed", get_upgrade_level("car%d_speed" % i))
-	return BASE_SPEED + global_bonus + car_bonus
+# Tempo/End-Mult/Tile-Bonus sind jetzt global (gelten für alle Autos gleich).
+func get_car_speed(_i: int) -> float:
+	return BASE_SPEED + _effect_at("speed", get_upgrade_level("speed"))
 
 
-func get_car_end_mult(i: int) -> float:
-	return _effect_at("car_endmult", get_upgrade_level("car%d_endmult" % i))
+func get_car_end_mult(_i: int) -> float:
+	return _effect_at("endmult", get_upgrade_level("endmult"))
 
 
-func get_car_tile_bonus(i: int) -> float:
-	return _effect_at("car_tilebonus", get_upgrade_level("car%d_tilebonus" % i))
+func get_car_tile_bonus(_i: int) -> float:
+	return _effect_at("tilebonus", get_upgrade_level("tilebonus"))
 
 
 # ── Bonusfelder ─────────────────────────────────────────────────────────────────
 
+# Anzahl Felder eines Bonus-Typs = Upgrade-Level (0..3). kind ∈ {plus5, plus10, mult15}.
+func get_bonus_count(kind: String) -> int:
+	return get_upgrade_level("bonus_" + kind)
+
+
 func is_bonus_unlocked(kind: String) -> bool:
-	return get_upgrade_level("unlock_" + kind) >= 1
+	return get_bonus_count(kind) >= 1
 
 
-# Liste der freigeschalteten Bonus-Typen als {label, points, mult}.
-func get_unlocked_bonus_types() -> Array:
+# Plan der zu platzierenden Bonusfelder: jede Sorte so oft wie ihr Level.
+func get_bonus_field_plan() -> Array:
 	var out: Array = []
-	if is_bonus_unlocked("plus5"):
+	for _i in range(get_bonus_count("plus5")):
 		out.append({"label": "+5",   "points": 5.0,  "mult": 1.0})
-	if is_bonus_unlocked("plus10"):
+	for _i in range(get_bonus_count("plus10")):
 		out.append({"label": "+10",  "points": 10.0, "mult": 1.0})
-	if is_bonus_unlocked("mult15"):
+	for _i in range(get_bonus_count("mult15")):
 		out.append({"label": "×1.5", "points": 0.0,  "mult": 1.5})
 	return out
-
-
-# Zusätzliche (zufällige) Bonusfelder über die je-1-pro-Typ-Garantie hinaus.
-func get_bonus_extra_count() -> int:
-	return get_upgrade_level("bonus_count")
 
 
 # ── Persistenz ──────────────────────────────────────────────────────────────────
@@ -323,6 +354,7 @@ func save_game_to_slot(slot: int) -> void:
 		"currency":  _currency,
 		"upgrades":  upgrade_levels,
 		"track":     track,
+		"unlocked":  unlocked_tiles,
 		"timestamp": Time.get_datetime_string_from_system(false, true),
 		"name":      _slot_name,
 	}))
@@ -351,6 +383,8 @@ func load_game_from_slot(slot: int) -> void:
 	upgrade_levels = ups.duplicate() if typeof(ups) == TYPE_DICTIONARY else {}
 	var tr         = data.get("track", [])
 	track          = tr if typeof(tr) == TYPE_ARRAY else []
+	var unl        = data.get("unlocked", {})
+	unlocked_tiles = unl.duplicate() if typeof(unl) == TYPE_DICTIONARY else {}
 	_slot_name     = String(data.get("name", ""))
 
 
@@ -359,6 +393,7 @@ func reset_slot(slot: int) -> void:
 	_currency      = START_CURRENCY
 	upgrade_levels = {}
 	track          = []
+	unlocked_tiles = {}
 	_slot_name     = ""
 	save_game_to_slot(slot)
 

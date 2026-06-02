@@ -6,6 +6,7 @@ const VIEWPORT_WIDTH = 960
 var _label: Label = null
 var _last_shown: int = -2147483648
 var _flash_tween: Tween = null
+var _gain_tween: Tween = null
 
 
 func _ready() -> void:
@@ -30,6 +31,15 @@ func _ready() -> void:
 	add_child(_label)
 	_refresh()
 
+	# TEMP: Test-Cheatbutton (+1M Gold) – neben der Währung. Später wieder entfernen!
+	var cheat := Button.new()
+	cheat.text = "🐞 +1M"
+	cheat.position = Vector2(652, 5)
+	cheat.size = Vector2(94, 28)
+	cheat.add_theme_font_size_override("font_size", 13)
+	cheat.pressed.connect(func(): Economy.add(1000000))
+	add_child(cheat)
+
 
 func _process(_delta: float) -> void:
 	_refresh()
@@ -40,7 +50,7 @@ func _refresh() -> void:
 	if c == _last_shown:
 		return
 	_last_shown = c
-	_label.text = "💰  %d" % c
+	_label.text = "💰  %s" % Economy.format_currency(c)
 
 
 func flash() -> void:
@@ -49,3 +59,39 @@ func flash() -> void:
 	_flash_tween = create_tween()
 	_flash_tween.tween_property(_label, "modulate", Color(1, 0.2, 0.2), 0.1)
 	_flash_tween.tween_property(_label, "modulate", Color(1, 1, 1), 0.35)
+
+
+# Hübsches Feedback beim Geldgewinn: grüner Pop der Anzeige + aufsteigendes "+N".
+func gain(amount: int) -> void:
+	if amount <= 0:
+		return
+
+	# Grüner Pop des Haupt-Labels (Skalierung pivotiert in der Mitte)
+	_label.pivot_offset = _label.size / 2.0
+	if _gain_tween:
+		_gain_tween.kill()
+	_gain_tween = create_tween()
+	_gain_tween.tween_property(_label, "scale", Vector2(1.28, 1.28), 0.12) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_gain_tween.parallel().tween_property(_label, "modulate", Color(0.45, 1.0, 0.5), 0.12)
+	_gain_tween.tween_property(_label, "scale", Vector2.ONE, 0.28) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	_gain_tween.parallel().tween_property(_label, "modulate", Color(1, 1, 1), 0.28)
+
+	# Aufsteigendes "+N 💰" das ausblendet
+	var fl := Label.new()
+	fl.text = "+%s 💰" % Economy.format_currency(amount)
+	fl.position = Vector2(VIEWPORT_WIDTH / 2.0 - 60, 30)
+	fl.size = Vector2(120, 28)
+	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	fl.add_theme_font_size_override("font_size", 22)
+	fl.add_theme_color_override("font_color", Color(0.5, 1.0, 0.55))
+	fl.add_theme_constant_override("outline_size", 4)
+	fl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	add_child(fl)
+	var t := create_tween()
+	t.tween_property(fl, "position:y", -4.0, 0.9) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(fl, "modulate:a", 0.0, 0.9)
+	t.tween_callback(fl.queue_free)

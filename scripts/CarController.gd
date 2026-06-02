@@ -1,12 +1,17 @@
 extends Node3D
 
 signal lap_completed(reward: int)
+signal lap_progress(running: int)   # laufender Rundenertrag (pro überfahrenem Tile aktualisiert)
 
 const TILE_SIZE = 1.2
 
-# Ertrag pro überfahrenem Tile: jedes Tile gibt flat +1 (Dreck-Tile nur +0.1).
-const PER_TILE_BONUS  = 1.0
-const DIRT_TILE_BONUS = 0.1
+# Ertrag pro überfahrenem Tile:
+#   Standard-/Dreck-Tile (und Start): +5 additiv
+#   Default-Tile (gekauft):           +50 additiv UND ×1.2 multiplikativ
+# → lange Strecken mit Default-Tiles lohnen sich überproportional.
+const BASIC_TILE_EARN   = 5.0
+const PREMIUM_TILE_EARN  = 50.0
+const PREMIUM_TILE_MULT  = 1.2
 
 var speed: float = 2.5
 
@@ -24,6 +29,11 @@ var waypoints: Array[Vector3] = []
 var current_wp: int = 0
 var driving: bool = false
 var car: Node3D = null
+
+# Laufende Runden-Anzeige: Wegpunkt→Step-Zuordnung + kumulativer Rundenertrag je Step.
+var _wp_to_step: PackedInt32Array = PackedInt32Array()
+var _cum_reward: PackedInt32Array = PackedInt32Array()
+var _cur_step: int = -1
 
 const MODEL_ROTATION_OFFSET = PI / 2.0
 
@@ -54,6 +64,7 @@ func start(grid_state: Array) -> void:
 		return
 	car.position = waypoints[0]
 	current_wp   = 1
+	_cur_step    = -1
 	_delay_remaining = start_delay
 	driving      = true
 	print("Route: %d Wegpunkte" % waypoints.size())
@@ -68,6 +79,16 @@ func _on_lap_completed() -> void:
 	if reward != 0:
 		Economy.add(reward)
 	lap_completed.emit(reward)
+
+
+# Meldet den laufenden Rundenertrag, sobald das Auto ein neues Tile betritt.
+func _emit_progress_if_changed() -> void:
+	if _wp_to_step.is_empty() or current_wp < 0 or current_wp >= _wp_to_step.size():
+		return
+	var st = _wp_to_step[current_wp]
+	if st != _cur_step:
+		_cur_step = st
+		lap_progress.emit(_cum_reward[st])
 
 
 func _process(delta: float) -> void:
@@ -85,7 +106,9 @@ func _process(delta: float) -> void:
 		var nxt = (current_wp + 1) % waypoints.size()
 		if nxt < current_wp:   # Wegpunkt-Liste umgebrochen → eine Runde fertig
 			_on_lap_completed()
+			_cur_step = -1     # Runden-Anzeige für die nächste Runde zurücksetzen
 		current_wp = nxt
+		_emit_progress_if_changed()
 		return
 
 	car.position += dir.normalized() * speed * delta
@@ -267,29 +290,51 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	# Runden-Grundwert: flat +1 pro Tile (Dreck nur +0.1), plus Bonusfeld-Effekte.
 	# Bonusfeld +5/+10 = bonus_points (additiv), ×1.5 = bonus_mult (multipliziert die
 	# Summe am Ende, reihenfolge-unabhängig).
-	var add_sum   = 0.0
-	var mult_prod = 1.0
-	for r_step in route:
-		var d = r_step["data"]
-		if typeof(d) != TYPE_DICTIONARY:
-			continue
-		var base = DIRT_TILE_BONUS if d.get("is_dirt", false) else PER_TILE_BONUS
-		add_sum += base + d.get("bonus_points", 0.0)
-		var bm = d.get("bonus_mult", 1.0)
-		if bm != 1.0:
-			mult_prod *= bm
-	lap_base   = add_sum * mult_prod
-	tile_count = route.size()
+	# Pro-Tile-Beiträge → kumulativer Rundenertrag (mirror der Endformel in _on_lap_completed),
+	# damit die Runden-Anzeige pro überfahrenem Tile auf den finalen Wert hochzählt.
+	var n        = route.size()
+	var cum_add  = 0.0
+	var cum_mult = 1.0
+	_cum_reward = PackedInt32Array()
+	for k in range(n):
+		var d = route[k]["data"]
+		var a = 0.0
+		var m = 1.0
+		if typeof(d) == TYPE_DICTIONARY:
+			var t = d.get("type", "")
+			# Default-Tile = gekauft (nicht Dreck, nicht Start) und eine echte Fahrkachel.
+			var is_premium = (not d.get("is_dirt", false)) and (not d.get("is_start", false)) \
+				and t in ["straight", "curve", "curve_alt"]
+			if is_premium:
+				a = PREMIUM_TILE_EARN + d.get("bonus_points", 0.0)
+				m = PREMIUM_TILE_MULT
+			else:
+				a = BASIC_TILE_EARN + d.get("bonus_points", 0.0)
+			# Sprung-Kreuzung: dieses Tile bringt doppelten (× jump_mult) Ertrag
+			a *= d.get("jump_mult", 1.0)
+			var bm = d.get("bonus_mult", 1.0)
+			if bm != 1.0:
+				m *= bm
+		cum_add  += a
+		cum_mult *= m
+		_cum_reward.append(int(round((cum_add * cum_mult + tile_bonus * (k + 1)) * end_mult)))
+	lap_base   = cum_add * cum_mult
+	tile_count = n
 
-	# Wegpunkte aus Route bauen
+	# Wegpunkte aus Route bauen + Zuordnung Wegpunkt→Step (für die Runden-Anzeige)
 	var wps: Array[Vector3] = []
-	for step in route:
+	_wp_to_step = PackedInt32Array()
+	for si in range(n):
+		var step = route[si]
 		var center = Vector3(
 			step["col"] * TILE_SIZE + TILE_SIZE / 2.0,
 			0.05,
 			step["row"] * TILE_SIZE + TILE_SIZE / 2.0
 		)
-		wps.append_array(_waypoints_for_tile(center, step["data"], step["exit"]))
+		var tile_wps = _waypoints_for_tile(center, step["data"], step["exit"])
+		for _w in range(tile_wps.size()):
+			_wp_to_step.append(si)
+		wps.append_array(tile_wps)
 
 	return wps
 

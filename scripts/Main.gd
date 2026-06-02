@@ -8,17 +8,25 @@ const TILE_SIZE = 100
 var CurrencyHudScript = load(Paths.SCRIPT_CURRENCY_HUD)
 var UpgradeMenuScript  = load(Paths.SCRIPT_UPGRADE_MENU)
 
-const SHOP_TYPES = ["straight", "curve"]
-
-# Tiles haben keine eigenen Boni mehr: eine uniforme Variante (Ertrag = +1 pro
-# überfahrenem Tile, im CarController berechnet – unabhängig vom Tile).
-const TILE_VARIANTS = [
-	{"points": 0.0, "multiplier": 1.0, "price": 3, "variant_label": ""},
+# Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
+#   tier "dirt"    = kostenlos, Standard-Tile (Ertrag +5 pro überfahrenem Feld)
+#   tier "default" = Idle-Preis (steigt je platziertem Tile dieses Typs),
+#                    Ertrag +50 UND ×1.2 pro überfahrenem Feld
+#   tier "ramp"    = Sprung-Paar; verdoppelt den Ertrag eines Tiles im übersprungenen Feld
+#                    (Kreuzung: eine zweite Strecke darunter bringt doppeltes Geld)
+# Reihenfolge oben→unten: Dreck-Kurve, Dreck-Gerade, Default-Gerade, Default-Kurve, Rampe.
+# key/unlock: Default-Tiles & Rampe müssen einmalig freigeschaltet werden (unlock-Preis);
+# der Kaufpreis startet danach bei 20 % des Freischaltpreises (base_price) und skaliert idle.
+const SHOP_ITEMS = [
+	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0},
+	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0},
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 1000,  "base_price": 200,   "growth": 4.0},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 2000,  "base_price": 400,   "growth": 4.0},
+	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 50000, "base_price": 10000, "growth": 5.0},
 ]
 
-const SHOP_SLOT_COUNT = 5
-const SELL_VALUE      = 1
-const RAMP_PRICE      = 6   # Preis für ein Rampen-Paar
+const SHOP_SLOT_COUNT = 5   # = SHOP_ITEMS.size()
+const JUMP_MULT       = 2.0 # Ertrags-Faktor für ein Tile im übersprungenen Feld einer Rampe
 
 # Upgrade-Tabellen: points/multiplier pro combine_level (0–4)
 const POINT_UPGRADE_DATA = {
@@ -45,21 +53,23 @@ var bonus_grid: Array = []            # [r][c] = null oder {label, points, mult}
 var _bonus_marker_nodes: Array = []   # gezeichnete Marker-Nodes
 var _bonus_sig_on_open: String = ""   # Bonus-Signatur beim Öffnen des Upgrade-Menüs
 
+# Sprung-Felder (Mittelfeld jeder Rampe) – dort gibt ein Tile × JUMP_MULT Ertrag
+var _jump_marker_nodes: Array = []
+
 # Grid tile selection
 var selected_grid_row: int = -1
 var selected_grid_col: int = -1
 var _grid_highlight: Node2D = null
 
-# Shop / sell state
-var shop_slots:         Array = []   # Array of {type,points,multiplier,price,variant_label} or null
-var selected_shop_slot: int   = -1
-var sell_mode:          bool  = false
-var ramp_preview_rot:   int   = 0     # Aktuelle Richtung für das nächste Rampen-Paar
+# Shop / Lösch-Zustand
+var selected_shop_slot: int   = -1    # Index in SHOP_ITEMS, -1 = nichts gewählt
+var delete_mode:        bool  = false
+var ramp_preview_rot:   int   = 0     # (Alt-Rampen)
 
 # UI nodes (created programmatically)
 var _currency_hud           = null   # CurrencyHud-Instanz
 var _shop_panels:    Array = []
-var _sell_panel:     Panel = null
+var _delete_panel:   Panel = null
 var _upgrade_menu           = null   # UpgradeMenu-Instanz
 var _menu_open:      bool = false
 
@@ -82,8 +92,9 @@ func _ready() -> void:
 	elif Economy.has_track():
 		_restore_grid(Economy.get_track())
 
-	_fill_shop()
+	_update_shop_ui()
 	_roll_bonus_fields()
+	_refresh_jump_markers()
 
 
 # ── Grid init ──────────────────────────────────────────────────────────────────
@@ -149,10 +160,19 @@ func _setup_grid_highlight() -> void:
 
 
 func _update_grid_highlight() -> void:
-	if selected_grid_row < 0:
+	# Explizit gewähltes Tile hat Vorrang; sonst standardmäßig das zuletzt platzierte
+	# Tile markieren (= aktuelles Ziel für [R]/[F]). Start-Tile wird nie markiert.
+	var hr = selected_grid_row
+	var hc = selected_grid_col
+	if hr < 0 and last_placed_row >= 0:
+		var d = grid[last_placed_row][last_placed_col]
+		if d != null and not d.get("is_start", false):
+			hr = last_placed_row
+			hc = last_placed_col
+	if hr < 0:
 		_grid_highlight.visible = false
 	else:
-		_grid_highlight.position = _grid_to_world(selected_grid_row, selected_grid_col)
+		_grid_highlight.position = _grid_to_world(hr, hc)
 		_grid_highlight.visible  = true
 
 
@@ -169,12 +189,15 @@ func _setup_shop_ui() -> void:
 
 	# Rechte Seitenleiste: x=752 bis x=956 (204px), volle Höhe
 	# Grid endet bei x=148+600=748; 4px Abstand → Panel bei 752
-	const PANEL_X  = 752
-	const PANEL_W  = 204
-	const SLOT_W   = 188   # PANEL_W - 16 (8px Padding je Seite)
-	const SLOT_H   = 74
-	const SLOT_GAP = 4
-	const START_Y  = 42   # unterhalb der CurrencyHUD
+	const PANEL_X    = 752
+	const PANEL_W    = 204
+	const SLOT_W     = 188   # PANEL_W - 16 (8px Padding je Seite)
+	const SLOT_H     = 72
+	const SLOT_GAP   = 6
+	const START_Y    = 42    # unterhalb der CurrencyHUD
+	const DELETE_H   = 44
+	const DELETE_Y   = 540 - 8 - DELETE_H   # Lösch-Panel am unteren Rand
+	const SCROLL_H   = DELETE_Y - START_Y - 8
 
 	# Hintergrund-Panel
 	var shop_bg = Panel.new()
@@ -197,70 +220,51 @@ func _setup_shop_ui() -> void:
 	shop_header.add_theme_color_override("font_color", Color(0.32, 0.37, 0.52))
 	layer.add_child(shop_header)
 
-	# Shop-Slots (vertikal gestapelt)
+	# Scrollbarer Bereich für die kaufbaren Tiles (untereinander)
+	var scroll = ScrollContainer.new()
+	scroll.position = Vector2(PANEL_X + 8, START_Y)
+	scroll.size     = Vector2(SLOT_W + 4, SCROLL_H)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	layer.add_child(scroll)
+
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", SLOT_GAP)
+	scroll.add_child(vbox)
+
 	for i in range(SHOP_SLOT_COUNT):
 		var panel = Panel.new()
-		panel.position = Vector2(PANEL_X + 8, START_Y + i * (SLOT_H + SLOT_GAP))
-		panel.size = Vector2(SLOT_W, SLOT_H)
+		panel.custom_minimum_size = Vector2(SLOT_W, SLOT_H)
 
-		# Slot-Nummer (oben links, sehr klein, gedimmt)
-		var num_lbl = Label.new()
-		num_lbl.name = "NumLabel"
-		num_lbl.text = "%d" % (i + 1)
-		num_lbl.position = Vector2(5, 3)
-		num_lbl.size = Vector2(18, 14)
-		num_lbl.add_theme_font_size_override("font_size", 9)
-		num_lbl.add_theme_color_override("font_color", Color(0.26, 0.30, 0.42))
-		panel.add_child(num_lbl)
-
-		# Haupt-Label (Typ + Preis)
+		# Haupt-Label (Name + Ertrag + Preis)
 		var lbl = Label.new()
 		lbl.name = "TypeLabel"
+		lbl.position = Vector2(0, 0)
 		lbl.size = Vector2(SLOT_W, SLOT_H)
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_font_size_override("font_size", 12)
 		panel.add_child(lbl)
 
 		var idx = i
 		panel.gui_input.connect(func(e): _on_shop_slot_gui_input(e, idx))
-		layer.add_child(panel)
+		vbox.add_child(panel)
 		_shop_panels.append(panel)
 
-	# Position nach den Slots
-	var after_y = START_Y + SHOP_SLOT_COUNT * (SLOT_H + SLOT_GAP) + 6
-
-	# Trennlinie
-	var sep = ColorRect.new()
-	sep.position = Vector2(PANEL_X + 8, after_y)
-	sep.size = Vector2(SLOT_W, 1)
-	sep.color = Color(0.20, 0.23, 0.32)
-	layer.add_child(sep)
-
-	# Reroll-Button
-	var reroll = Button.new()
-	reroll.position = Vector2(PANEL_X + 8, after_y + 6)
-	reroll.size = Vector2(SLOT_W, 44)
-	reroll.text = "🎲  Neu würfeln  (1💰)"
-	reroll.pressed.connect(_on_reroll_pressed)
-	_style_shop_action_btn(reroll, Color(0.22, 0.27, 0.42))
-	layer.add_child(reroll)
-
-	# Verkaufen-Panel
-	_sell_panel = Panel.new()
-	_sell_panel.position = Vector2(PANEL_X + 8, after_y + 56)
-	_sell_panel.size = Vector2(SLOT_W, 44)
-	var sell_lbl = Label.new()
-	sell_lbl.name = "SellLabel"
-	sell_lbl.text = "💰  Verkaufen"
-	sell_lbl.size = Vector2(SLOT_W, 44)
-	sell_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sell_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	sell_lbl.add_theme_font_size_override("font_size", 12)
-	_sell_panel.add_child(sell_lbl)
-	_sell_panel.gui_input.connect(_on_sell_panel_gui_input)
-	layer.add_child(_sell_panel)
-	_update_sell_panel_style()
+	# Löschen-Panel (ersetzt Verkaufen) am unteren Rand
+	_delete_panel = Panel.new()
+	_delete_panel.position = Vector2(PANEL_X + 8, DELETE_Y)
+	_delete_panel.size = Vector2(SLOT_W, DELETE_H)
+	var del_lbl = Label.new()
+	del_lbl.name = "DeleteLabel"
+	del_lbl.text = "🗑  Löschen"
+	del_lbl.size = Vector2(SLOT_W, DELETE_H)
+	del_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	del_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	del_lbl.add_theme_font_size_override("font_size", 12)
+	_delete_panel.add_child(del_lbl)
+	_delete_panel.gui_input.connect(_on_delete_panel_gui_input)
+	layer.add_child(_delete_panel)
+	_update_delete_panel_style()
 
 
 func _style_shop_action_btn(btn: Button, accent: Color) -> void:
@@ -281,26 +285,66 @@ func _style_shop_action_btn(btn: Button, accent: Color) -> void:
 	btn.add_theme_font_size_override("font_size", 12)
 
 
-func _random_shop_item() -> Dictionary:
-	if randf() < 0.18:  # ~18 % Chance auf Rampe
-		return {"type": "ramp", "points": 0.0, "multiplier": 1.0,
-				"price": RAMP_PRICE, "variant_label": ""}
-	var type    = SHOP_TYPES[randi() % SHOP_TYPES.size()]
-	var variant = TILE_VARIANTS[randi() % TILE_VARIANTS.size()]
-	return {
-		"type":          type,
-		"points":        variant["points"],
-		"multiplier":    variant["multiplier"],
-		"price":         variant["price"],
-		"variant_label": variant["variant_label"],
-	}
+# Anzahl bereits platzierter Default-Tiles dieses Typs (Kurve zählt curve+curve_alt).
+# Idle-Preise steigen mit dieser Anzahl.
+func _count_paid_tiles(type: String) -> int:
+	var n = 0
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d == null or d.get("is_dirt", false) or d.get("is_start", false):
+				continue
+			var t = d.get("type", "")
+			if type == "ramp":
+				if t == "ramp_start":   # ein Paar = ein ramp_start
+					n += 1
+			elif type == "curve":
+				if t == "curve" or t == "curve_alt":
+					n += 1
+			elif t == type:
+				n += 1
+	return n
 
 
-func _fill_shop() -> void:
-	shop_slots.clear()
-	for i in range(SHOP_SLOT_COUNT):
-		shop_slots.append(_random_shop_item())
-	_update_shop_ui()
+# Aktueller Preis eines Shop-Items (Dreck = 0, Default/Rampe = idle-skalierend).
+func _tile_price(item: Dictionary) -> int:
+	if item["tier"] == "dirt":
+		return 0
+	var n = _count_paid_tiles(item["type"])
+	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n)))
+
+
+# Shop-Item (Default/Rampe) zu einem Tile-Typ; curve_alt→Kurve, ramp_*→Rampe. Leer falls keins.
+func _shop_item_for_type(type: String) -> Dictionary:
+	var key: String
+	if type == "curve" or type == "curve_alt":
+		key = "curve"
+	elif type == "ramp_start" or type == "ramp_end":
+		key = "ramp"
+	else:
+		key = type
+	for item in SHOP_ITEMS:
+		if item["tier"] != "dirt" and item["type"] == key:
+			return item
+	return {}
+
+
+# Rückerstattung für ein Tile, das gerade noch im Grid liegt (Dreck/Start = 0).
+# Default-/Rampen-Tile: erstattet den "marginalen" Preis (base*growth^(Anzahl-1)).
+# Bei Rampen zählt das ramp_start-Feld – Überschreiben/Löschen einer beliebigen Seite erstattet.
+func _tile_refund_for(data) -> int:
+	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
+		return 0
+	var t = data.get("type", "")
+	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end"]):
+		return 0
+	var item = _shop_item_for_type(t)
+	if item.is_empty():
+		return 0
+	var n = _count_paid_tiles(item["type"])   # inkl. dieses Tile (Rampe: zählt ramp_start)
+	if n <= 0:
+		return 0
+	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - 1)))
 
 
 func _update_currency_label() -> void:
@@ -312,37 +356,29 @@ func _update_shop_ui() -> void:
 	for i in range(SHOP_SLOT_COUNT):
 		var panel = _shop_panels[i]
 		var lbl   = panel.get_node("TypeLabel") as Label
-		var slot  = shop_slots[i]
+		var item  = SHOP_ITEMS[i]
 
-		if slot == null:
-			lbl.text = "—"
+		var icon = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━━")
+		var locked = not Economy.is_tile_unlocked(item["key"])
+		if locked:
+			lbl.text = "🔒  %s\nFreischalten:  %s💰" % [item["name"], Economy.format_currency(item["unlock"])]
+		elif item["tier"] == "dirt":
+			lbl.text = "%s  %s\n+5  ·  kostenlos" % [icon, item["name"]]
+		elif item["tier"] == "ramp":
+			var dirs = ["→", "↓", "←", "↑"]
+			lbl.text = "%s  %s  %s\nKreuzung ×2  ·  %s💰" % [icon, item["name"], dirs[ramp_preview_rot / 90], Economy.format_currency(_tile_price(item))]
 		else:
-			if slot["type"] == "ramp":
-				var dirs = ["→", "↓", "←", "↑"]
-				lbl.text = "⛰ %s\nRampe\n%d💰" % [dirs[ramp_preview_rot / 90], slot["price"]]
-			else:
-				var icon = ""
-				match slot["type"]:
-					"straight":  icon = "━━"
-					"curve":     icon = "╰"
-					"curve_alt": icon = "╯"
-				if slot["variant_label"] == "":
-					lbl.text = "%s\n%d💰" % [icon, slot["price"]]
-				else:
-					lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
+			lbl.text = "%s  %s\n+50 ×1.2  ·  %s💰" % [icon, item["name"], Economy.format_currency(_tile_price(item))]
 
 		var style = StyleBoxFlat.new()
 		style.set_corner_radius_all(5)
-		if i == selected_shop_slot and slot != null:
-			style.bg_color     = Color(0.22, 0.18, 0.05)
-			style.border_color = Color(1.0, 0.80, 0.0)
-			style.border_width_left  = 3
-			style.border_width_right = 1
-			style.border_width_top   = 1
-			style.border_width_bottom = 1
-		elif slot == null:
-			style.bg_color     = Color(0.10, 0.11, 0.15)
-			style.border_color = Color(0.18, 0.20, 0.28)
+		if i == selected_shop_slot:
+			style.bg_color     = Color(0.30, 0.24, 0.06)
+			style.border_color = Color(1.0, 0.82, 0.10)
+			style.set_border_width_all(3)
+		elif locked:
+			style.bg_color     = Color(0.16, 0.13, 0.13)
+			style.border_color = Color(0.45, 0.30, 0.20)
 			style.set_border_width_all(1)
 		else:
 			style.bg_color     = Color(0.14, 0.16, 0.22)
@@ -350,23 +386,22 @@ func _update_shop_ui() -> void:
 			style.set_border_width_all(1)
 		panel.add_theme_stylebox_override("panel", style)
 
-		# TypeLabel-Farbe: gedimmt wenn leer, normal sonst
-		var lbl2 = panel.get_node_or_null("TypeLabel") as Label
-		if lbl2 != null:
-			if slot == null:
-				lbl2.add_theme_color_override("font_color", Color(0.28, 0.32, 0.42))
-			elif i == selected_shop_slot:
-				lbl2.add_theme_color_override("font_color", Color(1.0, 0.92, 0.6))
-			else:
-				lbl2.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
+		if i == selected_shop_slot:
+			lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.6))
+		elif locked:
+			lbl.add_theme_color_override("font_color", Color(0.78, 0.62, 0.45))
+		elif item["tier"] == "dirt":
+			lbl.add_theme_color_override("font_color", Color(0.70, 0.85, 0.55))
+		else:
+			lbl.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
 
 
-func _update_sell_panel_style() -> void:
-	if _sell_panel == null:
+func _update_delete_panel_style() -> void:
+	if _delete_panel == null:
 		return
 	var style = StyleBoxFlat.new()
 	style.set_corner_radius_all(5)
-	if sell_mode:
+	if delete_mode:
 		style.bg_color       = Color(0.32, 0.12, 0.05)
 		style.border_color   = Color(1.0, 0.55, 0.08)
 		style.border_width_left   = 3
@@ -377,73 +412,68 @@ func _update_sell_panel_style() -> void:
 		style.bg_color     = Color(0.16, 0.10, 0.10)
 		style.border_color = Color(0.42, 0.22, 0.22)
 		style.set_border_width_all(1)
-	_sell_panel.add_theme_stylebox_override("panel", style)
+	_delete_panel.add_theme_stylebox_override("panel", style)
 
-	var lbl = _sell_panel.get_node_or_null("SellLabel") as Label
+	var lbl = _delete_panel.get_node_or_null("DeleteLabel") as Label
 	if lbl != null:
 		lbl.add_theme_color_override("font_color",
-			Color(1.0, 0.65, 0.35) if sell_mode else Color(0.65, 0.40, 0.38))
+			Color(1.0, 0.65, 0.35) if delete_mode else Color(0.65, 0.40, 0.38))
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
 	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
-	if shop_slots[idx] == null:
-		return
+	var item = SHOP_ITEMS[idx]
+	# Gesperrtes Tile: Klick = freischalten (einmaliger Preis), dann direkt auswählen.
+	if not Economy.is_tile_unlocked(item["key"]):
+		if Economy.spend(item["unlock"]):
+			Economy.unlock_tile(item["key"])
+			tile_selector.set_status("%s freigeschaltet!" % item["name"])
+		else:
+			_flash_currency()
+			_update_shop_ui()
+			return
 	if selected_shop_slot == idx:
 		selected_shop_slot = -1
 	else:
 		selected_shop_slot  = idx
 		selected_grid_row   = -1
 		selected_grid_col   = -1
-		sell_mode           = false
+		delete_mode         = false
 		_update_grid_highlight()
-		_update_sell_panel_style()
+		_update_delete_panel_style()
 		tile_selector.deselect()
 	_update_shop_ui()
 
 
-func _on_sell_panel_gui_input(event: InputEvent) -> void:
+func _on_delete_panel_gui_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
 	if selected_grid_row >= 0:
-		_sell_grid_tile(selected_grid_row, selected_grid_col)
+		_delete_tile_at(selected_grid_row, selected_grid_col)
 	elif selected_shop_slot >= 0:
 		selected_shop_slot = -1
 		_update_shop_ui()
 	else:
-		sell_mode = not sell_mode
-		tile_selector.set_status("Verkauf-Modus" if sell_mode else "")
-		_update_sell_panel_style()
+		delete_mode = not delete_mode
+		tile_selector.set_status("Lösch-Modus" if delete_mode else "")
+		_update_delete_panel_style()
 
 
-func _on_reroll_pressed() -> void:
-	if not Economy.spend(1):
-		_flash_currency()
-		return
-	for i in range(SHOP_SLOT_COUNT):
-		shop_slots[i] = _random_shop_item()
-	_update_currency_label()
-	_update_shop_ui()
-
-
-func _sell_grid_tile(row: int, col: int) -> void:
+# Löscht ein Tile mit Rückerstattung (Default-Tiles) und aktualisiert die (gesunkenen) Preise.
+# Verändert den Lösch-Modus NICHT → im Lösch-Modus kann man mehrere Tiles am Stück entfernen.
+func _delete_tile_at(row: int, col: int) -> void:
+	var refund = _tile_refund_for(grid[row][col])
+	if refund > 0:
+		Economy.add(refund)
 	_remove_tile(row, col)
-	Economy.add(SELL_VALUE)
-	_update_currency_label()
-	selected_grid_row = -1
-	selected_grid_col = -1
+	if selected_grid_row == row and selected_grid_col == col:
+		selected_grid_row = -1
+		selected_grid_col = -1
 	_update_grid_highlight()
-	sell_mode = false
-	_update_sell_panel_style()
+	_update_delete_panel_style()
+	_update_shop_ui()   # Preise sind gesunken
 	tile_selector.deselect()
-
-
-func _check_shop_auto_reroll() -> void:
-	for s in shop_slots:
-		if s != null:
-			return
-	_fill_shop()
 
 
 func _flash_currency() -> void:
@@ -531,6 +561,19 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		vlbl.add_theme_constant_override("outline_size", 3)
 		vlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		node.add_child(vlbl)
+	elif data["type"] in ["straight", "curve", "curve_alt"]:
+		# Default-Tile (kostet, +50 & ×1.2): goldene Ertrags-Badge
+		var rot_rad = deg_to_rad(data.get("rotation", 0))
+		var elbl = Label.new()
+		elbl.name = "EarnLabel"
+		elbl.text = "+50"
+		elbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-rot_rad)
+		elbl.rotation_degrees = -data.get("rotation", 0)
+		elbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+		elbl.add_theme_font_size_override("font_size", 12)
+		elbl.add_theme_constant_override("outline_size", 2)
+		elbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		node.add_child(elbl)
 
 	# Kombinations-Visuell: self_modulate trifft nur _draw des Tile-Nodes, nicht Kind-Labels
 	var clvl = data.get("combine_level", 0)
@@ -564,10 +607,11 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 	var rot    = data.get("rotation", 0)
 	var rot_rad = deg_to_rad(rot)
 
-	# Hintergrund (wie normale Grid-Zellen)
+	# Hintergrund: 1px kleiner je Seite, damit der Rasterrahmen (darunter gezeichnet)
+	# sichtbar bleibt – sonst wirken Dreck-Tiles randlos/größer als leere Zellen.
 	var bg = ColorRect.new()
-	bg.size     = Vector2(TILE_SIZE, TILE_SIZE)
-	bg.position = Vector2(-half, -half)
+	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+	bg.position = Vector2(-half + 1, -half + 1)
 	bg.color    = bg_col
 	node.add_child(bg)
 
@@ -605,10 +649,26 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 		arc.polygon = pts
 		arc.color   = soil
 		node.add_child(arc)
+		# Fahrtrichtungs-Pfeil entlang des Bogens (wie bei den normalen Kurven:
+		# direction 1 = curve/orange, -1 = curve_alt/blau). Node-Rotation orientiert mit.
+		var c_dir   = data.get("direction", 1)
+		var a_mid   = PI * 1.25
+		var arr_pos = center + Vector2(cos(a_mid), sin(a_mid)) * half
+		var tangent = a_mid + PI / 2.0 * c_dir
+		var s       = 9.0
+		var tri = Polygon2D.new()
+		tri.polygon = PackedVector2Array([
+			arr_pos + Vector2(cos(tangent), sin(tangent)) * s,
+			arr_pos + Vector2(cos(tangent + 2.4), sin(tangent + 2.4)) * s * 0.6,
+			arr_pos + Vector2(cos(tangent - 2.4), sin(tangent - 2.4)) * s * 0.6,
+		])
+		tri.color = Color(1.0, 0.5, 0.15) if c_dir == 1 else Color(0.3, 0.65, 1.0)
+		node.add_child(tri)
 
-	# +0.1 Badge – position gegen Rotation kompensiert, immer lesbar
+	# +5 Badge – position gegen Rotation kompensiert, immer lesbar
 	var lbl = Label.new()
-	lbl.text             = "+0.1"
+	lbl.name             = "EarnLabel"
+	lbl.text             = "+5"
 	lbl.position         = Vector2(-half + 2.0, -half + 2.0).rotated(-rot_rad)
 	lbl.rotation_degrees = -rot
 	lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 0.4))
@@ -713,16 +773,19 @@ func _input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			_handle_grid_left_click(cell.x, cell.y)
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			if selected_grid_row >= 0:
+			# Rechtsklick auf ein platziertes Tile = löschen (mit Rückerstattung)
+			var rc = grid[cell.x][cell.y]
+			if rc != null and not rc.get("is_start", false):
+				_delete_tile_at(cell.x, cell.y)
+			elif selected_grid_row >= 0:
 				selected_grid_row = -1
 				selected_grid_col = -1
 				_update_grid_highlight()
 				tile_selector.deselect()
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		# Wenn eine Rampe im Shop ausgewählt ist: Richtung der Rampe drehen
-		if selected_shop_slot >= 0 and shop_slots[selected_shop_slot] != null \
-				and shop_slots[selected_shop_slot]["type"] == "ramp":
+		# Rampen-Werkzeug aktiv → Vorschau-Richtung drehen, sonst aktives Tile drehen
+		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] == "ramp":
 			ramp_preview_rot = (ramp_preview_rot + 90) % 360
 			_update_shop_ui()
 		else:
@@ -736,32 +799,28 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 	var cell_data = grid[row][col]
 	var is_start  = (cell_data != null and cell_data.get("is_start", false))
 
+	# Lösch-Modus: angeklicktes Tile entfernen, Modus bleibt aktiv (kein erneutes Klicken nötig)
+	if delete_mode:
+		if cell_data != null and not is_start:
+			_delete_tile_at(row, col)
+		return
+
+	# Shop-Werkzeug aktiv
+	if selected_shop_slot >= 0:
+		if is_start:
+			return
+		# Klick auf das zuletzt platzierte Tile → auswählen statt überschreiben (drehen/wenden)
+		if cell_data != null and row == last_placed_row and col == last_placed_col:
+			_select_grid_tile(row, col)
+		else:
+			_place_shop_tile(row, col)
+		return
+
 	if is_start:
 		return
 
-	# Dirt-Tiles können durch Shop-Tiles oder verschobene Tiles überschrieben werden
-	if cell_data != null and cell_data.get("is_dirt", false):
-		if selected_shop_slot >= 0:
-			var slot = shop_slots[selected_shop_slot]
-			if slot != null and slot["type"] == "ramp":
-				# Rampe braucht 2 Felder; _place_ramp überschreibt Dreck-Tiles selbst
-				_place_ramp(row, col)
-			else:
-				cell_data["node"].queue_free()
-				grid[row][col] = null
-				_place_shop_tile(row, col)
-		elif selected_grid_row >= 0:
-			cell_data["node"].queue_free()
-			grid[row][col] = null
-			_move_selected_tile_to(row, col)
-		return
-
-	# Rampen-Tiles: verkaufen oder ramp_start auswählen (für R-Drehen)
+	# Rampen-Tiles (Altstände): zum ramp_start-Partner wechseln für [R]/[F]
 	if cell_data != null and cell_data.get("type", "") in ["ramp_start", "ramp_end"]:
-		if sell_mode:
-			_sell_grid_tile(row, col)
-			return
-		# Bei ramp_end → zum ramp_start-Partner wechseln
 		var target_r = row; var target_c = col
 		if cell_data.get("type", "") == "ramp_end":
 			target_r = cell_data.get("ramp_partner_row", row)
@@ -770,23 +829,15 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 			selected_grid_row = -1; selected_grid_col = -1
 			_update_grid_highlight(); tile_selector.deselect()
 		else:
-			selected_shop_slot = -1; sell_mode = false
-			_update_shop_ui(); _update_sell_panel_style()
 			selected_grid_row = target_r; selected_grid_col = target_c
 			_update_grid_highlight()
 			tile_selector.set_status("Rampe  [R] drehen")
 		return
 
-	# Kombinations-Check: Shop-Tile auf passendes Grid-Tile → Upgrade
-	if cell_data != null and selected_shop_slot >= 0 and not sell_mode:
-		var slot = shop_slots[selected_shop_slot]
-		if slot != null and _can_combine(slot, cell_data):
-			_do_combine(row, col, slot)
-			return
-
-	if cell_data != null:
-		if sell_mode:
-			_sell_grid_tile(row, col)
+	# Grid-Tile bereits ausgewählt → verschieben (leere Zelle) bzw. Auswahl wechseln
+	if selected_grid_row >= 0:
+		if cell_data == null:
+			_move_selected_tile_to(row, col)
 		elif selected_grid_row == row and selected_grid_col == col:
 			selected_grid_row = -1
 			selected_grid_col = -1
@@ -796,22 +847,16 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 			_select_grid_tile(row, col)
 		return
 
-	# Leere Zelle
-	if selected_grid_row >= 0:
-		_move_selected_tile_to(row, col)
-	elif selected_shop_slot >= 0:
-		var slot = shop_slots[selected_shop_slot]
-		if slot != null and slot["type"] == "ramp":
-			_place_ramp(row, col)
-		else:
-			_place_shop_tile(row, col)
+	# Nichts ausgewählt: Tile unter dem Cursor auswählen
+	if cell_data != null:
+		_select_grid_tile(row, col)
 
 
 func _select_grid_tile(row: int, col: int) -> void:
 	selected_shop_slot = -1
-	sell_mode          = false
+	delete_mode        = false
 	_update_shop_ui()
-	_update_sell_panel_style()
+	_update_delete_panel_style()
 	selected_grid_row = row
 	selected_grid_col = col
 	last_placed_row   = row
@@ -881,6 +926,7 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		"variant_label": data.get("variant_label", ""),
 		"series":        data.get("series", ""),
 		"combine_level": data.get("combine_level", 0),
+		"is_dirt":       data.get("is_dirt", false),
 	}
 	data["node"].queue_free()
 	grid[old_row][old_col] = null
@@ -896,37 +942,71 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 
 
 func _place_shop_tile(row: int, col: int) -> void:
-	var slot = shop_slots[selected_shop_slot]
-	if slot == null:
+	var item = SHOP_ITEMS[selected_shop_slot]
+	if not Economy.is_tile_unlocked(item["key"]):
+		return   # Sicherheitshalber: gesperrte Tiles nicht platzieren
+	# Rampe ist ein Sonderfall (2 Felder, eigenes Platzieren)
+	if item["tier"] == "ramp":
+		_place_ramp(row, col)
 		return
-	if not Economy.spend(slot["price"]):
-		_flash_currency()
-		return
-	var data = {
-		"type":          slot["type"],
+	# Preis NUR für Default-Tiles; Dreck ist kostenlos. Preis vor dem Setzen prüfen.
+	var price = _tile_price(item)
+	if item["tier"] == "default":
+		if not Economy.spend(price):
+			_flash_currency()
+			return
+	# Vorhandenes Tile (außer Start) überschreiben → zählt als Löschvorgang (mit Rückerstattung)
+	if grid[row][col] != null:
+		if grid[row][col].get("is_start", false):
+			if item["tier"] == "default":
+				Economy.add(price)   # Ausgabe rückgängig: auf Start kann nicht gebaut werden
+			return
+		var refund = _tile_refund_for(grid[row][col])
+		if refund > 0:
+			Economy.add(refund)
+		_free_tile_node(row, col)
+	_spawn_tile(row, col, {
+		"type":          item["type"],
 		"rotation":      0,
 		"flipped":       false,
 		"direction":     1,
-		"points":        slot["points"],
-		"multiplier":    slot["multiplier"],
-		"variant_label": slot["variant_label"],
-		"series":        slot["variant_label"],
+		"points":        0.0,
+		"multiplier":    1.0,
+		"variant_label": "",
+		"series":        "",
 		"combine_level": 0,
-	}
-	_spawn_tile(row, col, data)
+		"is_start":      false,
+		"is_dirt":       item["tier"] == "dirt",
+	})
 	last_placed_row = row
 	last_placed_col = col
-	shop_slots[selected_shop_slot] = null
-	selected_shop_slot = -1
+	# Werkzeug bleibt ausgewählt → man kann mehrere gleiche Tiles hintereinander setzen.
+	# Das zuletzt platzierte Tile wird markiert (Ziel für [R]/[F]).
 	_update_currency_label()
 	_update_shop_ui()
-	_check_shop_auto_reroll()
+	_update_grid_highlight()
 	_invalidate_track()
+
+
+# Entfernt nur die Node + Grid-Eintrag einer Zelle (inkl. Rampen-Partner), ohne UI-Update.
+func _free_tile_node(row: int, col: int) -> void:
+	var d = grid[row][col]
+	if d == null:
+		return
+	var rtype = d.get("type", "")
+	if rtype == "ramp_start" or rtype == "ramp_end":
+		var pr = d.get("ramp_partner_row", -1)
+		var pc = d.get("ramp_partner_col", -1)
+		if pr >= 0 and pc >= 0 and grid[pr][pc] != null:
+			grid[pr][pc]["node"].queue_free()
+			grid[pr][pc] = null
+	d["node"].queue_free()
+	grid[row][col] = null
 
 
 func _remove_tile(row: int, col: int) -> void:
 	if grid[row][col] != null:
-		if grid[row][col].get("is_start", false) or grid[row][col].get("is_dirt", false):
+		if grid[row][col].get("is_start", false):
 			return
 		# Rampen-Paar: Partner mitlöschen
 		var rtype = grid[row][col].get("type", "")
@@ -955,13 +1035,13 @@ func _ramp_end_pos(row: int, col: int, rot: int) -> Vector2i:
 	return Vector2i(-1, -1)
 
 
-# Ein Feld ist für eine Rampe nutzbar, wenn es leer oder ein Dreck-Tile ist.
+# Feld für eine Rampe nutzbar, wenn leer oder ein Dreck-Tile.
 func _ramp_cell_free(row: int, col: int) -> bool:
 	var d = grid[row][col]
 	return d == null or d.get("is_dirt", false)
 
 
-# Entfernt ein automatisch generiertes Dreck-Tile an dieser Stelle (falls vorhanden).
+# Entfernt ein Dreck-Tile an dieser Stelle (falls vorhanden).
 func _clear_dirt_cell(row: int, col: int) -> void:
 	var d = grid[row][col]
 	if d != null and d.get("is_dirt", false):
@@ -969,16 +1049,19 @@ func _clear_dirt_cell(row: int, col: int) -> void:
 		grid[row][col] = null
 
 
+# Platziert ein Rampen-Paar (Start + Ende 2 Felder entfernt). Das übersprungene
+# Mittelfeld bleibt frei für eine kreuzende Strecke (× JUMP_MULT Ertrag dort).
+# Werkzeug bleibt ausgewählt; Preis idle-skalierend wie Default-Tiles.
 func _place_ramp(row: int, col: int) -> void:
-	# Versucht alle 4 Rotationen beginnend mit ramp_preview_rot
-	var rot = ramp_preview_rot
+	var item  = SHOP_ITEMS[selected_shop_slot]
+	var price = _tile_price(item)
+	var rot   = ramp_preview_rot
 	for _attempt in range(4):
 		var end = _ramp_end_pos(row, col, rot)
 		if _ac_in_bounds(end) and _ramp_cell_free(row, col) and _ramp_cell_free(end.x, end.y):
-			if not Economy.spend(RAMP_PRICE):
+			if not Economy.spend(price):
 				_flash_currency()
 				return
-			# Automatisch generierte Dreck-Tiles unter der Rampe entfernen
 			_clear_dirt_cell(row, col)
 			_clear_dirt_cell(end.x, end.y)
 			_spawn_tile(row, col, {
@@ -996,72 +1079,15 @@ func _place_ramp(row: int, col: int) -> void:
 				"ramp_partner_row": row, "ramp_partner_col": col,
 			})
 			ramp_preview_rot = rot
-			shop_slots[selected_shop_slot] = null
-			selected_shop_slot = -1
+			last_placed_row = row
+			last_placed_col = col
 			_update_currency_label()
 			_update_shop_ui()
-			_check_shop_auto_reroll()
+			_update_grid_highlight()
 			_invalidate_track()
 			return
 		rot = (rot + 90) % 360
 	tile_selector.set_status("Kein Platz für Rampe (2 freie Felder in einer Richtung nötig)")
-
-
-# ── Tile-Kombination ───────────────────────────────────────────────────────────
-
-func _can_combine(shop_data: Dictionary, grid_data: Dictionary) -> bool:
-	if grid_data.get("is_start", false) or grid_data.get("is_dirt", false):
-		return false
-	if shop_data["type"] != grid_data["type"]:
-		return false
-	var series = grid_data.get("series", "")
-	if series == "" or series == "+0":
-		return false
-	if shop_data.get("variant_label", "") != grid_data.get("series", ""):
-		return false
-	return grid_data.get("combine_level", 0) < 4
-
-
-func _do_combine(row: int, col: int, shop_data: Dictionary) -> void:
-	if not Economy.spend(shop_data["price"]):
-		_flash_currency()
-		return
-
-	var grid_data  = grid[row][col]
-	var series     = grid_data.get("series", "")
-	var new_level  = grid_data.get("combine_level", 0) + 1
-	var new_points = grid_data.get("points", 0.0)
-	var new_mult   = grid_data.get("multiplier", 1.0)
-	var new_label  = grid_data.get("variant_label", "")
-
-	if series in POINT_UPGRADE_DATA:
-		var tbl    = POINT_UPGRADE_DATA[series]
-		new_points = tbl["points"][new_level]
-		new_mult   = 1.0
-		new_label  = tbl["labels"][new_level]
-
-	grid_data["node"].queue_free()
-	grid[row][col] = null
-
-	_spawn_tile(row, col, {
-		"type":          grid_data["type"],
-		"rotation":      grid_data["rotation"],
-		"flipped":       grid_data.get("flipped", false),
-		"direction":     grid_data.get("direction", 1),
-		"points":        new_points,
-		"multiplier":    new_mult,
-		"variant_label": new_label,
-		"series":        series,
-		"combine_level": new_level,
-		"is_start":      false,
-	})
-
-	shop_slots[selected_shop_slot] = null
-	selected_shop_slot = -1
-	_update_currency_label()
-	_update_shop_ui()
-	_check_shop_auto_reroll()
-	_invalidate_track()
 
 
 # ── Rotation ───────────────────────────────────────────────────────────────────
@@ -1140,6 +1166,10 @@ func _update_node_labels(node: Node2D, rot_deg: int) -> void:
 	if sl is Label:
 		sl.rotation_degrees = -rot_deg
 		sl.position = Vector2(0.0, TILE_SIZE / 2.0 - 14.0).rotated(-r)
+	var el = node.get_node_or_null("EarnLabel")
+	if el is Label:
+		el.rotation_degrees = -rot_deg
+		el.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-r)
 
 
 # ── F-Taste: Kurve flippen / Gerade umkehren / Rampe tauschen ─────────────────
@@ -1166,12 +1196,14 @@ func _flip_active() -> void:
 			"multiplier":    data.get("multiplier", 1.0),
 			"variant_label": data.get("variant_label", ""),
 			"is_start":      false,
+			"is_dirt":       data.get("is_dirt", false),
 		}
 		data["node"].queue_free()
 		grid[row][col] = null
 		_spawn_tile(row, col, new_data)
 		if selected_grid_row >= 0:
 			tile_selector.set_status(_type_display_name(new_type))
+		_invalidate_track()
 		return
 
 	# Gerade: Fahrtrichtung umkehren
@@ -1190,6 +1222,7 @@ func _flip_active() -> void:
 			"series":        data.get("series", ""),
 			"combine_level": data.get("combine_level", 0),
 			"is_start":      false,
+			"is_dirt":       data.get("is_dirt", false),
 		})
 		_invalidate_track()
 		return
@@ -1208,21 +1241,23 @@ func _flip_active() -> void:
 		if s_row < 0 or e_row < 0:
 			return
 		var rot = grid[s_row][s_col]["rotation"]
+		# Auffahrseite wechseln: Start/Ende tauschen UND beide um 180° drehen, damit die
+		# Rampen weiter zur Sprung-Lücke hin geneigt bleiben (nur Fahrtrichtung kehrt sich um).
+		var frot = (rot + 180) % 360
 		grid[s_row][s_col]["node"].queue_free()
 		grid[s_row][s_col] = null
 		if grid[e_row][e_col] != null:
 			grid[e_row][e_col]["node"].queue_free()
 			grid[e_row][e_col] = null
-		# Tauschen: altes Ende wird Start, altes Start wird Ende
 		_spawn_tile(e_row, e_col, {
-			"type": "ramp_start", "rotation": rot, "flipped": false,
+			"type": "ramp_start", "rotation": frot, "flipped": false,
 			"direction": 1, "points": 0.0, "multiplier": 1.0,
 			"variant_label": "", "series": "", "combine_level": 0,
 			"is_start": false, "is_dirt": false,
 			"ramp_partner_row": s_row, "ramp_partner_col": s_col,
 		})
 		_spawn_tile(s_row, s_col, {
-			"type": "ramp_end", "rotation": rot, "flipped": false,
+			"type": "ramp_end", "rotation": frot, "flipped": false,
 			"direction": 1, "points": 0.0, "multiplier": 1.0,
 			"variant_label": "", "series": "", "combine_level": 0,
 			"is_start": false, "is_dirt": false,
@@ -1230,7 +1265,7 @@ func _flip_active() -> void:
 		})
 		selected_grid_row = e_row; selected_grid_col = e_col
 		_update_grid_highlight()
-		tile_selector.set_status("Rampe  [R] drehen  [F] tauschen")
+		tile_selector.set_status("Rampe  [R] drehen  [F] Auffahrseite")
 		_invalidate_track()
 
 
@@ -1334,8 +1369,7 @@ func _rebuild_grid_for_size() -> void:
 	if new_rows == GRID_ROWS and new_cols == GRID_COLS:
 		return
 
-	_remove_all_dirt_tiles()
-	var saved = get_grid_state()   # alte Dimensionen
+	var saved = get_grid_state()   # alte Dimensionen (inkl. Dreck-Tiles, die jetzt bleiben)
 
 	for c in grid_node.get_children():
 		c.queue_free()
@@ -1351,16 +1385,15 @@ func _rebuild_grid_for_size() -> void:
 	selected_grid_row  = -1
 	selected_grid_col  = -1
 	selected_shop_slot = -1
-	sell_mode          = false
+	delete_mode        = false
 	_update_grid_highlight()
 	_update_shop_ui()
-	_update_sell_panel_style()
+	_update_delete_panel_style()
 	tile_selector.deselect()
 	_invalidate_track()
 
 
 func _on_pruefen_pressed() -> void:
-	_auto_complete_track()
 	if _is_track_valid():
 		tile_selector.set_fahren_enabled(true)
 		tile_selector.set_status("✓ Strecke fertig!")
@@ -1381,7 +1414,8 @@ func _on_fahren_pressed() -> void:
 		get_tree().change_scene_to_packed(world_scene)
 
 
-# Kopie des Grid-States, in der Tiles auf einem Bonusfeld bonus_points/bonus_mult tragen.
+# Kopie des Grid-States, in der Tiles auf einem Bonusfeld bonus_points/bonus_mult tragen
+# und Tiles auf einem Sprung-Mittelfeld einen jump_mult (× JUMP_MULT) bekommen.
 func _build_drive_state() -> Array:
 	var state = get_grid_state()
 	for r in range(GRID_ROWS):
@@ -1389,6 +1423,10 @@ func _build_drive_state() -> Array:
 			if bonus_grid[r][c] != null and typeof(state[r][c]) == TYPE_DICTIONARY:
 				state[r][c]["bonus_points"] = bonus_grid[r][c]["points"]
 				state[r][c]["bonus_mult"]   = bonus_grid[r][c]["mult"]
+	# Kreuzungs-Tiles unter einer Rampe: doppelter Ertrag
+	for cell in _ramp_jump_cells():
+		if typeof(state[cell.x][cell.y]) == TYPE_DICTIONARY:
+			state[cell.x][cell.y]["jump_mult"] = JUMP_MULT
 	return state
 
 
@@ -1396,11 +1434,10 @@ func _build_drive_state() -> Array:
 
 # Kurzkennung des Bonus-Upgrade-Zustands (zum Erkennen von Änderungen im Menü).
 func _bonus_signature() -> String:
-	return "%d%d%d_%d" % [
-		int(Economy.is_bonus_unlocked("plus5")),
-		int(Economy.is_bonus_unlocked("plus10")),
-		int(Economy.is_bonus_unlocked("mult15")),
-		Economy.get_bonus_extra_count(),
+	return "%d_%d_%d" % [
+		Economy.get_bonus_count("plus5"),
+		Economy.get_bonus_count("plus10"),
+		Economy.get_bonus_count("mult15"),
 	]
 
 
@@ -1414,8 +1451,9 @@ func _roll_bonus_fields() -> void:
 		for c in range(GRID_COLS):
 			bonus_grid[r][c] = null
 
-	var types = Economy.get_unlocked_bonus_types()
-	if types.is_empty():
+	# Plan: jede Bonus-Sorte so oft wie ihr Upgrade-Level (max. 3 je Sorte).
+	var to_place = Economy.get_bonus_field_plan()
+	if to_place.is_empty():
 		return
 
 	# Kandidaten: leere Zellen (Start-Tile + belegte Zellen sind dadurch ausgenommen)
@@ -1425,14 +1463,6 @@ func _roll_bonus_fields() -> void:
 			if grid[r][c] == null:
 				cells.append(Vector2i(r, c))
 	cells.shuffle()
-
-	# Je 1 Feld pro freigeschaltetem Typ + Extra-Felder in fester Reihenfolge
-	# (+5, dann +10, dann ×1.5, dann wieder +5 …; types ist bereits in dieser Reihenfolge).
-	var to_place: Array = []
-	for t in types:
-		to_place.append(t)
-	for i in range(Economy.get_bonus_extra_count()):
-		to_place.append(types[i % types.size()])
 
 	var idx = 0
 	for eff in to_place:
@@ -1521,180 +1551,63 @@ func _is_curve_dir_ok(data: Dictionary, entry: String) -> bool:
 func _invalidate_track() -> void:
 	tile_selector.set_fahren_enabled(false)
 	tile_selector.set_status("")
+	_refresh_jump_markers()
 	_persist_track()
 
 
-# Speichert die aktuelle Strecke dauerhaft (ohne Dreck-Tiles, die per Prüfen neu entstehen).
-func _persist_track() -> void:
-	var st = get_grid_state()
-	for r in range(st.size()):
-		for c in range(st[r].size()):
-			var d = st[r][c]
-			if typeof(d) == TYPE_DICTIONARY and d.get("is_dirt", false):
-				st[r][c] = ""
-	Economy.save_track(st)
+# ── Sprung-Felder (Rampen-Kreuzungen) ───────────────────────────────────────────
 
-
-# ── Auto-Vervollständigung ──────────────────────────────────────────────────────
-
-func _remove_all_dirt_tiles() -> void:
+# Mittelfelder aller Rampen (das übersprungene Feld zwischen ramp_start und ramp_end).
+func _ramp_jump_cells() -> Array:
+	var cells: Array = []
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
-			if grid[r][c] != null and grid[r][c].get("is_dirt", false):
-				grid[r][c]["node"].queue_free()
-				grid[r][c] = null
+			var d = grid[r][c]
+			if d != null and d.get("type", "") == "ramp_start":
+				var pr = d.get("ramp_partner_row", -1)
+				var pc = d.get("ramp_partner_col", -1)
+				if pr >= 0 and pc >= 0:
+					cells.append(Vector2i((r + pr) / 2, (c + pc) / 2))
+	return cells
 
 
-func _auto_complete_track() -> void:
-	_remove_all_dirt_tiles()
-	var path = _build_completion_path()
-	for p in path:
-		if grid[p["r"]][p["c"]] != null:
-			continue
-		_spawn_tile(p["r"], p["c"], {
-			"type":          p["type"],
-			"rotation":      p["rot"],
-			"flipped":       false,
-			"direction":     p.get("dir", 1),
-			"points":        0.0,
-			"multiplier":    0.1,
-			"variant_label": "",
-			"is_start":      false,
-			"is_dirt":       true,
-		})
+# Zeichnet ×2-Marker auf alle Sprung-Mittelfelder neu.
+func _refresh_jump_markers() -> void:
+	for n in _jump_marker_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_jump_marker_nodes.clear()
+	for cell in _ramp_jump_cells():
+		var marker = _make_jump_marker()
+		marker.position = _grid_to_world(cell.x, cell.y)
+		marker.z_index  = 5
+		grid_node.add_child(marker)
+		_jump_marker_nodes.append(marker)
 
 
-# 0-1-BFS: vorhandene Tiles kostenlos verfolgen (Kosten 0),
-# neue Dreck-Tiles setzen kostet 1. Findet die minimale Ergänzung
-# auch bei mehreren Lücken oder halb gebauten Strecken.
-func _build_completion_path() -> Array:
-	var INF = GRID_ROWS * GRID_COLS + 1
-
-	var dist: Dictionary      = {}
-	var came_from: Dictionary = {}
-
-	# Bucket-Queue für 0-1-BFS: buckets[k] = alle Zustände mit Kosten k
-	var buckets: Array = []
-	for _i in range(INF + 2):
-		buckets.append([])
-
-	# Startpunkt: [1,1] verlässt nach Ost → erste zu prüfende Zelle ist [1,2]
-	var bfs0 = _ac_step(1, 1, "E")
-	if not _ac_in_bounds(bfs0):
-		return []
-
-	var s0 = "%d_%d_W" % [bfs0.x, bfs0.y]
-	dist[s0]      = 0
-	came_from[s0] = null
-	buckets[0].append({"r": bfs0.x, "c": bfs0.y, "e": "W", "k": 0})
-
-	var goal_key = ""
-	var found    = false
-
-	for cur_k in range(INF + 1):
-		if found: break
-		while not buckets[cur_k].is_empty():
-			var s  = buckets[cur_k].pop_back()
-			var sr = s["r"]; var sc = s["c"]; var se = s["e"]
-			var sk = "%d_%d_%s" % [sr, sc, se]
-
-			if s["k"] > dist.get(sk, INF):
-				continue  # Veralteter Eintrag, überspringen
-
-			# Ziel: Start-Tile [1,1] von Westen betreten
-			if sr == 1 and sc == 1 and se == "W":
-				goal_key = sk; found = true; break
-
-			# Start-Tile aus falscher Richtung → Sackgasse
-			if sr == 1 and sc == 1:
-				continue
-
-			if not _ac_in_bounds(Vector2i(sr, sc)):
-				continue
-
-			var cell = grid[sr][sc]
-			var is_user_tile = (cell != null
-				and not cell.get("is_dirt", false)
-				and not cell.get("is_start", false))
-
-			if is_user_tile:
-				# Vorhandenes User-Tile kostenlos verfolgen (wenn Richtung stimmt)
-				var exit_dir = _ac_through(cell, se)
-				if exit_dir != "":
-					var nc  = _ac_step(sr, sc, exit_dir)
-					# ramp_start: Mittelfeld überspringen
-					if cell.get("type", "") == "ramp_start" and _ac_in_bounds(nc):
-						nc = _ac_step(nc.x, nc.y, exit_dir)
-					if _ac_in_bounds(nc):
-						var ne  = _ac_opp(exit_dir)
-						var nk  = "%d_%d_%s" % [nc.x, nc.y, ne]
-						if cur_k < dist.get(nk, INF):
-							dist[nk]      = cur_k
-							came_from[nk] = {"prev": sk, "type": null, "r": sr, "c": sc}
-							buckets[cur_k].append({"r": nc.x, "c": nc.y, "e": ne, "k": cur_k})
-			else:
-				# Leere Zelle: Dreck-Tile setzen (Kosten +1)
-				var next_k = cur_k + 1
-				if next_k > INF:
-					continue
-				for opt in _ac_tile_options(se):
-					var nc = _ac_step(sr, sc, opt["exit"])
-					if not _ac_in_bounds(nc):
-						continue
-					var ne = _ac_opp(opt["exit"])
-					var nk = "%d_%d_%s" % [nc.x, nc.y, ne]
-					if next_k < dist.get(nk, INF):
-						dist[nk]      = next_k
-						came_from[nk] = {
-							"prev": sk, "type": opt["type"],
-							"rot":  opt["rot"], "dir": opt.get("dir", 1),
-							"r":    sr, "c": sc
-						}
-						buckets[next_k].append({"r": nc.x, "c": nc.y, "e": ne, "k": next_k})
-
-	if goal_key == "":
-		return []
-
-	# Pfad rekonstruieren: nur Dreck-Tile-Platzierungen (type != null) sammeln
-	var path: Array = []
-	var cur = goal_key
-	while cur != null and came_from.has(cur):
-		var cf = came_from[cur]
-		if cf == null: break
-		if cf.get("type", null) != null:
-			path.append(cf)
-		cur = cf["prev"]
-	path.reverse()
-	return path
+func _make_jump_marker() -> Node2D:
+	# Nur ein "×2"-Hinweis im Sprung-Mittelfeld – kein Rahmen (überlagert keine Tiles).
+	var node = Node2D.new()
+	var lbl = Label.new()
+	lbl.text = "×2"
+	lbl.position = Vector2(0, 0)
+	lbl.size = Vector2(TILE_SIZE, TILE_SIZE)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.6, 0.12))
+	lbl.add_theme_constant_override("outline_size", 4)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	node.add_child(lbl)
+	return node
 
 
-# ── BFS-Hilfsfunktionen ────────────────────────────────────────────────────────
+# Speichert die aktuelle Strecke dauerhaft (inkl. Dreck-Tiles – jetzt vollwertige Tiles).
+func _persist_track() -> void:
+	Economy.save_track(get_grid_state())
 
-# Mögliche Tiles pro Eintrittseite – Typ, Rotation, Ausgang und Pfeil-Richtung.
-func _ac_tile_options(entry: String) -> Array:
-	match entry:
-		"N": return [  # Auto fährt Richtung Süd
-			{"type": "straight",  "rot": 90,  "exit": "S", "dir":  1},
-			{"type": "curve",     "rot": 180, "exit": "W", "dir":  1},
-			{"type": "curve_alt", "rot": 270, "exit": "E", "dir": -1},
-		]
-		"S": return [  # Auto fährt Richtung Nord
-			{"type": "straight",  "rot": 90,  "exit": "N", "dir": -1},
-			{"type": "curve",     "rot": 0,   "exit": "E", "dir":  1},
-			{"type": "curve_alt", "rot": 90,  "exit": "W", "dir": -1},
-		]
-		"E": return [  # Auto fährt Richtung West
-			{"type": "straight",  "rot": 0,   "exit": "W", "dir": -1},
-			{"type": "curve",     "rot": 270, "exit": "N", "dir":  1},
-			{"type": "curve_alt", "rot": 0,   "exit": "S", "dir": -1},
-		]
-		"W": return [  # Auto fährt Richtung Ost
-			{"type": "straight",  "rot": 0,   "exit": "E", "dir":  1},
-			{"type": "curve",     "rot": 90,  "exit": "S", "dir":  1},
-			{"type": "curve_alt", "rot": 180, "exit": "N", "dir": -1},
-		]
-	return []
 
+# ── Routing-Hilfsfunktionen (für Streckenvalidierung) ───────────────────────────
 
 func _ac_through(data: Dictionary, entry: String) -> String:
 	var t   = data.get("type", "")

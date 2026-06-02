@@ -7,6 +7,14 @@ const ROAD_Y    = 0.01
 # längs in der Kachel liegt, hier 90 eintragen (Yaw-Korrektur in Grad).
 const STRAIGHT_MODEL_YAW_OFFSET = 90.0
 
+# Straßenbreite der Geraden als Anteil der Kachelbreite (Länge bleibt = volle Kachel).
+# Höher = breitere Straße. Wird unabhängig von der Modellgröße erzwungen.
+const STRAIGHT_WIDTH_FRAC = 0.55
+
+# Yaw-Korrektur für das Default-Kurven-GLB (Grad). Die Engine-Kurve bei rot=0 verbindet
+# Süd- und Ost-Kante; falls das Modell anders ausgerichtet ist, hier in 90°-Schritten anpassen.
+const CURVE_MODEL_YAW_OFFSET = 0.0
+
 
 
 func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
@@ -51,6 +59,44 @@ func _make_straight_model(path: String) -> Node3D:
 	var scene = load(path)
 	if scene == null:
 		push_error("Geraden-Modell nicht gefunden: " + path)
+		return holder
+
+	var inst = scene.instantiate()
+	holder.add_child(inst)
+
+	var aabb = _local_aabb(inst)
+	if aabb.size.x > 0.0 and aabb.size.z > 0.0:
+		# Längsachse (die längere horizontale) auf volle Kachel, Querachse (Breite)
+		# separat auf STRAIGHT_WIDTH_FRAC der Kachel → breiter, aber nicht länger.
+		var longest = max(aabb.size.x, aabb.size.z)
+		var len_s   = TILE_SIZE / longest
+		var width_w = TILE_SIZE * STRAIGHT_WIDTH_FRAC
+		var sx: float
+		var sz: float
+		if aabb.size.x >= aabb.size.z:
+			sx = len_s                  # x = Länge
+			sz = width_w / aabb.size.z  # z = Breite
+		else:
+			sz = len_s                  # z = Länge
+			sx = width_w / aabb.size.x  # x = Breite
+		var sy = len_s
+		inst.scale = Vector3(sx, sy, sz)
+		# horizontal mittig auf der Kachel, vertikal auf dem Boden (y=0)
+		inst.position = Vector3(
+			-(aabb.position.x + aabb.size.x / 2.0) * sx,
+			-aabb.position.y * sy,
+			-(aabb.position.z + aabb.size.z / 2.0) * sz
+		)
+	return holder
+
+
+# Lädt das Kurven-GLB, skaliert es uniform auf die Kachel (füllt die Kachelfläche)
+# und zentriert es. Die Node-Rotation (in generate) richtet die Kurve aus.
+func _make_curve_model(path: String) -> Node3D:
+	var holder = Node3D.new()
+	var scene = load(path)
+	if scene == null:
+		push_error("Kurven-Modell nicht gefunden: " + path)
 		return holder
 
 	var inst = scene.instantiate()
@@ -161,7 +207,15 @@ func generate(grid_state: Array) -> void:
 				add_child(straight)
 				continue
 
-			# Kurve (curve / curve_alt): weiterhin prozedural
+			# Kurve (curve / curve_alt): Default = GLB-Modell, Dirt = prozedural (+ Dirt-Material).
+			# curve und curve_alt haben dieselbe Bogenform – nur die Fahrtrichtung unterscheidet sich.
+			if not d.get("is_dirt", false):
+				var curve = _make_curve_model(Paths.MODEL_TRACK_CURVE_DEFAULT)
+				curve.position = tile_pos
+				curve.rotation_degrees.y = -d["rotation"] + CURVE_MODEL_YAW_OFFSET
+				add_child(curve)
+				continue
+
 			var scene = load(Paths.SCENE_TILE_CURVE_3D)
 			if scene == null:
 				push_error("3D-Tile-Szene nicht gefunden: " + Paths.SCENE_TILE_CURVE_3D)
@@ -171,5 +225,4 @@ func generate(grid_state: Array) -> void:
 			node.position = tile_pos
 			node.rotation_degrees.y = -d["rotation"]
 			add_child(node)
-			if d.get("is_dirt", false):
-				_apply_dirt_material(node)
+			_apply_dirt_material(node)
