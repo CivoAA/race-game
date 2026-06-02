@@ -127,7 +127,7 @@ func _setup_hud() -> void:
 func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 	var lbl = Label.new()
 	lbl.position = pos
-	lbl.size = Vector2(800, 28)
+	lbl.size = Vector2(960, 28)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", font_size)
@@ -151,7 +151,7 @@ func _show_summary() -> void:
 
 	var panel = Panel.new()
 	panel.size     = Vector2(360, 200)
-	panel.position = Vector2((800 - 360) / 2.0, (630 - 200) / 2.0)
+	panel.position = Vector2((960 - 360) / 2.0, (540 - 200) / 2.0)
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color(0.12, 0.13, 0.16, 0.96)
 	style.border_color = Color(1.0, 0.85, 0.2)

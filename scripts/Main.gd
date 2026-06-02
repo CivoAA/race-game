@@ -167,47 +167,93 @@ func _setup_shop_ui() -> void:
 	_currency_hud = CurrencyHudScript.new()
 	add_child(_currency_hud)
 
-	# Shop-Bar – unterhalb des Grids (Grid-Unterkante bei Bildschirm-y=540)
-	var shop_y = 545
-	var shop_x = 120
-	var slot_w = 74
-	var slot_h = 68
-	var gap    = 4
+	# Rechte Seitenleiste: x=752 bis x=956 (204px), volle Höhe
+	# Grid endet bei x=148+600=748; 4px Abstand → Panel bei 752
+	const PANEL_X  = 752
+	const PANEL_W  = 204
+	const SLOT_W   = 188   # PANEL_W - 16 (8px Padding je Seite)
+	const SLOT_H   = 74
+	const SLOT_GAP = 4
+	const START_Y  = 42   # unterhalb der CurrencyHUD
 
+	# Hintergrund-Panel
+	var shop_bg = Panel.new()
+	shop_bg.position = Vector2(PANEL_X, 0)
+	shop_bg.size     = Vector2(PANEL_W, 540)
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color          = Color(0.09, 0.10, 0.14)
+	bg_style.border_width_left = 1
+	bg_style.border_color      = Color(0.20, 0.23, 0.32)
+	shop_bg.add_theme_stylebox_override("panel", bg_style)
+	layer.add_child(shop_bg)
+
+	# "SHOP" Header
+	var shop_header = Label.new()
+	shop_header.text = "SHOP"
+	shop_header.position = Vector2(PANEL_X, 8)
+	shop_header.size = Vector2(PANEL_W, 28)
+	shop_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	shop_header.add_theme_font_size_override("font_size", 11)
+	shop_header.add_theme_color_override("font_color", Color(0.32, 0.37, 0.52))
+	layer.add_child(shop_header)
+
+	# Shop-Slots (vertikal gestapelt)
 	for i in range(SHOP_SLOT_COUNT):
 		var panel = Panel.new()
-		panel.position = Vector2(shop_x + i * (slot_w + gap), shop_y)
-		panel.size = Vector2(slot_w, slot_h)
+		panel.position = Vector2(PANEL_X + 8, START_Y + i * (SLOT_H + SLOT_GAP))
+		panel.size = Vector2(SLOT_W, SLOT_H)
+
+		# Slot-Nummer (oben links, sehr klein, gedimmt)
+		var num_lbl = Label.new()
+		num_lbl.name = "NumLabel"
+		num_lbl.text = "%d" % (i + 1)
+		num_lbl.position = Vector2(5, 3)
+		num_lbl.size = Vector2(18, 14)
+		num_lbl.add_theme_font_size_override("font_size", 9)
+		num_lbl.add_theme_color_override("font_color", Color(0.26, 0.30, 0.42))
+		panel.add_child(num_lbl)
+
+		# Haupt-Label (Typ + Preis)
 		var lbl = Label.new()
 		lbl.name = "TypeLabel"
-		lbl.size = Vector2(slot_w, slot_h)
+		lbl.size = Vector2(SLOT_W, SLOT_H)
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		lbl.add_theme_font_size_override("font_size", 12)
+		lbl.add_theme_font_size_override("font_size", 13)
 		panel.add_child(lbl)
+
 		var idx = i
 		panel.gui_input.connect(func(e): _on_shop_slot_gui_input(e, idx))
 		layer.add_child(panel)
 		_shop_panels.append(panel)
 
+	# Position nach den Slots
+	var after_y = START_Y + SHOP_SLOT_COUNT * (SLOT_H + SLOT_GAP) + 6
+
+	# Trennlinie
+	var sep = ColorRect.new()
+	sep.position = Vector2(PANEL_X + 8, after_y)
+	sep.size = Vector2(SLOT_W, 1)
+	sep.color = Color(0.20, 0.23, 0.32)
+	layer.add_child(sep)
+
 	# Reroll-Button
-	var reroll_x = shop_x + SHOP_SLOT_COUNT * (slot_w + gap) + 4
 	var reroll = Button.new()
-	reroll.position = Vector2(reroll_x, shop_y)
-	reroll.size = Vector2(80, slot_h)
-	reroll.text = "🎲 Neu\n(1💰)"
+	reroll.position = Vector2(PANEL_X + 8, after_y + 6)
+	reroll.size = Vector2(SLOT_W, 44)
+	reroll.text = "🎲  Neu würfeln  (1💰)"
 	reroll.pressed.connect(_on_reroll_pressed)
+	_style_shop_action_btn(reroll, Color(0.22, 0.27, 0.42))
 	layer.add_child(reroll)
 
 	# Verkaufen-Panel
-	var sell_x = reroll_x + 80 + 4
 	_sell_panel = Panel.new()
-	_sell_panel.position = Vector2(sell_x, shop_y)
-	_sell_panel.size = Vector2(80, slot_h)
+	_sell_panel.position = Vector2(PANEL_X + 8, after_y + 56)
+	_sell_panel.size = Vector2(SLOT_W, 44)
 	var sell_lbl = Label.new()
 	sell_lbl.name = "SellLabel"
-	sell_lbl.text = "💰\nVerkaufen"
-	sell_lbl.size = Vector2(80, slot_h)
+	sell_lbl.text = "💰  Verkaufen"
+	sell_lbl.size = Vector2(SLOT_W, 44)
 	sell_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sell_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	sell_lbl.add_theme_font_size_override("font_size", 12)
@@ -215,6 +261,24 @@ func _setup_shop_ui() -> void:
 	_sell_panel.gui_input.connect(_on_sell_panel_gui_input)
 	layer.add_child(_sell_panel)
 	_update_sell_panel_style()
+
+
+func _style_shop_action_btn(btn: Button, accent: Color) -> void:
+	var C_S  = Color(0.13, 0.15, 0.21)
+	var C_S2 = Color(0.09, 0.10, 0.14)
+	var C_T  = Color(0.82, 0.85, 0.90)
+	var _mk = func(bg: Color, bc: Color) -> StyleBoxFlat:
+		var sb = StyleBoxFlat.new()
+		sb.bg_color = bg; sb.border_width_left = 3; sb.border_color = bc
+		sb.set_corner_radius_all(4)
+		sb.content_margin_top = 6; sb.content_margin_bottom = 6
+		return sb
+	btn.add_theme_stylebox_override("normal",  _mk.call(C_S,                 accent.darkened(0.5)))
+	btn.add_theme_stylebox_override("hover",   _mk.call(C_S.lightened(0.07), accent))
+	btn.add_theme_stylebox_override("pressed", _mk.call(C_S2,                accent))
+	btn.add_theme_stylebox_override("focus",   _mk.call(C_S,                 accent.darkened(0.5)))
+	btn.add_theme_color_override("font_color", C_T)
+	btn.add_theme_font_size_override("font_size", 12)
 
 
 func _random_shop_item() -> Dictionary:
@@ -268,36 +332,57 @@ func _update_shop_ui() -> void:
 					lbl.text = "%s\n%s\n%d💰" % [icon, slot["variant_label"], slot["price"]]
 
 		var style = StyleBoxFlat.new()
-		style.set_corner_radius_all(3)
+		style.set_corner_radius_all(5)
 		if i == selected_shop_slot and slot != null:
-			style.bg_color     = Color(0.28, 0.24, 0.08)
-			style.border_color = Color(1.0, 0.85, 0.0)
-			style.set_border_width_all(2)
+			style.bg_color     = Color(0.22, 0.18, 0.05)
+			style.border_color = Color(1.0, 0.80, 0.0)
+			style.border_width_left  = 3
+			style.border_width_right = 1
+			style.border_width_top   = 1
+			style.border_width_bottom = 1
 		elif slot == null:
-			style.bg_color     = Color(0.12, 0.12, 0.14)
-			style.border_color = Color(0.25, 0.25, 0.28)
+			style.bg_color     = Color(0.10, 0.11, 0.15)
+			style.border_color = Color(0.18, 0.20, 0.28)
 			style.set_border_width_all(1)
 		else:
-			style.bg_color     = Color(0.20, 0.20, 0.24)
-			style.border_color = Color(0.40, 0.40, 0.45)
+			style.bg_color     = Color(0.14, 0.16, 0.22)
+			style.border_color = Color(0.28, 0.32, 0.46)
 			style.set_border_width_all(1)
 		panel.add_theme_stylebox_override("panel", style)
+
+		# TypeLabel-Farbe: gedimmt wenn leer, normal sonst
+		var lbl2 = panel.get_node_or_null("TypeLabel") as Label
+		if lbl2 != null:
+			if slot == null:
+				lbl2.add_theme_color_override("font_color", Color(0.28, 0.32, 0.42))
+			elif i == selected_shop_slot:
+				lbl2.add_theme_color_override("font_color", Color(1.0, 0.92, 0.6))
+			else:
+				lbl2.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
 
 
 func _update_sell_panel_style() -> void:
 	if _sell_panel == null:
 		return
 	var style = StyleBoxFlat.new()
-	style.set_corner_radius_all(3)
+	style.set_corner_radius_all(5)
 	if sell_mode:
-		style.bg_color     = Color(0.35, 0.15, 0.05)
-		style.border_color = Color(1.0, 0.6, 0.0)
-		style.set_border_width_all(2)
+		style.bg_color       = Color(0.32, 0.12, 0.05)
+		style.border_color   = Color(1.0, 0.55, 0.08)
+		style.border_width_left   = 3
+		style.border_width_right  = 1
+		style.border_width_top    = 1
+		style.border_width_bottom = 1
 	else:
-		style.bg_color     = Color(0.18, 0.10, 0.10)
-		style.border_color = Color(0.45, 0.25, 0.25)
+		style.bg_color     = Color(0.16, 0.10, 0.10)
+		style.border_color = Color(0.42, 0.22, 0.22)
 		style.set_border_width_all(1)
 	_sell_panel.add_theme_stylebox_override("panel", style)
+
+	var lbl = _sell_panel.get_node_or_null("SellLabel") as Label
+	if lbl != null:
+		lbl.add_theme_color_override("font_color",
+			Color(1.0, 0.65, 0.35) if sell_mode else Color(0.65, 0.40, 0.38))
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
