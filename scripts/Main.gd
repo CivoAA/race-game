@@ -910,16 +910,20 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 		road.position = Vector2(-half, -pw / 2.0)
 		road.color    = soil
 		node.add_child(road)
-		# Richtungspfeil dreht sich mit dem Tile (zeigt so immer die richtige Weltrichtung)
-		var dir = data.get("direction", 1)
-		var arr = Label.new()
-		arr.text     = "→" if dir == 1 else "←"
-		arr.position = Vector2(-9.0, -12.0)
-		arr.add_theme_color_override("font_color", Color(0.95, 0.80, 0.45))
-		arr.add_theme_font_size_override("font_size", 20)
-		arr.add_theme_constant_override("outline_size", 2)
-		arr.add_theme_color_override("font_outline_color", Color(0.1, 0.05, 0.0, 0.7))
-		node.add_child(arr)
+		# Richtungspfeil als Dreieck (identische Form/Farbe wie Gerade & Kurven,
+		# statt Text). Dreht sich mit dem Tile → zeigt immer die richtige Weltrichtung.
+		var dir    = data.get("direction", 1)
+		var angle  = 0.0 if dir == 1 else PI
+		var apos   = Vector2(half * 0.3 * dir, 0.0)
+		var s      = 10.0
+		var tri = Polygon2D.new()
+		tri.polygon = PackedVector2Array([
+			apos + Vector2(cos(angle), sin(angle)) * s,
+			apos + Vector2(cos(angle + 2.4), sin(angle + 2.4)) * s * 0.6,
+			apos + Vector2(cos(angle - 2.4), sin(angle - 2.4)) * s * 0.6,
+		])
+		tri.color = Color(1.0, 0.5, 0.15) if dir == 1 else Color(0.3, 0.65, 1.0)
+		node.add_child(tri)
 	else:
 		# Kurven-Dreck-Pfad: schmaler Bogen als Polygon (Basislage rot=0 → S+E)
 		var center = Vector2(half, half)
