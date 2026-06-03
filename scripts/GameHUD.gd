@@ -20,19 +20,21 @@ const C_RUN_ON     := Color(0.25, 0.90, 0.45)
 const C_RUN_OFF    := Color(0.32, 0.36, 0.50)
 
 # Rechter Block – von rechts nach links:
+# Der Bauen-Button ist aus der Top-Nav entfernt (jetzt Hammer-Button unten links in Main.gd).
+# Dadurch wird Platz frei für ein großes, auffälliges Upgrade-Center.
 const R_PAD      = 8
-const SHOP_W     = 46
-const BUILD_W    = 82
+const UC_W       = 196   # Upgrade-Center (großer, beschrifteter Button)
+const UC_H       = 40
 const VIEW_W     = 42
 const BTN_GAP    = 4
 const BTN_H      = 34
 const BTN_Y      = (BAR_H - BTN_H) / 2
+const UC_Y       = (BAR_H - UC_H) / 2
 
 # Berechnete x-Positionen (von rechts nach links)
-const SHOP_X  = VIEWPORT_W - R_PAD - SHOP_W                       # 906
-const BUILD_X = SHOP_X - BTN_GAP - BUILD_W                        # 820
-const V3D_X   = BUILD_X - BTN_GAP - VIEW_W                        # 774
-const V2D_X   = V3D_X - BTN_GAP - VIEW_W                          # 728
+const UC_X    = VIEWPORT_W - R_PAD - UC_W                         # 756
+const V3D_X   = UC_X - BTN_GAP - VIEW_W                           # 710
+const V2D_X   = V3D_X - BTN_GAP - VIEW_W                          # 664
 
 # Tab-Block (links)
 const TAB_W   = 108
@@ -48,7 +50,6 @@ var _is_3d_view:   bool = false
 var _tab_btns:     Array[Button]    = []
 var _run_dots:     Array[ColorRect] = []
 var _currency_lbl: Label            = null
-var _build_btn:    Button           = null
 var _view_2d_btn:  Button           = null
 var _view_3d_btn:  Button           = null
 var _shop_btn:     Button           = null
@@ -111,20 +112,17 @@ func _build_bar() -> void:
 	_currency_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.88))
 	add_child(_currency_lbl)
 
-	# Rechter Block (von links nach rechts: 2D | 3D | Bauen | 🏪)
-	_view_2d_btn = _make_btn("2D",       Vector2(V2D_X,   BTN_Y), VIEW_W,  BTN_H)
-	_view_3d_btn = _make_btn("3D",       Vector2(V3D_X,   BTN_Y), VIEW_W,  BTN_H)
-	_build_btn   = _make_btn("🔨 Bauen", Vector2(BUILD_X, BTN_Y), BUILD_W, BTN_H)
-	_shop_btn    = _make_btn("🏪",       Vector2(SHOP_X,  BTN_Y), SHOP_W,  BTN_H)
+	# Rechter Block (von links nach rechts: 2D | 3D | Upgrade-Center)
+	_view_2d_btn = _make_btn("2D", Vector2(V2D_X, BTN_Y), VIEW_W, BTN_H)
+	_view_3d_btn = _make_btn("3D", Vector2(V3D_X, BTN_Y), VIEW_W, BTN_H)
+	_shop_btn    = _make_uc_btn("🏪  UPGRADE-CENTER", Vector2(UC_X, UC_Y), UC_W, UC_H)
 
 	_view_2d_btn.pressed.connect(_on_view_2d)
 	_view_3d_btn.pressed.connect(_on_view_3d)
-	_build_btn.pressed.connect(_on_build_toggled)
 	_shop_btn.pressed.connect(_on_shop_pressed)
 
 	add_child(_view_2d_btn)
 	add_child(_view_3d_btn)
-	add_child(_build_btn)
 	add_child(_shop_btn)
 
 	# Debug-Button: +1.000.000 Gold (rechts neben Währungsanzeige)
@@ -156,6 +154,40 @@ func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	btn.add_theme_color_override("font_color", C_TEXT)
 	btn.add_theme_font_size_override("font_size", 12)
 	return btn
+
+
+# Großer, auffälliger Upgrade-Center-Button: gefülltes Orange mit dunkler Schrift,
+# pulsierende Akzent-Umrandung – das zentrale Feature der Top-Nav.
+func _make_uc_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
+	var btn := Button.new()
+	btn.text     = txt
+	btn.position = pos
+	btn.size     = Vector2(w, h)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal",  _uc_sb(C_ACCENT,              C_ACCENT.lightened(0.35)))
+	btn.add_theme_stylebox_override("hover",   _uc_sb(C_ACCENT.lightened(0.12), C_TEXT))
+	btn.add_theme_stylebox_override("pressed", _uc_sb(C_ACCENT.darkened(0.12), C_ACCENT.lightened(0.35)))
+	btn.add_theme_stylebox_override("focus",   _uc_sb(C_ACCENT,              C_ACCENT.lightened(0.35)))
+	btn.add_theme_color_override("font_color",       Color(0.10, 0.07, 0.02))
+	btn.add_theme_color_override("font_hover_color", Color(0.06, 0.04, 0.01))
+	btn.add_theme_font_size_override("font_size", 15)
+	return btn
+
+
+func _uc_sb(bg: Color, border: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_border_width_all(2)
+	sb.border_color = border
+	sb.set_corner_radius_all(5)
+	sb.content_margin_left   = 8
+	sb.content_margin_right  = 8
+	sb.content_margin_top    = 4
+	sb.content_margin_bottom = 4
+	sb.shadow_color = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.35)
+	sb.shadow_size  = 6
+	return sb
 
 
 func _sb(bg: Color, border: Color) -> StyleBoxFlat:
@@ -229,16 +261,6 @@ func _refresh_view_buttons() -> void:
 		_view_3d_btn.add_theme_stylebox_override("normal", _sb(C_SURFACE, C_ACCENT_MU))
 		_view_3d_btn.add_theme_color_override("font_color", C_TEXT_DIM)
 
-	_build_btn.visible = not _is_3d_view
-
-	if _build_active and not _is_3d_view:
-		var sb_b := sb_on.duplicate() as StyleBoxFlat
-		_build_btn.add_theme_stylebox_override("normal", sb_b)
-		_build_btn.add_theme_color_override("font_color", C_ACCENT)
-	else:
-		_build_btn.add_theme_stylebox_override("normal", _sb(C_SURFACE, C_ACCENT_MU))
-		_build_btn.add_theme_color_override("font_color", C_TEXT)
-
 
 func _process(_delta: float) -> void:
 	# Im Hauptmenü ausblenden
@@ -272,7 +294,8 @@ func _on_tab_pressed(idx: int) -> void:
 	emit_signal("tab_changed", idx)
 
 
-func _on_build_toggled() -> void:
+# Wird vom Hammer-Button in Main.gd aufgerufen (Baumodus an/aus).
+func request_build_toggle() -> void:
 	if _is_3d_view:
 		return
 	_build_active = not _build_active

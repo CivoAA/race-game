@@ -16,10 +16,17 @@ const C_TEXT     := Color(0.93, 0.95, 1.00)
 const C_TEXT_DIM := Color(0.50, 0.56, 0.70)
 const C_LINE     := Color(0.21, 0.24, 0.34)
 
-# Build-Panel-Konstanten
-const BUILD_PANEL_H = 110
-const BUILD_PANEL_Y = 540 - 42 - BUILD_PANEL_H  # 42px Run-Bar am unteren Rand
-const PAN_BORDER    = 150   # px jenseits des Grid-Rands für Kamera-Pan
+# Build-Panel-Konstanten – vertikales, scrollbares Panel am LINKEN Rand
+const BUILD_PANEL_X   = 0
+const BUILD_PANEL_W   = 156
+const BUILD_PANEL_TOP = 54                       # unter der Top-Nav (0–50)
+# Untere Werkzeug-Buttons (Hammer = Baumenü öffnen, Papierkorb = löschen).
+# Gleiche Größe; sitzen über der 42px-Run-Bar.
+const BOTTOM_BTN_W    = 56
+const BOTTOM_BTN_H    = 72
+const BOTTOM_BTN_Y    = 540 - 42 - 4 - BOTTOM_BTN_H   # = 422
+const BUILD_PANEL_BOT = 540 - 42                     # = 498 (Panel reicht bis zum Footer/Run-Bar)
+const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
 
 # Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
 #   tier "dirt"    = kostenlos, Standard-Tile (Ertrag +5 pro überfahrenem Feld)
@@ -101,6 +108,7 @@ var _hint_lbl:      Label       = null
 var _fahren_btn:    Button      = null
 var _build_cards:   Array       = []
 var _trash_panel:   Panel       = null   # Papierkorb (nur Slow-Modus)
+var _hammer_btn:    Button      = null   # Baumenü-Umschalter (persistent, unten links)
 
 # Persistenter Run-Bar (Layer 4, immer sichtbar: Track-Status + Fahren-Button)
 var _run_bar:          CanvasLayer = null
@@ -138,6 +146,7 @@ func _ready() -> void:
 	_setup_camera()
 	_setup_run_bar()
 	_setup_build_panel()
+	_setup_build_toggle_btn()
 	_setup_run_summary_modal()
 
 	# TileSelector-Shim aufsetzen NACH Build-Panel (Nodes already created)
@@ -365,82 +374,143 @@ func _setup_build_panel() -> void:
 	_build_layer.visible = false
 	add_child(_build_layer)
 
-	# Hintergrund
+	var panel_h := BUILD_PANEL_BOT - BUILD_PANEL_TOP
+
+	# Hintergrund – vertikales Panel am linken Rand
 	var bg := Panel.new()
-	bg.position = Vector2(0, BUILD_PANEL_Y)
-	bg.size     = Vector2(960, BUILD_PANEL_H)
+	bg.position = Vector2(BUILD_PANEL_X, BUILD_PANEL_TOP)
+	bg.size     = Vector2(BUILD_PANEL_W, panel_h)
 	var bg_sb := StyleBoxFlat.new()
-	bg_sb.bg_color           = C_BG
-	bg_sb.border_width_top   = 1
-	bg_sb.border_color       = C_LINE
-	bg_sb.content_margin_top = 0
+	bg_sb.bg_color            = C_BG
+	bg_sb.border_width_right  = 1
+	bg_sb.border_color        = C_LINE
+	bg_sb.set_corner_radius_all(0)
 	bg.add_theme_stylebox_override("panel", bg_sb)
 	_build_layer.add_child(bg)
 
-	# Header-Zeile
-	const HDR_Y = BUILD_PANEL_Y + 5
-	const HDR_H = 22
-
+	# Kopfzeile
 	var mode_lbl := Label.new()
 	mode_lbl.text = "BAUMODUS"
-	mode_lbl.position = Vector2(10, HDR_Y)
-	mode_lbl.size = Vector2(100, HDR_H)
+	mode_lbl.position = Vector2(12, BUILD_PANEL_TOP + 8)
+	mode_lbl.size = Vector2(BUILD_PANEL_W - 24, 20)
 	mode_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	mode_lbl.add_theme_font_size_override("font_size", 11)
+	mode_lbl.add_theme_font_size_override("font_size", 13)
 	mode_lbl.add_theme_color_override("font_color", C_ACCENT)
 	_build_layer.add_child(mode_lbl)
 
+	var hdr_line := ColorRect.new()
+	hdr_line.position = Vector2(8, BUILD_PANEL_TOP + 32)
+	hdr_line.size     = Vector2(BUILD_PANEL_W - 16, 1)
+	hdr_line.color    = C_LINE
+	_build_layer.add_child(hdr_line)
+
 	_status_lbl = Label.new()
-	_status_lbl.position = Vector2(120, HDR_Y)
-	_status_lbl.size = Vector2(520, HDR_H)
-	_status_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_status_lbl.add_theme_font_size_override("font_size", 11)
+	_status_lbl.position = Vector2(12, BUILD_PANEL_TOP + 38)
+	_status_lbl.size = Vector2(BUILD_PANEL_W - 24, 30)
+	_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status_lbl.add_theme_font_size_override("font_size", 10)
 	_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	_build_layer.add_child(_status_lbl)
-
-	_hint_lbl = Label.new()
-	_hint_lbl.position = Vector2(660, HDR_Y)
-	_hint_lbl.size = Vector2(280, HDR_H)
-	_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_hint_lbl.add_theme_font_size_override("font_size", 10)
-	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	_build_layer.add_child(_hint_lbl)
 
 	# _fahren_btn als Dummy damit der Shim nicht nullt (echter Button ist im Run-Bar)
 	_fahren_btn = Button.new()
 	_fahren_btn.visible = false
 	_build_layer.add_child(_fahren_btn)
 
-	# Horizontaler Scroll für Tile-Karten
+	# Vertikaler Scroll für Tile-Karten
+	const SCROLL_TOP = 70                       # relativ zu Panel-Oberkante
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(0, BUILD_PANEL_Y + 30)
-	scroll.size     = Vector2(960, 78)
-	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.position = Vector2(4, BUILD_PANEL_TOP + SCROLL_TOP)
+	scroll.size     = Vector2(BUILD_PANEL_W - 8, panel_h - SCROLL_TOP - 26)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	_build_layer.add_child(scroll)
 
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 4)
-	scroll.add_child(hbox)
-
-	var lpad := Control.new()
-	lpad.custom_minimum_size = Vector2(8, 0)
-	hbox.add_child(lpad)
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 6)
+	scroll.add_child(vbox)
 
 	for i in range(SHOP_SLOT_COUNT):
 		var card := _make_build_card(i)
-		hbox.add_child(card)
+		vbox.add_child(card)
 		_build_cards.append(card)
 
-	var rpad := Control.new()
-	rpad.custom_minimum_size = Vector2(8, 0)
-	hbox.add_child(rpad)
+	# Hinweis-Zeile unten im Panel
+	_hint_lbl = Label.new()
+	_hint_lbl.position = Vector2(8, BUILD_PANEL_BOT - 26)
+	_hint_lbl.size = Vector2(BUILD_PANEL_W - 16, 24)
+	_hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint_lbl.add_theme_font_size_override("font_size", 9)
+	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	_build_layer.add_child(_hint_lbl)
 
-	# Papierkorb – außerhalb des Scrollbereichs, absolut am rechten Rand
+	# Papierkorb – unten rechts über der Run-Bar (nur Slow-Modus)
 	_trash_panel = _make_trash_card()
 	_build_layer.add_child(_trash_panel)
 	_update_trash_visibility()
+
+	# Kleines Schließen-✕ oben rechts, ragt leicht über den Panel-Rand hinaus
+	const CLOSE_SZ = 26
+	var close_btn := Button.new()
+	close_btn.position = Vector2(BUILD_PANEL_W - CLOSE_SZ + 12, BUILD_PANEL_TOP + 6)
+	close_btn.size     = Vector2(CLOSE_SZ, CLOSE_SZ)
+	close_btn.text     = "✕"
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	close_btn.tooltip_text = "Baumenü schließen"
+	close_btn.add_theme_font_size_override("font_size", 14)
+	var cb_n := StyleBoxFlat.new()
+	cb_n.bg_color = C_SURFACE
+	cb_n.set_corner_radius_all(13)
+	cb_n.set_border_width_all(1)
+	cb_n.border_color = C_ACCENT_RD.darkened(0.2)
+	var cb_h := cb_n.duplicate() as StyleBoxFlat
+	cb_h.bg_color     = C_ACCENT_RD
+	cb_h.border_color = C_ACCENT_RD
+	close_btn.add_theme_stylebox_override("normal",  cb_n)
+	close_btn.add_theme_stylebox_override("hover",   cb_h)
+	close_btn.add_theme_stylebox_override("pressed", cb_n)
+	close_btn.add_theme_stylebox_override("focus",   cb_n)
+	close_btn.add_theme_color_override("font_color",       C_TEXT_DIM)
+	close_btn.add_theme_color_override("font_hover_color", C_TEXT)
+	close_btn.pressed.connect(func(): GameHUD.request_build_toggle())
+	_build_layer.add_child(close_btn)
+
+
+# Persistenter Hammer-Button unten links (öffnet/schließt das Baumenü).
+func _setup_build_toggle_btn() -> void:
+	_hammer_btn = Button.new()
+	_hammer_btn.position = Vector2(8, BOTTOM_BTN_Y)
+	_hammer_btn.size     = Vector2(BOTTOM_BTN_W, BOTTOM_BTN_H)
+	_hammer_btn.text     = "🔨"
+	_hammer_btn.focus_mode = Control.FOCUS_NONE
+	_hammer_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_hammer_btn.tooltip_text = "Baumenü öffnen/schließen"
+	_hammer_btn.add_theme_font_size_override("font_size", 28)
+	_hammer_btn.pressed.connect(func(): GameHUD.request_build_toggle())
+	_run_bar.add_child(_hammer_btn)
+	_refresh_hammer_btn()
+
+
+func _refresh_hammer_btn() -> void:
+	if _hammer_btn == null:
+		return
+	var active := GameHUD.is_build_active()
+	var bg     := C_ACCENT if active else C_SURFACE
+	var border := C_ACCENT.lightened(0.3) if active else C_ACCENT_MU
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_border_width_all(2)
+	sb.border_color = border
+	sb.set_corner_radius_all(5)
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	sb_h.bg_color = bg.lightened(0.08)
+	for state in ["normal", "pressed", "focus"]:
+		_hammer_btn.add_theme_stylebox_override(state, sb)
+	_hammer_btn.add_theme_stylebox_override("hover", sb_h)
+	_hammer_btn.add_theme_color_override("font_color", Color(0.10, 0.07, 0.02) if active else C_TEXT)
 
 
 func _make_header_action_btn(txt: String, pos: Vector2, w: float) -> Button:
@@ -492,16 +562,16 @@ func _apply_fahren_style(btn: Button, enabled: bool) -> void:
 
 
 func _make_build_card(idx: int) -> Panel:
-	const CARD_W = 138
 	const CARD_H = 72
 	var card := Panel.new()
-	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	card.custom_minimum_size = Vector2(0, CARD_H)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 	var lbl := Label.new()
 	lbl.name = "TypeLabel"
-	lbl.position = Vector2(0, 0)
-	lbl.size = Vector2(CARD_W, CARD_H)
+	lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", 11)
@@ -512,10 +582,10 @@ func _make_build_card(idx: int) -> Panel:
 
 
 func _make_trash_card() -> Panel:
-	const TW  = 56
-	const TH  = 72
-	const TX  = 960 - 4 - TW
-	const TY  = BUILD_PANEL_Y - 4 - TH   # Direkt ÜBER dem Baumodus-Panel
+	const TW  = BOTTOM_BTN_W
+	const TH  = BOTTOM_BTN_H
+	const TX  = 960 - 8 - TW          # unten rechts
+	const TY  = BOTTOM_BTN_Y          # gleiche Höhe wie der Hammer-Button
 	var card := Panel.new()
 	card.position = Vector2(TX, TY)
 	card.size     = Vector2(TW, TH)
@@ -556,7 +626,11 @@ func _is_over_trash(screen_pos: Vector2) -> bool:
 func _on_build_mode_toggled(active: bool) -> void:
 	if _build_layer != null:
 		_build_layer.visible = active
+	# Hammer-Button verschwindet, sobald das Baumenü offen ist (Schließen via ✕ oben rechts)
+	if _hammer_btn != null:
+		_hammer_btn.visible = not active
 	_update_trash_visibility()
+	_refresh_hammer_btn()
 
 
 func _on_tab_changed(idx: int) -> void:
@@ -1599,9 +1673,9 @@ func set_placement_mode(mode: String) -> void:
 
 func _update_hint_label() -> void:
 	if placement_mode == "slow":
-		tile_selector.set_hint("[R] Drehen  [F] Wenden  ·  Modus: Ziehen & Ablegen")
+		tile_selector.set_hint("[R] Drehen · [F] Wenden\nZiehen & Ablegen")
 	else:
-		tile_selector.set_hint("[R] Drehen  [F] Wenden  [D] Löschen  ·  Modus: Klick")
+		tile_selector.set_hint("[R] Drehen · [F] Wenden · [D] Löschen\nKlick-Modus")
 
 
 func _handle_grid_left_click(row: int, col: int) -> void:

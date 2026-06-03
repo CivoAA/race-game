@@ -246,7 +246,7 @@ func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
 	_add_cat_header(vbox, "STRECKENTEILE")
 
 	var info := Label.new()
-	info.text = "Die Streckenteile werden im Baumodus direkt am\nunteren Bildschirmrand angezeigt und ausgewählt.\nHier kannst du neue Tiles freischalten."
+	info.text = "Die Streckenteile werden im Baumodus über den\nHammer-Button am linken Bildschirmrand angezeigt\nund ausgewählt. Hier kannst du neue Tiles freischalten."
 	info.add_theme_font_size_override("font_size", 13)
 	info.add_theme_color_override("font_color", C_TEXT)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD

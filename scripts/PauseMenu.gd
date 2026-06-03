@@ -2,6 +2,10 @@ extends CanvasLayer
 
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
+const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (125%)", 1.25], ["Sehr groß (150%)", 1.5]]
+# Kategorien der Side-Nav in den Einstellungen
+const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
+const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
 const C_SURFACE   := Color(0.19, 0.21, 0.29)
 const C_SURFACE2  := Color(0.24, 0.26, 0.36)
@@ -28,10 +32,14 @@ var _master_slider:  HSlider
 var _music_slider:   HSlider
 var _sfx_slider:     HSlider
 var _window_option:    OptionButton
+var _ui_scale_option:  OptionButton
 var _placement_switch: CheckButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
+
+var _settings_nav_btns:   Array[Button]  = []
+var _settings_cat_panels: Array[Control] = []
 
 var _loading_settings := false
 
@@ -228,18 +236,43 @@ func _build_settings_panel() -> Control:
 
 	_add_hline(outer_vbox)
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	outer_vbox.add_child(scroll)
+	# ── Body: Side-Nav (links) + Inhaltsbereich (rechts) ──────────────────────
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 0)
+	outer_vbox.add_child(body)
 
-	var vbox := VBoxContainer.new()
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 12)
-	scroll.add_child(vbox)
+	# Sidebar mit Kategorie-Buttons
+	var sidebar := PanelContainer.new()
+	sidebar.custom_minimum_size = Vector2(212, 0)
+	var side_sb := StyleBoxFlat.new()
+	side_sb.bg_color = C_SURFACE.darkened(0.18)
+	side_sb.border_width_right = 1
+	side_sb.border_color = C_LINE
+	side_sb.content_margin_left = 10; side_sb.content_margin_right = 10
+	side_sb.content_margin_top = 14;  side_sb.content_margin_bottom = 14
+	sidebar.add_theme_stylebox_override("panel", side_sb)
+	body.add_child(sidebar)
 
-	_add_section_label(vbox, "SPRACHE")
-	var lang_row := _make_hrow(vbox)
+	var nav := VBoxContainer.new()
+	nav.add_theme_constant_override("separation", 4)
+	sidebar.add_child(nav)
+	_settings_nav_btns.clear()
+	for i in SETTINGS_CATS.size():
+		_add_settings_nav(nav, i, SETTINGS_CATS[i][0], SETTINGS_CATS[i][1])
+
+	# Inhaltsbereich (hält alle Kategorie-Panels, eines sichtbar)
+	var holder := Control.new()
+	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	holder.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	holder.clip_contents = true
+	body.add_child(holder)
+	_settings_cat_panels.clear()
+
+	# Kategorie 0 – Sprache
+	var v0 := _new_settings_cat(holder)
+	_add_section_label(v0, "SPRACHE")
+	var lang_row := _make_hrow(v0)
 	_make_row_label(lang_row, "Sprache:")
 	_lang_option = OptionButton.new()
 	_lang_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -249,25 +282,24 @@ func _build_settings_panel() -> Control:
 	_lang_option.item_selected.connect(_on_language_changed)
 	lang_row.add_child(_lang_option)
 
-	_add_hline(vbox)
-	_add_section_label(vbox, "LAUTSTÄRKE")
-
+	# Kategorie 1 – Audio
+	var v1 := _new_settings_cat(holder)
+	_add_section_label(v1, "LAUTSTÄRKE")
 	var r: Array
-	r = _add_slider_row(vbox, "Master:")
+	r = _add_slider_row(v1, "Master:")
 	_master_slider = r[0]; _lbl_master_val = r[1]
 	_master_slider.value_changed.connect(_on_master_volume_changed)
-
-	r = _add_slider_row(vbox, "Musik:")
+	r = _add_slider_row(v1, "Musik:")
 	_music_slider = r[0]; _lbl_music_val = r[1]
 	_music_slider.value_changed.connect(_on_music_volume_changed)
-
-	r = _add_slider_row(vbox, "Effekte:")
+	r = _add_slider_row(v1, "Effekte:")
 	_sfx_slider = r[0]; _lbl_sfx_val = r[1]
 	_sfx_slider.value_changed.connect(_on_sfx_volume_changed)
 
-	_add_hline(vbox)
-	_add_section_label(vbox, "ANZEIGEMODUS")
-	var win_row := _make_hrow(vbox)
+	# Kategorie 2 – Anzeige (Modus + UI-Skalierung)
+	var v2 := _new_settings_cat(holder)
+	_add_section_label(v2, "ANZEIGEMODUS")
+	var win_row := _make_hrow(v2)
 	_make_row_label(win_row, "Modus:")
 	_window_option = OptionButton.new()
 	_window_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -277,13 +309,34 @@ func _build_settings_panel() -> Control:
 	_window_option.item_selected.connect(_on_window_mode_changed)
 	win_row.add_child(_window_option)
 
-	_add_hline(vbox)
-	_add_section_label(vbox, "STEUERUNG")
-	var place_row := _make_hrow(vbox)
+	_add_hline(v2)
+	_add_section_label(v2, "UI-SKALIERUNG")
+	var scale_row := _make_hrow(v2)
+	_make_row_label(scale_row, "Skalierung:")
+	_ui_scale_option = OptionButton.new()
+	_ui_scale_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_option_btn(_ui_scale_option)
+	for s in UI_SCALES:
+		_ui_scale_option.add_item(s[0])
+	_ui_scale_option.item_selected.connect(_on_ui_scale_changed)
+	scale_row.add_child(_ui_scale_option)
+	var scale_hint := Label.new()
+	scale_hint.text = "Skaliert das gesamte Fenster (im Vollbild ohne Wirkung)."
+	scale_hint.add_theme_font_size_override("font_size", 11)
+	scale_hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	scale_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	v2.add_child(scale_hint)
+
+	# Kategorie 3 – Steuerung
+	var v3 := _new_settings_cat(holder)
+	_add_section_label(v3, "STEUERUNG")
+	var place_row := _make_hrow(v3)
 	_make_row_label(place_row, "Platzierung:")
 	_placement_switch = _make_placement_switch()
 	_placement_switch.toggled.connect(_on_placement_toggled)
 	place_row.add_child(_placement_switch)
+
+	_show_settings_cat(0)
 
 	# Spacer + Trennlinie vor Buttons
 	var bot_line := ColorRect.new()
@@ -331,6 +384,97 @@ func _build_settings_btn(txt: String, bg: Color, border: Color) -> Button:
 	btn.add_theme_color_override("font_color", C_TEXT)
 	btn.add_theme_font_size_override("font_size", 13)
 	return btn
+
+
+# ── Settings Side-Nav ─────────────────────────────────────────────────────────
+
+func _add_settings_nav(parent: VBoxContainer, idx: int, icon: String, label: String) -> void:
+	var btn := Button.new()
+	btn.text = "%s  %s" % [icon, label]
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.custom_minimum_size = Vector2(0, 46)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_style_settings_nav(btn, idx == 0)
+	btn.pressed.connect(_on_settings_nav.bind(idx))
+	parent.add_child(btn)
+	_settings_nav_btns.append(btn)
+
+
+func _style_settings_nav(btn: Button, active: bool) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color          = C_SURFACE2 if active else Color(0, 0, 0, 0)
+	sb.border_width_left = 3
+	sb.border_color      = C_ACCENT if active else Color(0, 0, 0, 0)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 12; sb.content_margin_right = 8
+	sb.content_margin_top  = 8;  sb.content_margin_bottom = 8
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	if not active:
+		sb_h.bg_color = C_SURFACE
+	for state in ["normal", "pressed", "focus"]:
+		btn.add_theme_stylebox_override(state, sb)
+	btn.add_theme_stylebox_override("hover", sb_h)
+	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
+	btn.add_theme_font_size_override("font_size", 14)
+
+
+func _on_settings_nav(idx: int) -> void:
+	for i in _settings_nav_btns.size():
+		_style_settings_nav(_settings_nav_btns[i], i == idx)
+	_show_settings_cat(idx)
+
+
+func _show_settings_cat(idx: int) -> void:
+	for i in _settings_cat_panels.size():
+		_settings_cat_panels[i].visible = (i == idx)
+
+
+# Erstellt einen scrollbaren Kategorie-Bereich im Inhalts-Holder und gibt dessen VBox zurück.
+func _new_settings_cat(holder: Control) -> VBoxContainer:
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.visible = false
+	holder.add_child(scroll)
+	_settings_cat_panels.append(scroll)
+
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_left", 40)
+	margin.add_theme_constant_override("margin_right", 40)
+	margin.add_theme_constant_override("margin_top", 24)
+	margin.add_theme_constant_override("margin_bottom", 24)
+	scroll.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 14)
+	margin.add_child(vbox)
+	return vbox
+
+
+# ── UI-Skalierung ─────────────────────────────────────────────────────────────
+
+func _on_ui_scale_changed(index: int) -> void:
+	if _loading_settings: return
+	var factor: float = UI_SCALES[index][1]
+	settings.set_value("options", "ui_scale", factor)
+	_apply_ui_scale(factor)
+	_settings_dirty = true
+
+
+func _apply_ui_scale(factor: float) -> void:
+	# Wirkt nur im Fenster-/Rahmenlos-Modus; Vollbild skaliert ohnehin auf den Monitor.
+	var mode := DisplayServer.window_get_mode()
+	if mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
+		return
+	var size := Vector2i(int(round(SETTINGS_BASE.x * factor)), int(round(SETTINGS_BASE.y * factor)))
+	DisplayServer.window_set_size(size)
+	var screen_id := DisplayServer.window_get_current_screen()
+	var usable := DisplayServer.screen_get_usable_rect(screen_id)
+	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
 
 
 # ── Errungenschaften-Panel ────────────────────────────────────────────────────
@@ -445,6 +589,7 @@ func _show_settings() -> void:
 	_settings_panel.visible = true
 	_settings_dirty = false
 	_sync_settings_ui()
+	_on_settings_nav(0)
 
 
 func _show_achievements() -> void:
@@ -664,6 +809,12 @@ func _sync_settings_ui() -> void:
 	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
 	_window_option.selected = settings.get_value("options", "window_mode",   0)
 
+	var sf := float(settings.get_value("options", "ui_scale", 1.0))
+	for i in UI_SCALES.size():
+		if abs(float(UI_SCALES[i][1]) - sf) < 0.001:
+			_ui_scale_option.selected = i
+			break
+
 	var slow := (settings.get_value("options", "placement_mode", "slow") as String) == "slow"
 	_placement_switch.button_pressed = slow
 	_update_placement_switch_text(slow)
@@ -744,6 +895,7 @@ func _on_discard_confirm() -> void:
 	var si := AudioServer.get_bus_index("SFX")
 	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
+	_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
 	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
 	_settings_dirty = false
 	_show_pause()
@@ -820,9 +972,11 @@ func _apply_window_mode(index: int) -> void:
 		0:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+			_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
 		1:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
+			_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
 		2:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 
