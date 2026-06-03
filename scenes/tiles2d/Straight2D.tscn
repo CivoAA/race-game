@@ -1,4 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://straight2d"]
-[ext_resource type="Script" path="res://scripts/tiles2d/Straight2D.gd" id="1"]
-[node name="Straight2D" type="Node2D"]
+[gd_scene format=3 uid="uid://straight2d"]
+
+[ext_resource type="Script" uid="uid://q48d8dojnygy" path="res://scripts/tiles2d/Straight2D.gd" id="1"]
+
+[node name="Straight2D" type="Node2D" unique_id=13697741]
 script = ExtResource("1")

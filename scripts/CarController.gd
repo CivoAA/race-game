@@ -57,17 +57,55 @@ func _ready() -> void:
 	add_child(car)
 
 
-func start(grid_state: Array) -> void:
+func start(grid_state: Array, resume_elapsed: float = 0.0) -> void:
 	waypoints = _build_waypoints(grid_state)
 	if waypoints.size() < 2:
 		push_warning("Keine gültige Route – mind. 2 verbundene Tiles nötig.")
 		return
+	_cur_step = -1
+	# Effektiv bereits gefahrene Zeit dieses Autos (gestaffelten Startversatz abziehen).
+	var eff := resume_elapsed - start_delay
+	if eff <= 0.0:
+		# Frischer Start – oder das Auto wartet noch auf seinen versetzten Start.
+		car.position     = waypoints[0]
+		current_wp       = 1
+		_delay_remaining = -eff   # = start_delay - resume_elapsed, immer >= 0
+	else:
+		# Wiederaufnahme nach 2D↔3D-Wechsel: Position aus zurückgelegter Strecke
+		# (verstrichene Zeit × Tempo) entlang der geschlossenen Route ableiten.
+		_place_at_arc_distance(eff * speed)
+		_delay_remaining = 0.0
+	driving = true
+	print("Route: %d Wegpunkte (resume %.1fs)" % [waypoints.size(), resume_elapsed])
+
+
+# Setzt das Auto auf die geschlossene Wegpunkt-Schleife an die Stelle, die der zurück-
+# gelegten Bogenlänge (modulo Rundenlänge) entspricht, und wählt den nächsten Zielwegpunkt.
+func _place_at_arc_distance(dist: float) -> void:
+	var n := waypoints.size()
+	var total := 0.0
+	var seglen := PackedFloat32Array()
+	for i in range(n):
+		var l := waypoints[i].distance_to(waypoints[(i + 1) % n])
+		seglen.append(l)
+		total += l
+	if total <= 0.0:
+		car.position = waypoints[0]
+		current_wp   = 1
+		return
+	var d := fmod(dist, total)
+	var acc := 0.0
+	for i in range(n):
+		if d <= acc + seglen[i] or i == n - 1:
+			var f := (d - acc) / seglen[i] if seglen[i] > 0.0 else 0.0
+			car.position = waypoints[i].lerp(waypoints[(i + 1) % n], clampf(f, 0.0, 1.0))
+			current_wp   = (i + 1) % n
+			if i < _wp_to_step.size():
+				_cur_step = _wp_to_step[i]
+			return
+		acc += seglen[i]
 	car.position = waypoints[0]
 	current_wp   = 1
-	_cur_step    = -1
-	_delay_remaining = start_delay
-	driving      = true
-	print("Route: %d Wegpunkte" % waypoints.size())
 
 
 func stop() -> void:

@@ -40,8 +40,8 @@ const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
 const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0},
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 1000,  "base_price": 200,   "growth": 4.0},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 2000,  "base_price": 400,   "growth": 4.0},
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 1500,  "base_price": 300,   "growth": 4.0},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 3000,  "base_price": 600,   "growth": 4.0},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 50000, "base_price": 10000, "growth": 5.0},
 ]
 
@@ -755,13 +755,14 @@ func _update_build_ui() -> void:
 		var lbl   = card.get_node("TypeLabel") as Label
 		var locked = not Economy.is_tile_unlocked(item["key"])
 
-		# Gesperrte Tiles nur im GlobalModal-Shop zeigen, nicht in der Bau-Leiste
-		card.visible = not locked
-		if locked:
-			continue
+		# Gesperrte Tiles (Default-Strecken & Rampe) direkt in der Bau-Leiste anzeigen,
+		# damit sie dort per Klick einmalig freigeschaltet werden können.
+		card.visible = true
 
 		var icon = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━━")
-		if item["tier"] == "dirt":
+		if locked:
+			lbl.text = "%s\n%s 🔒\n%s 💰 freischalten" % [icon, item["name"], Economy.format_currency(item["unlock"])]
+		elif item["tier"] == "dirt":
 			lbl.text = "%s\n%s\n+5 · frei" % [icon, item["name"]]
 		elif item["tier"] == "ramp":
 			var dirs = ["→", "↓", "←", "↑"]
@@ -803,14 +804,15 @@ func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
 		return
 	var item = SHOP_ITEMS[idx]
 	if not Economy.is_tile_unlocked(item["key"]):
+		# Erster Klick auf eine gesperrte Strecke = einmalig freischalten (kein Platzieren).
 		if Economy.spend(item["unlock"]):
 			Economy.unlock_tile(item["key"])
 			tile_selector.set_status("%s freigeschaltet!" % item["name"])
 			_update_trash_visibility()
 		else:
 			_flash_currency()
-			_update_build_ui()
-			return
+		_update_build_ui()
+		return
 	if placement_mode == "slow":
 		_begin_shop_drag(idx)
 		_update_build_ui()
@@ -984,20 +986,7 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 		road.position = Vector2(-half, -pw / 2.0)
 		road.color    = soil
 		node.add_child(road)
-		# Richtungspfeil als Dreieck (identische Form/Farbe wie Gerade & Kurven,
-		# statt Text). Dreht sich mit dem Tile → zeigt immer die richtige Weltrichtung.
-		var dir    = data.get("direction", 1)
-		var angle  = 0.0 if dir == 1 else PI
-		var apos   = Vector2(half * 0.3 * dir, 0.0)
-		var s      = 10.0
-		var tri = Polygon2D.new()
-		tri.polygon = PackedVector2Array([
-			apos + Vector2(cos(angle), sin(angle)) * s,
-			apos + Vector2(cos(angle + 2.4), sin(angle + 2.4)) * s * 0.6,
-			apos + Vector2(cos(angle - 2.4), sin(angle - 2.4)) * s * 0.6,
-		])
-		tri.color = Color(1.0, 0.5, 0.15) if dir == 1 else Color(0.3, 0.65, 1.0)
-		node.add_child(tri)
+		# Kein Richtungspfeil mehr: Geraden sind in beide Richtungen befahrbar.
 	else:
 		# Kurven-Dreck-Pfad: schmaler Bogen als Polygon (Basislage rot=0 → S+E)
 		var center = Vector2(half, half)
@@ -1125,6 +1114,16 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 
 
 # ── Input ──────────────────────────────────────────────────────────────────────
+
+func _process(_delta: float) -> void:
+	# Sicherheitsnetz gegen "hängende" Ghost-Tiles: Geht ein Maus-Loslassen verloren
+	# (z. B. weil es über dem Baumenü/Shop statt über dem Grid passiert), bliebe das
+	# gezogene Tile sonst außerhalb des Grids liegen und ließe sich nicht mehr greifen.
+	# Ist ein Drag aktiv, die linke Maustaste aber nicht mehr gedrückt, behandeln wir
+	# das wie ein reguläres Loslassen → außerhalb des Grids verschwindet das Tile.
+	if (_drag_active or _grid_drag_pending) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_slow_left_release(get_global_mouse_position())
+
 
 func _input(event: InputEvent) -> void:
 	# Mittlere Maustaste: Kamera-Pan (in 2D immer aktiv, unabhängig vom Baumodus)
@@ -1369,6 +1368,10 @@ func _drop_shop_drag(global_pos: Vector2) -> void:
 	selected_shop_slot = _drag_shop_idx
 	_place_shop_tile(cell.x, cell.y, _drag_data)
 	selected_shop_slot = -1
+	# Aus dem Shop gezogenes & abgelegtes Tile direkt auswählen (Name im Baumenü +
+	# gelbe Markierung), sofern die Platzierung geklappt hat und es kein Start-Feld ist.
+	if grid[cell.x][cell.y] != null and not grid[cell.x][cell.y].get("is_start", false):
+		_select_grid_tile(cell.x, cell.y)
 	_update_build_ui()
 
 
@@ -1414,11 +1417,9 @@ func _drop_grid_normal(target: Vector2i) -> bool:
 	_spawn_tile(target.x, target.y, nd)
 	last_placed_row = target.x
 	last_placed_col = target.y
-	selected_grid_row = -1
-	selected_grid_col = -1
-	_update_grid_highlight()
-	tile_selector.deselect()
 	_invalidate_track()
+	# Verschobenes Tile bleibt ausgewählt (Name im Baumenü + gelbe Markierung).
+	_select_grid_tile(target.x, target.y)
 	return true
 
 
@@ -1457,11 +1458,9 @@ func _drop_grid_ramp(target: Vector2i, rot: int) -> bool:
 	})
 	last_placed_row = target.x
 	last_placed_col = target.y
-	selected_grid_row = -1
-	selected_grid_col = -1
-	_update_grid_highlight()
-	tile_selector.deselect()
 	_invalidate_track()
+	# Verschobene Rampe bleibt ausgewählt (Name im Baumenü + gelbe Markierung).
+	_select_grid_tile(target.x, target.y)
 	return true
 
 
@@ -1712,7 +1711,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 		else:
 			selected_grid_row = target_r; selected_grid_col = target_c
 			_update_grid_highlight()
-			tile_selector.set_status("Rampe  [R] drehen")
+			tile_selector.set_status("Rampe")
 		return
 
 	# Grid-Tile bereits ausgewählt → verschieben (leere Zelle) bzw. Auswahl wechseln
@@ -1791,9 +1790,9 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 			"ramp_partner_row": new_row, "ramp_partner_col": new_col,
 		})
 		last_placed_row = new_row; last_placed_col = new_col
-		selected_grid_row = -1; selected_grid_col = -1
-		_update_grid_highlight(); tile_selector.deselect()
 		_invalidate_track()
+		# Verschobene Rampe bleibt ausgewählt (Name im Baumenü + gelbe Markierung).
+		_select_grid_tile(new_row, new_col)
 		return
 
 	var move_data = {
@@ -1814,11 +1813,9 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 	_spawn_tile(new_row, new_col, move_data)
 	last_placed_row   = new_row
 	last_placed_col   = new_col
-	selected_grid_row = -1
-	selected_grid_col = -1
-	_update_grid_highlight()
-	tile_selector.deselect()
 	_invalidate_track()
+	# Verschobenes Tile bleibt ausgewählt (Name im Baumenü + gelbe Markierung).
+	_select_grid_tile(new_row, new_col)
 
 
 # xform (optional): überschreibt Typ/Rotation/Richtung – z. B. das aus dem Shop
@@ -2033,8 +2030,8 @@ func _rotate_ramp(row: int, col: int, degrees: int) -> void:
 			# Selektion beibehalten
 			selected_grid_row = row; selected_grid_col = col
 			_update_grid_highlight()
-			tile_selector.set_status("Rampe  [R] drehen")
 			_invalidate_track()
+			tile_selector.set_status("Rampe")
 			return
 		new_rot = (new_rot + 90) % 360
 	tile_selector.set_status("Keine gültige Position für Rampen-Drehung")
@@ -2149,8 +2146,8 @@ func _flip_active() -> void:
 		})
 		selected_grid_row = e_row; selected_grid_col = e_col
 		_update_grid_highlight()
-		tile_selector.set_status("Rampe  [R] drehen  [F] Auffahrseite")
 		_invalidate_track()
+		tile_selector.set_status("Rampe")
 
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
@@ -2160,7 +2157,7 @@ func _type_display_name(typ: String) -> String:
 		"straight":   return "Gerade"
 		"curve":      return "Kurve"
 		"curve_alt":  return "Kurve 2"
-		"ramp_start": return "Rampe  [R] drehen"
+		"ramp_start": return "Rampe"
 		"ramp_end":   return "Rampe (Ende)"
 	return typ
 
@@ -2444,7 +2441,13 @@ func _is_curve_dir_ok(data: Dictionary, entry: String) -> bool:
 
 func _invalidate_track() -> void:
 	_track_valid = _is_track_valid()
-	tile_selector.set_status("")
+	# Ist ein Tile markiert, dessen Namen im Baumenü beibehalten (z. B. nach [R]/[F]),
+	# sonst den Status leeren.
+	if selected_grid_row >= 0 and selected_grid_col >= 0 \
+			and grid[selected_grid_row][selected_grid_col] != null:
+		tile_selector.set_status(_type_display_name(grid[selected_grid_row][selected_grid_col]["type"]))
+	else:
+		tile_selector.set_status("")
 	_refresh_run_bar()
 	_refresh_jump_markers()
 	_persist_track_for_current()
@@ -2523,6 +2526,10 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 			270: conns = {"N": true,  "E": true,  "S": false, "W": false}
 			_:   conns = {}
 	else:
+		return ""
+	# Eingang muss auch passen: das Tile braucht eine Verbindung auf der entry-Seite.
+	# (Sonst würde z. B. eine waagerechte Gerade ein Auto von oben "annehmen".)
+	if not conns.get(entry, false):
 		return ""
 	for d in ["N", "E", "S", "W"]:
 		if conns.get(d, false) and d != entry:
