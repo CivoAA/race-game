@@ -193,16 +193,26 @@ func _build_settings_panel() -> Control:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(520, 0)
+	panel.custom_minimum_size = Vector2(520, 520)
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 12)
-	panel.add_child(vbox)
+	var outer_vbox := VBoxContainer.new()
+	outer_vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(outer_vbox)
 
-	_add_panel_title(vbox, "EINSTELLUNGEN")
-	_add_hline(vbox)
+	_add_panel_title(outer_vbox, "EINSTELLUNGEN")
+	_add_hline(outer_vbox)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	outer_vbox.add_child(scroll)
+
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 12)
+	scroll.add_child(vbox)
 
 	_add_section_label(vbox, "SPRACHE")
 	var lang_row := _make_hrow(vbox)
@@ -251,8 +261,8 @@ func _build_settings_panel() -> Control:
 	_placement_switch.toggled.connect(_on_placement_toggled)
 	place_row.add_child(_placement_switch)
 
-	_add_spacer(vbox, 8)
-	_add_back_button(vbox, _show_pause)
+	_add_spacer(outer_vbox, 8)
+	_add_back_button(outer_vbox, _show_pause)
 
 	return center
 
@@ -664,11 +674,8 @@ func _make_placement_switch() -> CheckButton:
 	sw.add_theme_color_override("icon_hover_color",   Color(0.95, 0.97, 1.00))
 	sw.add_theme_color_override("icon_pressed_color", C_ACCENT)
 	sw.add_theme_color_override("icon_focus_color",   Color(0.78, 0.82, 0.92))
-	# Leicht aufgehellter Hintergrund (wie die OptionButtons) für besseren Kontrast.
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_SURFACE
-	sb.border_width_left = 2
-	sb.border_color = C_ACCENT_MU
 	sb.set_corner_radius_all(4)
 	sb.content_margin_left   = 8
 	sb.content_margin_right  = 8
