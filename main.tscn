@@ -1,61 +1,13 @@
 [gd_scene format=3 uid="uid://d2d3n6v015se0"]
 
 [ext_resource type="Script" uid="uid://c0tudjeunwhla" path="res://scripts/Main.gd" id="1"]
-[ext_resource type="Script" uid="uid://dh7iav6vvf4du" path="res://scripts/TileSelector.gd" id="2"]
 
 [node name="Main" type="Node2D" unique_id=1671822405]
 script = ExtResource("1")
 
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1234567890]
+position = Vector2(300, 270)
+zoom = Vector2(1, 1)
+
 [node name="Grid" type="Node2D" parent="." unique_id=1496547757]
-position = Vector2(148, 40)
-
-[node name="TileSelector" type="CanvasLayer" parent="." unique_id=540876559]
-script = ExtResource("2")
-
-[node name="Panel" type="Panel" parent="TileSelector" unique_id=487200298]
-offset_right = 144.0
-offset_bottom = 540.0
-
-[node name="VBox" type="VBoxContainer" parent="TileSelector/Panel" unique_id=228572821]
-layout_mode = 0
-offset_left = 8.0
-offset_top = 10.0
-offset_right = 136.0
-offset_bottom = 530.0
-
-[node name="Label" type="Label" parent="TileSelector/Panel/VBox" unique_id=184580224]
-layout_mode = 2
-text = "TRACK"
-horizontal_alignment = 1
-
-[node name="LabelSelected" type="Label" parent="TileSelector/Panel/VBox" unique_id=1069172234]
-layout_mode = 2
-horizontal_alignment = 1
-autowrap_mode = 3
-
-[node name="LabelHint" type="Label" parent="TileSelector/Panel/VBox" unique_id=2034533664]
-layout_mode = 2
-text = "[R]  Drehen
-[F]  Wenden"
-horizontal_alignment = 1
-autowrap_mode = 3
-
-[node name="Spacer" type="Control" parent="TileSelector/Panel/VBox" unique_id=1897531156]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="Separator3" type="HSeparator" parent="TileSelector/Panel/VBox" unique_id=1203159159]
-layout_mode = 2
-
-[node name="BtnUpgrades" type="Button" parent="TileSelector/Panel/VBox" unique_id=771049823]
-layout_mode = 2
-text = "⬆  Upgrades"
-
-[node name="BtnPruefen" type="Button" parent="TileSelector/Panel/VBox" unique_id=-447676251]
-layout_mode = 2
-text = "🔍  Prüfen"
-
-[node name="BtnFahren" type="Button" parent="TileSelector/Panel/VBox" unique_id=13105268]
-layout_mode = 2
-disabled = true
-text = "▶  Fahren!"
+position = Vector2(0, 0)

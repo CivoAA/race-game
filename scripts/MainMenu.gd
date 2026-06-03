@@ -3,15 +3,15 @@ extends Control
 const LANGUAGES    = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES = ["Fenster", "Rahmenlos", "Vollbild"]
 
-const C_BG        := Color(0.07, 0.08, 0.12)
-const C_SURFACE   := Color(0.10, 0.115, 0.165)
-const C_SURFACE2  := Color(0.085, 0.095, 0.140)
-const C_ACCENT    := Color(1.00, 0.45, 0.08)
-const C_ACCENT_MU := Color(0.22, 0.27, 0.40)
-const C_ACCENT_RD := Color(0.65, 0.16, 0.10)
-const C_TEXT      := Color(0.82, 0.85, 0.90)
-const C_TEXT_DIM  := Color(0.36, 0.40, 0.50)
-const C_LINE      := Color(0.14, 0.16, 0.23)
+const C_BG        := Color(0.13, 0.14, 0.20)
+const C_SURFACE   := Color(0.19, 0.21, 0.29)
+const C_SURFACE2  := Color(0.24, 0.26, 0.36)
+const C_ACCENT    := Color(1.00, 0.52, 0.05)
+const C_ACCENT_MU := Color(0.22, 0.30, 0.50)
+const C_ACCENT_RD := Color(0.80, 0.18, 0.12)
+const C_TEXT      := Color(0.93, 0.95, 1.00)
+const C_TEXT_DIM  := Color(0.50, 0.56, 0.70)
+const C_LINE      := Color(0.21, 0.24, 0.34)
 
 var settings := ConfigFile.new()
 
@@ -22,6 +22,9 @@ var _slot_panel:         Control
 var _confirm_modal:      Control
 var _rename_modal:       Control
 var _delete_modal:       Control
+var _discard_modal:      Control
+
+var _options_dirty: bool = false
 
 var _slot_is_load      := false
 var _slot_title_lbl:   Label
@@ -58,6 +61,7 @@ func _ready() -> void:
 	_confirm_modal      = _build_confirm_modal()
 	_rename_modal       = _build_rename_modal()
 	_delete_modal       = _build_delete_modal()
+	_discard_modal      = _build_options_discard_modal()
 	_show_main()
 	_apply_settings()
 
@@ -534,21 +538,37 @@ func _show_confirm_modal(slot: int) -> void:
 # ── Optionen-Panel ────────────────────────────────────────────────────────────
 
 func _build_options_panel() -> Control:
+	# Fullscreen-Modal (kein overlay – liegt über dem Hauptmenü-Hintergrund)
 	var overlay := _make_overlay()
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
 
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(520, 520)
-	panel.add_theme_stylebox_override("panel", _panel_style())
-	center.add_child(panel)
+	var panel := Panel.new()
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.11, 0.12, 0.17)
+	ps.set_border_width_all(0)
+	panel.add_theme_stylebox_override("panel", ps)
+	overlay.add_child(panel)
 
 	var outer_vbox := VBoxContainer.new()
-	outer_vbox.add_theme_constant_override("separation", 12)
+	outer_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	outer_vbox.add_theme_constant_override("separation", 0)
 	panel.add_child(outer_vbox)
 
-	_add_panel_title(outer_vbox, "OPTIONEN")
+	# Header
+	var header := HBoxContainer.new()
+	header.custom_minimum_size = Vector2(0, 52)
+	header.add_theme_constant_override("separation", 0)
+	outer_vbox.add_child(header)
+
+	var lpad := Control.new(); lpad.custom_minimum_size = Vector2(24, 0)
+	header.add_child(lpad)
+	var title_lbl := Label.new()
+	title_lbl.text = "OPTIONEN"
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title_lbl.add_theme_font_size_override("font_size", 20)
+	title_lbl.add_theme_color_override("font_color", C_ACCENT)
+	header.add_child(title_lbl)
 	_add_hline(outer_vbox)
 
 	var scroll := ScrollContainer.new()
@@ -559,7 +579,9 @@ func _build_options_panel() -> Control:
 	var vbox := VBoxContainer.new()
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 12)
+	var vpad := Control.new(); vpad.custom_minimum_size = Vector2(0, 8)
 	scroll.add_child(vbox)
+	vbox.add_child(vpad)
 
 	_add_section_label(vbox, "SPRACHE")
 	var lang_row := _make_hrow(vbox)
@@ -608,8 +630,54 @@ func _build_options_panel() -> Control:
 	_placement_switch.toggled.connect(_on_placement_toggled)
 	place_row.add_child(_placement_switch)
 
-	_add_spacer(outer_vbox, 8)
-	_add_back_button(outer_vbox, _show_main)
+	var bot_line := ColorRect.new()
+	bot_line.custom_minimum_size = Vector2(0, 1)
+	bot_line.color = C_LINE
+	outer_vbox.add_child(bot_line)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.custom_minimum_size = Vector2(0, 56)
+	btn_row.add_theme_constant_override("separation", 0)
+	outer_vbox.add_child(btn_row)
+
+	var bpad := Control.new(); bpad.custom_minimum_size = Vector2(20, 0)
+	btn_row.add_child(bpad)
+
+	var back_btn := Button.new()
+	back_btn.text = "← Zurück"
+	back_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	back_btn.custom_minimum_size = Vector2(0, 44)
+	back_btn.focus_mode = Control.FOCUS_NONE
+	back_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	back_btn.add_theme_stylebox_override("normal",  _btn_style(C_SURFACE,    C_ACCENT_MU))
+	back_btn.add_theme_stylebox_override("hover",   _btn_style(C_SURFACE.lightened(0.05), C_ACCENT))
+	back_btn.add_theme_stylebox_override("pressed", _btn_style(C_SURFACE2,   C_ACCENT))
+	back_btn.add_theme_stylebox_override("focus",   _btn_style(C_SURFACE,    C_ACCENT_MU))
+	back_btn.add_theme_color_override("font_color", C_TEXT)
+	back_btn.add_theme_font_size_override("font_size", 13)
+	back_btn.pressed.connect(_on_options_back)
+	btn_row.add_child(back_btn)
+
+	var sep := Control.new(); sep.custom_minimum_size = Vector2(8, 0)
+	btn_row.add_child(sep)
+
+	var save_btn := Button.new()
+	save_btn.text = "💾 Speichern"
+	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_btn.custom_minimum_size = Vector2(0, 44)
+	save_btn.focus_mode = Control.FOCUS_NONE
+	save_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	save_btn.add_theme_stylebox_override("normal",  _btn_style(Color(0.08, 0.26, 0.14), Color(0.25, 0.80, 0.42)))
+	save_btn.add_theme_stylebox_override("hover",   _btn_style(Color(0.10, 0.34, 0.18), Color(0.35, 0.95, 0.52)))
+	save_btn.add_theme_stylebox_override("pressed", _btn_style(Color(0.08, 0.26, 0.14), Color(0.25, 0.80, 0.42)))
+	save_btn.add_theme_stylebox_override("focus",   _btn_style(Color(0.08, 0.26, 0.14), Color(0.25, 0.80, 0.42)))
+	save_btn.add_theme_color_override("font_color", Color(0.55, 1.0, 0.65))
+	save_btn.add_theme_font_size_override("font_size", 13)
+	save_btn.pressed.connect(_on_options_save)
+	btn_row.add_child(save_btn)
+
+	var epad := Control.new(); epad.custom_minimum_size = Vector2(20, 0)
+	btn_row.add_child(epad)
 
 	return overlay
 
@@ -865,6 +933,7 @@ func _hide_all() -> void:
 	_confirm_modal.visible      = false
 	_rename_modal.visible       = false
 	_delete_modal.visible       = false
+	_discard_modal.visible      = false
 
 
 func _show_main() -> void:
@@ -875,6 +944,7 @@ func _show_main() -> void:
 func _show_options() -> void:
 	_hide_all()
 	_options_panel.visible = true
+	_options_dirty = false
 	_sync_options_ui()
 
 
@@ -915,48 +985,108 @@ func _sync_options_ui() -> void:
 func _on_language_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "language", LANGUAGES[index][1])
-	settings.save(Paths.SETTINGS_FILE)
 	TranslationServer.set_locale(LANGUAGES[index][1])
+	_options_dirty = true
 
 
 func _on_master_volume_changed(value: float) -> void:
 	_lbl_master_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "master_volume", value)
-	settings.save(Paths.SETTINGS_FILE)
 	AudioServer.set_bus_volume_db(0, _vol_db(value))
+	_options_dirty = true
 
 
 func _on_music_volume_changed(value: float) -> void:
 	_lbl_music_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "music_volume", value)
-	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("Music")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
+	_options_dirty = true
 
 
 func _on_sfx_volume_changed(value: float) -> void:
 	_lbl_sfx_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "sfx_volume", value)
-	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("SFX")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
+	_options_dirty = true
 
 
 func _on_window_mode_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "window_mode", index)
-	settings.save(Paths.SETTINGS_FILE)
 	_apply_window_mode(index)
+	_options_dirty = true
 
 
 func _on_placement_toggled(pressed: bool) -> void:
 	_update_placement_switch_text(pressed)
 	if _loading_settings: return
 	settings.set_value("options", "placement_mode", "slow" if pressed else "quick")
+	_options_dirty = true
+
+
+func _on_options_back() -> void:
+	if _options_dirty:
+		_hide_all()
+		_discard_modal.visible = true
+	else:
+		_show_main()
+
+
+func _on_options_save() -> void:
 	settings.save(Paths.SETTINGS_FILE)
+	_options_dirty = false
+
+
+func _on_options_discard() -> void:
+	settings.load(Paths.SETTINGS_FILE)
+	AudioServer.set_bus_volume_db(0, _vol_db(settings.get_value("options", "master_volume", 100.0)))
+	var mi := AudioServer.get_bus_index("Music")
+	if mi >= 0: AudioServer.set_bus_volume_db(mi, _vol_db(settings.get_value("options", "music_volume", 80.0)))
+	var si := AudioServer.get_bus_index("SFX")
+	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
+	_apply_window_mode(settings.get_value("options", "window_mode", 0))
+	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
+	_options_dirty = false
+	_show_main()
+
+
+func _build_options_discard_modal() -> Control:
+	var overlay := _make_overlay()
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "ÄNDERUNGEN VERWERFEN?")
+	_add_hline(vbox)
+
+	var text_lbl := Label.new()
+	text_lbl.text = "Nicht gespeicherte Einstellungen\ngehen verloren."
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(text_lbl)
+
+	_add_spacer(vbox, 6)
+	_add_menu_button(vbox, "→", "Verwerfen",  C_ACCENT_RD, _on_options_discard)
+	_add_menu_button(vbox, "←", "Abbrechen",  C_ACCENT_MU, func():
+		_hide_all()
+		_options_panel.visible = true
+	)
+
+	return overlay
 
 
 # Schalter-Beschriftung zeigt den aktiven Modus an (an = Langsam/Ziehen, aus = Schnell/Klick).

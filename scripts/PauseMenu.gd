@@ -3,14 +3,14 @@ extends CanvasLayer
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 
-const C_SURFACE   := Color(0.10, 0.115, 0.165)
-const C_SURFACE2  := Color(0.085, 0.095, 0.140)
-const C_ACCENT    := Color(1.00, 0.45, 0.08)
-const C_ACCENT_MU := Color(0.22, 0.27, 0.40)
-const C_ACCENT_RD := Color(0.65, 0.16, 0.10)
-const C_TEXT      := Color(0.82, 0.85, 0.90)
-const C_TEXT_DIM  := Color(0.36, 0.40, 0.50)
-const C_LINE      := Color(0.14, 0.16, 0.23)
+const C_SURFACE   := Color(0.19, 0.21, 0.29)
+const C_SURFACE2  := Color(0.24, 0.26, 0.36)
+const C_ACCENT    := Color(1.00, 0.52, 0.05)
+const C_ACCENT_MU := Color(0.22, 0.30, 0.50)
+const C_ACCENT_RD := Color(0.80, 0.18, 0.12)
+const C_TEXT      := Color(0.93, 0.95, 1.00)
+const C_TEXT_DIM  := Color(0.50, 0.56, 0.70)
+const C_LINE      := Color(0.21, 0.24, 0.34)
 
 var settings := ConfigFile.new()
 
@@ -18,8 +18,10 @@ var _pause_panel:        Control
 var _settings_panel:     Control
 var _achievements_panel: Control
 var _quit_modal:         Control
+var _discard_modal:      Control
 
 var _save_status_lbl: Label
+var _settings_dirty:  bool = false
 
 var _lang_option:    OptionButton
 var _master_slider:  HSlider
@@ -50,6 +52,7 @@ func _ready() -> void:
 	_settings_panel     = _build_settings_panel()
 	_achievements_panel = _build_achievements_panel()
 	_quit_modal         = _build_quit_modal()
+	_discard_modal      = _build_discard_modal()
 
 	_show_pause()
 
@@ -188,20 +191,41 @@ func _go_main_menu() -> void:
 # ── Einstellungen-Panel ───────────────────────────────────────────────────────
 
 func _build_settings_panel() -> Control:
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
+	# Fullscreen-Modal
+	var overlay := ColorRect.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.color = Color(0, 0, 0, 0.82)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(overlay)
 
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(520, 520)
-	panel.add_theme_stylebox_override("panel", _panel_style())
-	center.add_child(panel)
+	var panel := Panel.new()
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.11, 0.12, 0.17)
+	ps.set_border_width_all(0)
+	panel.add_theme_stylebox_override("panel", ps)
+	overlay.add_child(panel)
 
 	var outer_vbox := VBoxContainer.new()
-	outer_vbox.add_theme_constant_override("separation", 12)
+	outer_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	outer_vbox.add_theme_constant_override("separation", 0)
 	panel.add_child(outer_vbox)
 
-	_add_panel_title(outer_vbox, "EINSTELLUNGEN")
+	# Header-Leiste
+	var header := HBoxContainer.new()
+	header.custom_minimum_size = Vector2(0, 52)
+	header.add_theme_constant_override("separation", 0)
+	outer_vbox.add_child(header)
+
+	var title := Label.new()
+	title.text = "EINSTELLUNGEN"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", C_ACCENT)
+	var lpad := Control.new(); lpad.custom_minimum_size = Vector2(24, 0)
+	header.add_child(lpad); header.add_child(title)
+
 	_add_hline(outer_vbox)
 
 	var scroll := ScrollContainer.new()
@@ -261,10 +285,52 @@ func _build_settings_panel() -> Control:
 	_placement_switch.toggled.connect(_on_placement_toggled)
 	place_row.add_child(_placement_switch)
 
-	_add_spacer(outer_vbox, 8)
-	_add_back_button(outer_vbox, _show_pause)
+	# Spacer + Trennlinie vor Buttons
+	var bot_line := ColorRect.new()
+	bot_line.custom_minimum_size = Vector2(0, 1)
+	bot_line.color = C_LINE
+	outer_vbox.add_child(bot_line)
 
-	return center
+	var btn_row := HBoxContainer.new()
+	btn_row.custom_minimum_size = Vector2(0, 56)
+	btn_row.add_theme_constant_override("separation", 0)
+	outer_vbox.add_child(btn_row)
+
+	var bpad := Control.new(); bpad.custom_minimum_size = Vector2(20, 0)
+	btn_row.add_child(bpad)
+
+	var back_btn := _build_settings_btn("← Zurück", C_SURFACE, C_ACCENT_MU)
+	back_btn.pressed.connect(_on_settings_back)
+	btn_row.add_child(back_btn)
+
+	var sep := Control.new(); sep.custom_minimum_size = Vector2(8, 0)
+	btn_row.add_child(sep)
+
+	var save_btn := _build_settings_btn("💾 Speichern", Color(0.08, 0.26, 0.14), Color(0.25, 0.80, 0.42))
+	save_btn.add_theme_color_override("font_color", Color(0.55, 1.0, 0.65))
+	save_btn.pressed.connect(_on_settings_save)
+	btn_row.add_child(save_btn)
+
+	var epad := Control.new(); epad.custom_minimum_size = Vector2(20, 0)
+	btn_row.add_child(epad)
+
+	return overlay
+
+
+func _build_settings_btn(txt: String, bg: Color, border: Color) -> Button:
+	var btn := Button.new()
+	btn.text = txt
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0, 44)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal",  _btn_style(bg,                 border))
+	btn.add_theme_stylebox_override("hover",   _btn_style(bg.lightened(0.06), border.lightened(0.1)))
+	btn.add_theme_stylebox_override("pressed", _btn_style(bg,                 border))
+	btn.add_theme_stylebox_override("focus",   _btn_style(bg,                 border))
+	btn.add_theme_color_override("font_color", C_TEXT)
+	btn.add_theme_font_size_override("font_size", 13)
+	return btn
 
 
 # ── Errungenschaften-Panel ────────────────────────────────────────────────────
@@ -366,6 +432,7 @@ func _hide_all() -> void:
 	_settings_panel.visible     = false
 	_achievements_panel.visible = false
 	_quit_modal.visible         = false
+	_discard_modal.visible      = false
 
 
 func _show_pause() -> void:
@@ -376,6 +443,7 @@ func _show_pause() -> void:
 func _show_settings() -> void:
 	_hide_all()
 	_settings_panel.visible = true
+	_settings_dirty = false
 	_sync_settings_ui()
 
 
@@ -606,41 +674,41 @@ func _sync_settings_ui() -> void:
 func _on_language_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "language", LANGUAGES[index][1])
-	settings.save(Paths.SETTINGS_FILE)
 	TranslationServer.set_locale(LANGUAGES[index][1])
+	_settings_dirty = true
 
 
 func _on_master_volume_changed(value: float) -> void:
 	_lbl_master_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "master_volume", value)
-	settings.save(Paths.SETTINGS_FILE)
 	AudioServer.set_bus_volume_db(0, _vol_db(value))
+	_settings_dirty = true
 
 
 func _on_music_volume_changed(value: float) -> void:
 	_lbl_music_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "music_volume", value)
-	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("Music")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
+	_settings_dirty = true
 
 
 func _on_sfx_volume_changed(value: float) -> void:
 	_lbl_sfx_val.text = "%d%%" % int(value)
 	if _loading_settings: return
 	settings.set_value("options", "sfx_volume", value)
-	settings.save(Paths.SETTINGS_FILE)
 	var idx := AudioServer.get_bus_index("SFX")
 	if idx >= 0: AudioServer.set_bus_volume_db(idx, _vol_db(value))
+	_settings_dirty = true
 
 
 func _on_window_mode_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "window_mode", index)
-	settings.save(Paths.SETTINGS_FILE)
 	_apply_window_mode(index)
+	_settings_dirty = true
 
 
 func _on_placement_toggled(pressed: bool) -> void:
@@ -648,11 +716,70 @@ func _on_placement_toggled(pressed: bool) -> void:
 	if _loading_settings: return
 	var mode := "slow" if pressed else "quick"
 	settings.set_value("options", "placement_mode", mode)
-	settings.save(Paths.SETTINGS_FILE)
-	# Laufende Bauplan-Szene live umschalten (falls geöffnet).
 	var scene := get_tree().current_scene
 	if scene != null and scene.has_method("set_placement_mode"):
 		scene.set_placement_mode(mode)
+	_settings_dirty = true
+
+
+func _on_settings_back() -> void:
+	if _settings_dirty:
+		_hide_all()
+		_discard_modal.visible = true
+	else:
+		_show_pause()
+
+
+func _on_settings_save() -> void:
+	settings.save(Paths.SETTINGS_FILE)
+	_settings_dirty = false
+
+
+func _on_discard_confirm() -> void:
+	# Einstellungen aus Datei neu laden und anwenden
+	settings.load(Paths.SETTINGS_FILE)
+	AudioServer.set_bus_volume_db(0, _vol_db(settings.get_value("options", "master_volume", 100.0)))
+	var mi := AudioServer.get_bus_index("Music")
+	if mi >= 0: AudioServer.set_bus_volume_db(mi, _vol_db(settings.get_value("options", "music_volume", 80.0)))
+	var si := AudioServer.get_bus_index("SFX")
+	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
+	_apply_window_mode(settings.get_value("options", "window_mode", 0))
+	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
+	_settings_dirty = false
+	_show_pause()
+
+
+func _build_discard_modal() -> Control:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "ÄNDERUNGEN VERWERFEN?")
+	_add_hline(vbox)
+
+	var text_lbl := Label.new()
+	text_lbl.text = "Nicht gespeicherte Einstellungen\ngehen verloren."
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(text_lbl)
+
+	_add_spacer(vbox, 6)
+	_add_btn(vbox, "→", "Verwerfen",  C_ACCENT_RD, _on_discard_confirm)
+	_add_btn(vbox, "←", "Abbrechen", C_ACCENT_MU, func():
+		_hide_all()
+		_settings_panel.visible = true
+	)
+
+	return center
 
 
 # Schalter-Beschriftung zeigt den aktiven Modus an (an = Langsam/Ziehen, aus = Schnell/Klick).

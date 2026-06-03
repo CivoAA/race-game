@@ -11,7 +11,7 @@ const GROUND_Y      = -0.02
 const TILE_SIZE_3D  = 1.2
 const CAR_STAGGER   = 0.5   # Sekunden Startabstand zwischen mehreren Autos
 
-var CurrencyHudScript = load(Paths.SCRIPT_CURRENCY_HUD)
+# CurrencyHud wird durch GameHUD (Autoload) ersetzt
 
 @onready var camera:     Camera3D           = $Camera3D
 @onready var sun:        DirectionalLight3D = $DirectionalLight3D
@@ -27,20 +27,31 @@ var _track_cx: float = 3.6
 var _track_cz: float = 3.0
 
 # Lauf-Zustand
-var _run_time_left: float = 0.0
-var _run_earned:    int   = 0
-var _run_active:    bool  = false
+var _run_time_left:   float = 0.0
+var _run_earned:      int   = 0
+var _run_active:      bool  = false
+var _active_track_idx: int  = 0
 
-var _timer_label:  Label       = null
-var _earned_label: Label       = null
-var _round_label:  Label       = null
-var _currency_hud              = null   # CurrencyHud-Instanz (für Gewinn-Effekt)
-var _lap_running:  Array       = []     # laufender Rundenertrag je Auto
+var _timer_label:  Label = null
+var _earned_label: Label = null
+var _round_label:  Label = null
+var _lap_running:  Array = []     # laufender Rundenertrag je Auto
+var _expected_earn_rate: float = 0.0  # Fallback-Rate wenn noch kein Lap abgeschlossen
 
 
 func _ready() -> void:
-	var grid_state = _resolve_grid_state()
+	# Track-Index ermitteln
+	_active_track_idx = 0
+	if Engine.has_meta("active_track_idx"):
+		_active_track_idx = int(Engine.get_meta("active_track_idx"))
+		Engine.remove_meta("active_track_idx")
 
+	# Unterscheidung: frischer Start vs. View-Wechsel (Runde läuft bereits)
+	var is_resuming: bool = Engine.get_meta("resuming_run", false)
+	if is_resuming:
+		Engine.remove_meta("resuming_run")
+
+	var grid_state = _resolve_grid_state()
 	var grid_rows = grid_state.size()
 	var grid_cols = grid_state[0].size() if grid_rows > 0 else 0
 	_track_cx = grid_cols * TILE_SIZE_3D / 2.0
@@ -54,12 +65,26 @@ func _ready() -> void:
 	_setup_hud()
 
 	generator.generate(grid_state)
-	_start_cars(grid_state)
 
-	_run_time_left = Economy.get_drive_time()
-	_run_active    = true
+	# Timer kommt immer aus Economy (single source of truth)
+	_run_time_left = Economy.get_run_time_left(_active_track_idx)
+	_run_active    = Economy.is_run_active(_active_track_idx)
+	# Hintergrund-Einnahmen stoppen: Lap-Completions übernehmen die Einnahmen in 3D
+	Economy.set_earn_rate(_active_track_idx, 0.0)
+
+	if not _run_active:
+		# Runde ist bereits beendet (während Ansichtswechsel abgelaufen)
+		_show_summary()
+		return
+
+	_start_cars(grid_state)
 	_update_run_hud()
 	_update_round_hud()
+
+	# 2D-Ansichts-Button im GameHUD reagieren lassen
+	GameHUD.view_changed_to_2d.connect(_on_back_pressed)
+	# Economy-Signal: Runde endet im Hintergrund (z.B. während 2D-Ansicht offen war)
+	Economy.run_ended.connect(_on_economy_run_ended)
 
 
 # ── Grid-Zustand ────────────────────────────────────────────────────────────────
@@ -89,25 +114,33 @@ func _resolve_grid_state() -> Array:
 
 # ── Lauf-Schleife ───────────────────────────────────────────────────────────────
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if not _run_active:
 		return
-	_run_time_left -= delta
-	if _run_time_left <= 0.0:
-		_run_time_left = 0.0
+	# Economy ist die einzige Timer-Quelle – World3D zählt NICHT selbst
+	_run_time_left = Economy.get_run_time_left(_active_track_idx)
+	if not Economy.is_run_active(_active_track_idx):
 		_end_run()
-	_update_run_hud()
+	else:
+		_update_run_hud()
+
+
+func _on_economy_run_ended(track_idx: int, _earned: int) -> void:
+	if track_idx == _active_track_idx and _run_active:
+		_end_run()
 
 
 func _on_lap_completed(reward: int, idx: int) -> void:
 	_run_earned += reward
+	if Economy.endless_mode:
+		Economy.add(reward)  # Endlos-Modus: sofort gutschreiben
+	else:
+		Economy.add_run_earned(_active_track_idx, reward)  # Geld kommt am Run-Ende
 	if idx >= 0 and idx < _lap_running.size():
-		_lap_running[idx] = 0   # Runde gutgeschrieben → laufender Zähler zurück
+		_lap_running[idx] = 0
 	_update_round_hud()
 	_update_run_hud()
-	# Geld wird der Hauptwährung gutgeschrieben → hübsches Feedback
-	if _currency_hud != null:
-		_currency_hud.gain(reward)
+	GameHUD.gain_currency(reward)  # Visueller Effekt
 
 
 func _on_lap_progress(running: int, idx: int) -> void:
@@ -117,9 +150,12 @@ func _on_lap_progress(running: int, idx: int) -> void:
 
 
 func _end_run() -> void:
+	if not _run_active:
+		return   # Doppelaufruf verhindern
 	_run_active = false
 	for ctrl in car_controllers:
 		ctrl.stop()
+	Economy.stop_run(_active_track_idx)
 	Economy.save_game()
 	_show_summary()
 
@@ -127,77 +163,49 @@ func _end_run() -> void:
 # ── HUD ─────────────────────────────────────────────────────────────────────────
 
 func _setup_hud() -> void:
-	# Gemeinsame Währungs-HUD (oben mittig, wie in der 2D-View)
-	_currency_hud = CurrencyHudScript.new()
-	add_child(_currency_hud)
-
-	# Eigene HUD-Bar (Layer 9 = unter CurrencyHud Layer 10)
-	# Verstärkt den CurrencyHud-Streifen zu einem soliden, durchgängigen Balken
+	# HUD-Overlay (Layer 21 = über GameHUD Layer 20)
+	# Kein eigener Hintergrund – GameHUD stellt die Bar bereit.
+	# Timer: freier Bereich zwischen Währungs-Label und 2D-Button (x 592–720)
+	# Runde/Gesamt: Build-Button-Bereich (x 822–902, in 3D ausgeblendet)
 	var layer := CanvasLayer.new()
-	layer.layer = 9
+	layer.layer = 21
 	add_child(layer)
 
-	# Dunkler, durchgehender Hintergrundbalken – volle Breite, kein sichtbarer Rand
-	var bar_bg := ColorRect.new()
-	bar_bg.position = Vector2(0, 0)
-	bar_bg.size     = Vector2(960, 46)
-	bar_bg.color    = Color(0.05, 0.06, 0.09, 0.88)
-	layer.add_child(bar_bg)
-
-	# Leuchtende Unterkante für Tiefe
-	var bar_line := ColorRect.new()
-	bar_line.position = Vector2(0, 45)
-	bar_line.size     = Vector2(960, 1)
-	bar_line.color    = Color(0.28, 0.34, 0.52, 0.90)
-	layer.add_child(bar_line)
-
-	# Timer – links, groß
+	# Timer – zwischen Währung (endet ~x580) und 2D-Button (beginnt x728)
 	_timer_label = Label.new()
-	_timer_label.position = Vector2(12, 8)
-	_timer_label.size     = Vector2(210, 30)
+	_timer_label.position = Vector2(592, 8)
+	_timer_label.size     = Vector2(128, 34)
 	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_timer_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_timer_label.add_theme_font_size_override("font_size", 21)
+	_timer_label.add_theme_font_size_override("font_size", 18)
 	_timer_label.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
 	_timer_label.add_theme_constant_override("outline_size", 3)
 	_timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_timer_label)
 
-	# Trennlinie links nach Timer
-	var sep_l := ColorRect.new()
-	sep_l.position = Vector2(228, 8)
-	sep_l.size     = Vector2(1, 30)
-	sep_l.color    = Color(0.28, 0.34, 0.52, 0.50)
-	layer.add_child(sep_l)
-
-	# Trennlinie rechts vor Stats
-	var sep_r := ColorRect.new()
-	sep_r.position = Vector2(730, 8)
-	sep_r.size     = Vector2(1, 30)
-	sep_r.color    = Color(0.28, 0.34, 0.52, 0.50)
-	layer.add_child(sep_r)
-
-	# Laufende Runde – rechts oben
+	# Laufende Runde – Build-Button-Bereich (x820–902, in 3D frei)
 	_round_label = Label.new()
-	_round_label.position = Vector2(736, 6)
-	_round_label.size     = Vector2(216, 17)
+	_round_label.position  = Vector2(820, 4)
+	_round_label.size      = Vector2(82, 20)
+	_round_label.clip_text = true
 	_round_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_round_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_round_label.add_theme_font_size_override("font_size", 14)
+	_round_label.add_theme_font_size_override("font_size", 11)
 	_round_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.35))
-	_round_label.add_theme_constant_override("outline_size", 3)
+	_round_label.add_theme_constant_override("outline_size", 2)
 	_round_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_round_label)
 
-	# Lauf gesamt – rechts unten
+	# Lauf gesamt – Build-Button-Bereich, untere Zeile
 	_earned_label = Label.new()
-	_earned_label.position = Vector2(736, 24)
-	_earned_label.size     = Vector2(216, 17)
+	_earned_label.position  = Vector2(820, 26)
+	_earned_label.size      = Vector2(82, 18)
+	_earned_label.clip_text = true
 	_earned_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_earned_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_earned_label.add_theme_font_size_override("font_size", 13)
+	_earned_label.add_theme_font_size_override("font_size", 11)
 	_earned_label.add_theme_color_override("font_color", Color(0.50, 0.95, 0.58))
-	_earned_label.add_theme_constant_override("outline_size", 3)
+	_earned_label.add_theme_constant_override("outline_size", 2)
 	_earned_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_earned_label)
 
@@ -217,9 +225,9 @@ func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 
 func _update_run_hud() -> void:
 	if _timer_label != null:
-		_timer_label.text = "⏱  %.1f s" % _run_time_left
+		_timer_label.text = "⏱  ∞" if Economy.endless_mode else "⏱  %.1f s" % _run_time_left
 	if _earned_label != null:
-		_earned_label.text = "Gesamt  +%s 💰" % Economy.format_currency(_run_earned)
+		_earned_label.text = "Ges +%s 💰" % Economy.format_currency(_run_earned)
 
 
 func _update_round_hud() -> void:
@@ -228,7 +236,7 @@ func _update_round_hud() -> void:
 	var sum := 0
 	for v in _lap_running:
 		sum += int(v)
-	_round_label.text = "Runde  +%s 💰" % Economy.format_currency(sum)
+	_round_label.text = "Rnd +%s 💰" % Economy.format_currency(sum)
 
 
 func _show_summary() -> void:
@@ -324,7 +332,7 @@ func _show_summary() -> void:
 	btn.add_theme_stylebox_override("focus",   btn_sb)
 	btn.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
 	btn.add_theme_font_size_override("font_size", 14)
-	btn.pressed.connect(_on_back_pressed)
+	btn.pressed.connect(_on_back_pressed_end)
 	panel.add_child(btn)
 
 
@@ -350,11 +358,52 @@ func _start_cars(grid_state: Array) -> void:
 	await get_tree().process_frame
 	for ctrl in car_controllers:
 		ctrl.start(grid_state)
+	# Erwartete Einnahmen/Sekunde aus exakter Wegpunkt-Länge ableiten.
+	# Wird als Fallback genutzt wenn noch keine Runde abgeschlossen war.
+	var total_eps: float = 0.0
+	for ctrl in car_controllers:
+		if ctrl.waypoints.size() < 2 or float(ctrl.speed) <= 0.0:
+			continue
+		var path_len: float = 0.0
+		for j in range(ctrl.waypoints.size() - 1):
+			path_len += ctrl.waypoints[j].distance_to(ctrl.waypoints[j + 1])
+		if path_len <= 0.0:
+			continue
+		var lap_time: float = path_len / float(ctrl.speed)
+		var rpl: int = int(round((float(ctrl.lap_base) + float(ctrl.tile_bonus) * float(ctrl.tile_count)) * float(ctrl.end_mult)))
+		total_eps += float(rpl) / lap_time
+	_expected_earn_rate = total_eps
 
 
 # ── Zurück zum Bauplan ────────────────────────────────────────────────────────
 
 func _on_back_pressed() -> void:
+	# Verbindungen trennen bevor Scene gewechselt wird
+	if GameHUD.view_changed_to_2d.is_connected(_on_back_pressed):
+		GameHUD.view_changed_to_2d.disconnect(_on_back_pressed)
+	if Economy.run_ended.is_connected(_on_economy_run_ended):
+		Economy.run_ended.disconnect(_on_economy_run_ended)
+	# Hintergrund-Einnahmen aktivieren: Einnahmen-Rate für 2D-Modus berechnen
+	var elapsed := Economy.get_drive_time() - Economy.get_run_time_left(_active_track_idx)
+	var total_earned := Economy.get_run_earned(_active_track_idx)
+	if elapsed > 0.1 and total_earned > 0:
+		# Tatsächliche Rate aus abgeschlossenen Runden
+		Economy.set_earn_rate(_active_track_idx, float(total_earned) / elapsed)
+	elif _expected_earn_rate > 0.0:
+		# Fallback: berechnete Rate aus Wegpunktlänge (kein Lap abgeschlossen)
+		Economy.set_earn_rate(_active_track_idx, _expected_earn_rate)
+	# Run läuft WEITER im Hintergrund (Economy._process)
+	GameHUD.set_view_3d(false)
+	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
+
+
+func _on_back_pressed_end() -> void:
+	# Nur nach Run-Ende aufgerufen: Run bereits gestoppt
+	if GameHUD.view_changed_to_2d.is_connected(_on_back_pressed):
+		GameHUD.view_changed_to_2d.disconnect(_on_back_pressed)
+	if Economy.run_ended.is_connected(_on_economy_run_ended):
+		Economy.run_ended.disconnect(_on_economy_run_ended)
+	GameHUD.set_view_3d(false)
 	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
 

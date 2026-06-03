@@ -24,6 +24,8 @@ config/icon="res://icon.svg"
 
 Paths="*res://scripts/Paths.gd"
 Economy="*res://scripts/Economy.gd"
+GameHUD="*res://scripts/GameHUD.gd"
+GlobalModal="*res://scripts/GlobalModal.gd"
 PauseMenu="*res://scripts/PauseMenu.gd"
 
 [display]

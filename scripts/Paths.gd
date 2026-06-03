@@ -20,6 +20,8 @@ const SCRIPT_UPGRADE_MENU    = "res://scripts/UpgradeMenu.gd"
 const SCRIPT_CAR_CONTROLLER  = "res://scripts/CarController.gd"
 const SCRIPT_CAR_3D          = "res://scripts/Car3D.gd"
 const SCRIPT_TRACK_GENERATOR = "res://scripts/TrackGenerator3D.gd"
+const SCRIPT_GAME_HUD        = "res://scripts/GameHUD.gd"
+const SCRIPT_GLOBAL_MODAL    = "res://scripts/GlobalModal.gd"
 
 # ── Assets ────────────────────────────────────────────────────────────────────
 const MODEL_DEFAULT_CAR = "res://assets/3D-models/cars/default_car/car.glb"
