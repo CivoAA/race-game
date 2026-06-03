@@ -53,7 +53,7 @@ func _ready() -> void:
 
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0, 0, 0, 0.78)
+	bg.color = Color(0, 0, 0, 0.94)
 	add_child(bg)
 
 	_pause_panel        = _build_pause_panel()

@@ -331,10 +331,11 @@ func _refresh_run_bar() -> void:
 		return
 	var run_active := Economy.is_run_active(_current_track_idx)
 	if run_active:
+		# Run läuft im Hintergrund → Button wechselt zurück in die 3D-Ansicht
+		# (ersetzt den entfernten 3D-Button der Top-Nav).
 		_run_bar_status.text = "Runde läuft für Strecke %d" % (_current_track_idx + 1)
 		_run_bar_status.add_theme_color_override("font_color", Color(0.25, 0.90, 0.45))
-		_set_run_bar_btn_style("▶  Fahren!", C_SURFACE, C_ACCENT_MU.darkened(0.4), C_TEXT_DIM)
-		_run_bar_btn.disabled = true
+		_set_run_bar_btn_style("🎥  3D-Ansicht", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
 	elif _track_valid:
 		_run_bar_status.text = "✓ Strecke fertig — bereit zum Fahren"
 		_run_bar_status.add_theme_color_override("font_color", Color(0.35, 0.90, 0.45))
@@ -2266,12 +2267,12 @@ func _on_pruefen_pressed() -> void:
 
 
 func _on_fahren_pressed() -> void:
-	if not _is_track_valid():
-		tile_selector.set_status("Keine vollständige Runde möglich")
-		return
 	if Economy.is_run_active(_current_track_idx):
 		# Runde läuft bereits → einfach zur 3D-Ansicht wechseln
 		_switch_to_3d_view()
+		return
+	if not _is_track_valid():
+		tile_selector.set_status("Keine vollständige Runde möglich")
 		return
 	_persist_track_for_current()
 	Economy.start_run(_current_track_idx)
