@@ -34,6 +34,7 @@ var _active_track_idx: int  = 0
 var _timer_label:  Label = null
 var _earned_label: Label = null
 var _round_label:  Label = null
+var _back_btn:     Button = null
 var _lap_running:  Array = []     # laufender Rundenertrag je Auto
 
 
@@ -164,7 +165,36 @@ func _setup_hud() -> void:
 	layer.layer = 21
 	add_child(layer)
 
-	# Timer – zwischen Währung (endet ~x580) und 2D-Button (beginnt x728)
+	# 2D-Toggle – unter der Navbar (Bar = y 0–50), oben links. Einziger Weg zurück
+	# in die 2D-Bauansicht; der Run läuft dabei im Hintergrund weiter.
+	const NAV_H = 50
+	_back_btn = Button.new()
+	_back_btn.text     = "⬅  2D-Ansicht"
+	_back_btn.position = Vector2(8, NAV_H + 8)
+	_back_btn.size     = Vector2(136, 34)
+	_back_btn.focus_mode = Control.FOCUS_NONE
+	_back_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_back_btn.tooltip_text = "Zurück zur 2D-Bauansicht"
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color          = Color(0.10, 0.11, 0.16, 0.92)
+	bsb.border_width_left = 3
+	bsb.border_color      = Color(1.00, 0.52, 0.05)
+	bsb.set_corner_radius_all(4)
+	bsb.content_margin_left = 10; bsb.content_margin_right  = 10
+	bsb.content_margin_top  = 5;  bsb.content_margin_bottom = 5
+	var bsb_h := bsb.duplicate() as StyleBoxFlat
+	bsb_h.bg_color = Color(0.17, 0.19, 0.26, 0.96)
+	_back_btn.add_theme_stylebox_override("normal",  bsb)
+	_back_btn.add_theme_stylebox_override("hover",   bsb_h)
+	_back_btn.add_theme_stylebox_override("pressed", bsb)
+	_back_btn.add_theme_stylebox_override("focus",   bsb)
+	_back_btn.add_theme_color_override("font_color",       Color(1.00, 0.52, 0.05))
+	_back_btn.add_theme_color_override("font_hover_color", Color(1.00, 0.66, 0.25))
+	_back_btn.add_theme_font_size_override("font_size", 13)
+	_back_btn.pressed.connect(_on_back_pressed)
+	layer.add_child(_back_btn)
+
+	# Timer – zwischen Währung (endet ~x580) und Run-Anzeige (x820)
 	_timer_label = Label.new()
 	_timer_label.position = Vector2(592, 8)
 	_timer_label.size     = Vector2(128, 34)
@@ -233,6 +263,10 @@ func _update_round_hud() -> void:
 
 
 func _show_summary() -> void:
+	# Der 2D-Toggle würde sonst über dem Zusammenfassungs-Dialog schweben
+	if _back_btn != null:
+		_back_btn.visible = false
+
 	var layer = CanvasLayer.new()
 	layer.layer = 8
 	add_child(layer)

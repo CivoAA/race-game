@@ -118,17 +118,10 @@ func _build_bar() -> void:
 	_currency_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.88))
 	add_child(_currency_lbl)
 
-	# Rechter Block (von links nach rechts: 2D | 3D | Upgrade-Center)
-	_view_2d_btn = _make_btn("2D", Vector2(V2D_X, BTN_Y), VIEW_W, BTN_H)
-	_view_3d_btn = _make_btn("3D", Vector2(V3D_X, BTN_Y), VIEW_W, BTN_H)
-	_shop_btn    = _make_uc_btn("🏪  UPGRADE-CENTER", Vector2(UC_X, UC_Y), UC_W, UC_H)
-
-	_view_2d_btn.pressed.connect(_on_view_2d)
-	_view_3d_btn.pressed.connect(_on_view_3d)
+	# Rechter Block: Upgrade-Center (2D/3D-Umschaltung erfolgt jetzt über den
+	# "Fahren!/3D"-Button im Run-Bar bzw. den 2D-Toggle in der 3D-Ansicht).
+	_shop_btn = _make_uc_btn("UPGRADE-CENTER", Vector2(UC_X, UC_Y), UC_W, UC_H)
 	_shop_btn.pressed.connect(_on_shop_pressed)
-
-	add_child(_view_2d_btn)
-	add_child(_view_3d_btn)
 	add_child(_shop_btn)
 
 	# Debug-Button: +1.000.000 Gold (rechts neben Währungsanzeige)
@@ -162,8 +155,8 @@ func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	return btn
 
 
-# Großer, auffälliger Upgrade-Center-Button: gefülltes Orange mit dunkler Schrift,
-# pulsierende Akzent-Umrandung – das zentrale Feature der Top-Nav.
+# Dezenter Upgrade-Center-Button: fügt sich in die Bar-Hintergrundfarbe ein,
+# nur orange Schrift und ein schmaler Akzentrahmen heben ihn hervor (kein Icon).
 func _make_uc_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	var btn := Button.new()
 	btn.text     = txt
@@ -171,28 +164,26 @@ func _make_uc_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	btn.size     = Vector2(w, h)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.add_theme_stylebox_override("normal",  _uc_sb(C_ACCENT,              C_ACCENT.lightened(0.35)))
-	btn.add_theme_stylebox_override("hover",   _uc_sb(C_ACCENT.lightened(0.12), C_TEXT))
-	btn.add_theme_stylebox_override("pressed", _uc_sb(C_ACCENT.darkened(0.12), C_ACCENT.lightened(0.35)))
-	btn.add_theme_stylebox_override("focus",   _uc_sb(C_ACCENT,              C_ACCENT.lightened(0.35)))
-	btn.add_theme_color_override("font_color",       Color(0.10, 0.07, 0.02))
-	btn.add_theme_color_override("font_hover_color", Color(0.06, 0.04, 0.01))
-	btn.add_theme_font_size_override("font_size", 15)
+	btn.add_theme_stylebox_override("normal",  _uc_sb(C_BG,         C_ACCENT))
+	btn.add_theme_stylebox_override("hover",   _uc_sb(C_SURFACE,    C_ACCENT))
+	btn.add_theme_stylebox_override("pressed", _uc_sb(C_SURFACE_HI, C_ACCENT))
+	btn.add_theme_stylebox_override("focus",   _uc_sb(C_BG,         C_ACCENT))
+	btn.add_theme_color_override("font_color",       C_ACCENT)
+	btn.add_theme_color_override("font_hover_color", C_ACCENT.lightened(0.2))
+	btn.add_theme_font_size_override("font_size", 14)
 	return btn
 
 
 func _uc_sb(bg: Color, border: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.set_border_width_all(2)
+	sb.set_border_width_all(1)
 	sb.border_color = border
 	sb.set_corner_radius_all(5)
 	sb.content_margin_left   = 8
 	sb.content_margin_right  = 8
 	sb.content_margin_top    = 4
 	sb.content_margin_bottom = 4
-	sb.shadow_color = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.35)
-	sb.shadow_size  = 6
 	return sb
 
 
@@ -248,6 +239,9 @@ func _refresh_tabs() -> void:
 
 
 func _refresh_view_buttons() -> void:
+	# Die 2D/3D-Buttons wurden aus der Top-Nav entfernt; nichts mehr zu stylen.
+	if _view_2d_btn == null or _view_3d_btn == null:
+		return
 	var sb_on := StyleBoxFlat.new()
 	sb_on.bg_color            = C_SURFACE_HI
 	sb_on.border_width_bottom = 2
@@ -281,10 +275,6 @@ func _process(_delta: float) -> void:
 	for i in TRACK_COUNT:
 		if i < _run_dots.size():
 			_run_dots[i].color = C_RUN_ON if Economy.is_run_active(i) else C_RUN_OFF
-
-	# 3D-Button: nur anzeigen wenn ein Run für den aktiven Tab läuft (und wir in 2D sind)
-	if _view_3d_btn != null:
-		_view_3d_btn.visible = _is_3d_view or Economy.is_run_active(_active_tab)
 
 
 # ── Callbacks ──────────────────────────────────────────────────────────────────
