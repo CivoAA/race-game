@@ -1,9 +1,11 @@
 extends Node
-## Zentraler, persistenter Spielzustand: Währung + gekaufte Upgrades.
+## Zentraler, persistenter Spielzustand: Währung + gekaufte Upgrades + 3 Track-Zustände.
 ## Wird als Autoload "Economy" geladen. Speichert in Slot-Dateien (user://savegame_slotN.dat).
 
+const TRACK_COUNT = 3
+
 const START_CURRENCY  = 0
-const BASE_SPEED      = 1.5    # Grund-Tempo (≈5 s für eine kleine 6-Tile-Runde; via Upgrades schneller)
+const BASE_SPEED      = 4.0    # Grund-Tempo – bei 4 m/s läuft ein kleiner 16-Tile-Kurs (~19m) in ~5s
 
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
@@ -18,7 +20,7 @@ const UPGRADES = {
 	"drive_time": {
 		"category": "general", "name": "Fahrzeit",
 		"base_cost": 250, "growth": 2.6, "max_level": 10,
-		"base": 10.0, "per_level": 5.0, "unit": "s",
+		"base": 30.0, "per_level": 15.0, "unit": "s",
 	},
 	# grid_size: aktuell NICHT im Shop (kommt später per Prestige) – Definition bleibt für die Getter.
 	"grid_size": {
@@ -71,10 +73,17 @@ const GRID_STEPS = [
 
 var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
-var track:          Array      = []   # gespeicherte Strecke (Grid-State ohne Dreck-Tiles)
+var track:          Array      = []   # gespeicherte Strecke des aktiven Tracks (Rückwärtskompatibilität)
 var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
 var _current_slot:  int        = 0
 var _slot_name:     String     = ""
+
+# ── Multi-Track-State ───────────────────────────────────────────────────────────
+var _active_track: int = 0
+var _tracks: Array = []   # TRACK_COUNT Einträge
+var endless_mode: bool = false   # Kein Timer, Geld wird live gutgeschrieben
+
+signal run_ended(track_idx: int, earned: int)
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -91,7 +100,136 @@ func unlock_tile(key: String) -> void:
 
 
 func _ready() -> void:
-	pass  # Slot wird explizit aus dem Menü gesetzt
+	_init_tracks()
+
+
+func _init_tracks() -> void:
+	_tracks.clear()
+	for _i in TRACK_COUNT:
+		_tracks.append({
+			"grid":            [],
+			"run_active":      false,
+			"run_timer":       0.0,
+			"run_earned":      0,
+			"earn_per_sec":    0.0,
+			"pending_summary": false,
+			"last_earned":     0,
+		})
+
+
+func _process(delta: float) -> void:
+	for i in TRACK_COUNT:
+		if _tracks[i]["run_active"]:
+			var eps := float(_tracks[i].get("earn_per_sec", 0.0))
+			if endless_mode:
+				# Endlos-Modus: kein Timer, Hintergrund-Einnahmen sofort gutschreiben
+				if eps > 0.0:
+					_currency += eps * delta
+			else:
+				_tracks[i]["run_timer"] -= delta
+				# Hintergrund-Einnahmen wenn 2D-Ansicht aktiv (kein World3D vorhanden)
+				if eps > 0.0:
+					_tracks[i]["run_earned"] = float(_tracks[i]["run_earned"]) + eps * delta
+				if _tracks[i]["run_timer"] <= 0.0:
+					_tracks[i]["run_timer"]       = 0.0
+					_tracks[i]["run_active"]      = false
+					_tracks[i]["earn_per_sec"]    = 0.0
+					var earned: int = int(_tracks[i]["run_earned"])
+					_currency += earned              # Gesamtbetrag gutschreiben
+					_tracks[i]["pending_summary"] = true
+					_tracks[i]["last_earned"]     = earned
+					save_game()
+					emit_signal("run_ended", i, earned)
+
+
+# ── Multi-Track API ─────────────────────────────────────────────────────────────
+
+func get_active_track() -> int:
+	return _active_track
+
+
+func set_active_track(idx: int) -> void:
+	_active_track = clampi(idx, 0, TRACK_COUNT - 1)
+
+
+func get_track_grid(track_idx: int) -> Array:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return []
+	return _tracks[track_idx]["grid"]
+
+
+func set_track_grid(track_idx: int, grid: Array) -> void:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return
+	_tracks[track_idx]["grid"] = grid
+	# Rückwärtskompatibilität: aktiver Track → track-Feld synchron halten
+	if track_idx == _active_track:
+		track = grid
+
+
+func is_run_active(track_idx: int) -> bool:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return false
+	return _tracks[track_idx]["run_active"]
+
+
+func get_run_time_left(track_idx: int) -> float:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return 0.0
+	return _tracks[track_idx]["run_timer"]
+
+
+func start_run(track_idx: int) -> void:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return
+	_tracks[track_idx]["run_active"]   = true
+	_tracks[track_idx]["run_timer"]    = get_drive_time()
+	_tracks[track_idx]["run_earned"]   = 0
+	_tracks[track_idx]["earn_per_sec"] = 0.0
+
+
+func add_run_earned(track_idx: int, amount: int) -> void:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return
+	_tracks[track_idx]["run_earned"] += amount
+
+
+func stop_run(track_idx: int) -> void:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return
+	_tracks[track_idx]["run_active"]   = false
+	_tracks[track_idx]["earn_per_sec"] = 0.0
+
+
+func get_run_earned(track_idx: int) -> int:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return 0
+	return int(_tracks[track_idx]["run_earned"])
+
+
+func set_earn_rate(track_idx: int, rate: float) -> void:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return
+	_tracks[track_idx]["earn_per_sec"] = maxf(rate, 0.0)
+
+
+func has_pending_summary(track_idx: int) -> bool:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return false
+	return bool(_tracks[track_idx].get("pending_summary", false))
+
+
+func get_last_earned(track_idx: int) -> int:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return 0
+	return int(_tracks[track_idx].get("last_earned", 0))
+
+
+func clear_pending_summary(track_idx: int) -> void:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return
+	_tracks[track_idx]["pending_summary"] = false
+	_tracks[track_idx]["last_earned"]     = 0
 
 
 # ── Slot-Management ────────────────────────────────────────────────────────────
@@ -147,6 +285,10 @@ func spend(amount: int) -> bool:
 func add(amount: int) -> void:
 	_currency += amount
 	save_game()
+
+
+func add_silent(amount: int) -> void:
+	_currency += amount  # Kein sofortiges Speichern (z.B. per Runde)
 
 
 # ── Upgrade-Abfragen ──────────────────────────────────────────────────────────
@@ -350,13 +492,18 @@ func save_game_to_slot(slot: int) -> void:
 	if f == null:
 		push_warning("Speichern fehlgeschlagen: " + get_save_path(slot))
 		return
+	# Track-Grids serialisieren
+	var track_grids: Array = []
+	for i in TRACK_COUNT:
+		track_grids.append(_tracks[i]["grid"] if i < _tracks.size() else [])
 	f.store_string(var_to_str({
-		"currency":  _currency,
-		"upgrades":  upgrade_levels,
-		"track":     track,
-		"unlocked":  unlocked_tiles,
-		"timestamp": Time.get_datetime_string_from_system(false, true),
-		"name":      _slot_name,
+		"currency":    _currency,
+		"upgrades":    upgrade_levels,
+		"track":       track,
+		"track_grids": track_grids,
+		"unlocked":    unlocked_tiles,
+		"timestamp":   Time.get_datetime_string_from_system(false, true),
+		"name":        _slot_name,
 	}))
 	f.close()
 
@@ -386,6 +533,17 @@ func load_game_from_slot(slot: int) -> void:
 	var unl        = data.get("unlocked", {})
 	unlocked_tiles = unl.duplicate() if typeof(unl) == TYPE_DICTIONARY else {}
 	_slot_name     = String(data.get("name", ""))
+	# Multi-Track-Grids laden
+	_init_tracks()
+	var tg = data.get("track_grids", [])
+	if typeof(tg) == TYPE_ARRAY:
+		for i in min(tg.size(), TRACK_COUNT):
+			if typeof(tg[i]) == TYPE_ARRAY:
+				_tracks[i]["grid"] = tg[i]
+	else:
+		# Rückwärtskompatibilität: alten track-State in Track 0 laden
+		if track.size() > 0:
+			_tracks[0]["grid"] = track
 
 
 func reset_slot(slot: int) -> void:
@@ -395,6 +553,7 @@ func reset_slot(slot: int) -> void:
 	track          = []
 	unlocked_tiles = {}
 	_slot_name     = ""
+	_init_tracks()
 	save_game_to_slot(slot)
 
 

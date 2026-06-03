@@ -76,8 +76,6 @@ func stop() -> void:
 
 func _on_lap_completed() -> void:
 	var reward = int(round((lap_base + tile_bonus * tile_count) * end_mult))
-	if reward != 0:
-		Economy.add(reward)
 	lap_completed.emit(reward)
 
 

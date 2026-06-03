@@ -5,8 +5,21 @@ var GRID_ROWS: int = 5
 var GRID_COLS: int = 6
 const TILE_SIZE = 100
 
-var CurrencyHudScript = load(Paths.SCRIPT_CURRENCY_HUD)
-var UpgradeMenuScript  = load(Paths.SCRIPT_UPGRADE_MENU)
+# Farben (neue Palette)
+const C_BG       := Color(0.13, 0.14, 0.20)
+const C_SURFACE  := Color(0.19, 0.21, 0.29)
+const C_SURFACE2 := Color(0.24, 0.26, 0.36)
+const C_ACCENT   := Color(1.00, 0.52, 0.05)
+const C_ACCENT_MU := Color(0.22, 0.30, 0.50)
+const C_ACCENT_RD := Color(0.80, 0.18, 0.12)
+const C_TEXT     := Color(0.93, 0.95, 1.00)
+const C_TEXT_DIM := Color(0.50, 0.56, 0.70)
+const C_LINE     := Color(0.21, 0.24, 0.34)
+
+# Build-Panel-Konstanten
+const BUILD_PANEL_H = 110
+const BUILD_PANEL_Y = 540 - 42 - BUILD_PANEL_H  # 42px Run-Bar am unteren Rand
+const PAN_BORDER    = 150   # px jenseits des Grid-Rands für Kamera-Pan
 
 # Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
 #   tier "dirt"    = kostenlos, Standard-Tile (Ertrag +5 pro überfahrenem Feld)
@@ -51,7 +64,7 @@ var grid: Array = []
 # Bonusfelder (zellenbasiert, unabhängig von den Tiles)
 var bonus_grid: Array = []            # [r][c] = null oder {label, points, mult}
 var _bonus_marker_nodes: Array = []   # gezeichnete Marker-Nodes
-var _bonus_sig_on_open: String = ""   # Bonus-Signatur beim Öffnen des Upgrade-Menüs
+var _bonus_sig_on_open: String = ""
 
 # Sprung-Felder (Mittelfeld jeder Rampe) – dort gibt ein Tile × JUMP_MULT Ertrag
 var _jump_marker_nodes: Array = []
@@ -63,7 +76,6 @@ var _grid_highlight: Node2D = null
 
 # Shop / Lösch-Zustand
 var selected_shop_slot: int   = -1    # Index in SHOP_ITEMS, -1 = nichts gewählt
-var delete_mode:        bool  = false
 var ramp_preview_rot:   int   = 0     # (Alt-Rampen)
 
 # Platzierungs-Modus: "quick" (Klick) oder "slow" (Ziehen & Ablegen). Kommt aus den Einstellungen.
@@ -82,15 +94,38 @@ var _grid_press_pos:    Vector2 = Vector2.ZERO
 var _drag_active:       bool    = false
 const DRAG_THRESHOLD := 6.0              # Pixel-Schwelle: Klick (Auswahl) vs. Ziehen
 
-# UI nodes (created programmatically)
-var _currency_hud           = null   # CurrencyHud-Instanz
-var _shop_panels:    Array = []
-var _delete_panel:   Panel = null
-var _upgrade_menu           = null   # UpgradeMenu-Instanz
-var _menu_open:      bool = false
+# Build-Panel-Nodes
+var _build_layer:   CanvasLayer = null
+var _status_lbl:    Label       = null
+var _hint_lbl:      Label       = null
+var _fahren_btn:    Button      = null
+var _build_cards:   Array       = []
+var _trash_panel:   Panel       = null   # Papierkorb (nur Slow-Modus)
 
-@onready var grid_node:    Node2D = $Grid
-@onready var tile_selector         = $TileSelector
+# Persistenter Run-Bar (Layer 4, immer sichtbar: Track-Status + Fahren-Button)
+var _run_bar:          CanvasLayer = null
+var _run_bar_status:   Label       = null
+var _run_bar_btn:      Button      = null
+var _track_valid:      bool        = false
+
+# Run-Summary-Modal (zeigt sich wenn man auf einen Tab wechselt dessen Run beendet ist)
+var _summary_layer: CanvasLayer = null
+var _summary_lbl:   Label       = null
+
+# Kamera-Pan (mittlere Maustaste)
+var _panning:         bool    = false
+var _pan_start_mouse: Vector2 = Vector2.ZERO
+var _pan_start_cam:   Vector2 = Vector2.ZERO
+
+# Aktuell angezeigter Track-Index (unabhängig von Economy.get_active_track(),
+# damit _on_tab_changed den ALTEN Track korrekt speichert)
+var _current_track_idx: int = 0
+
+# TileSelector-Shim (ersetzt die entfernte Sidebar, bewahrt alle Aufrufe)
+var tile_selector = null
+
+@onready var grid_node:  Node2D   = $Grid
+@onready var camera_2d:  Camera2D = $Camera2D
 
 
 func _ready() -> void:
@@ -100,20 +135,50 @@ func _ready() -> void:
 	_draw_grid_background()
 	_place_start_tile()
 	_setup_grid_highlight()
-	_setup_shop_ui()
+	_setup_camera()
+	_setup_run_bar()
+	_setup_build_panel()
+	_setup_run_summary_modal()
 
+	# TileSelector-Shim aufsetzen NACH Build-Panel (Nodes already created)
+	var shim := _TileSelectorShim.new()
+	shim._status = _status_lbl
+	shim._hint   = _hint_lbl
+	shim._fahren = _fahren_btn
+	shim._main   = self
+	tile_selector = shim
+
+	_current_track_idx = Economy.get_active_track()
+	var active_idx := _current_track_idx
+	var saved_tg := Economy.get_track_grid(active_idx)
 	if Engine.has_meta("saved_grid_state"):
 		_restore_grid(Engine.get_meta("saved_grid_state"))
 		Engine.remove_meta("saved_grid_state")
+	elif saved_tg.size() > 0:
+		_restore_grid(saved_tg)
 	elif Economy.has_track():
 		_restore_grid(Economy.get_track())
 
-	_update_shop_ui()
+	_update_build_ui()
 	_roll_bonus_fields()
 	_refresh_jump_markers()
 
 	placement_mode = _load_placement_mode()
+	_track_valid = _is_track_valid()
 	_update_hint_label()
+
+	GameHUD.build_mode_toggled.connect(_on_build_mode_toggled)
+	GameHUD.tab_changed.connect(_on_tab_changed)
+	GameHUD.view_changed_to_3d.connect(_on_view_3d_requested)
+	GameHUD.set_view_3d(false)
+
+	Economy.run_ended.connect(_on_run_ended_background)
+
+	if Economy.has_pending_summary(_current_track_idx):
+		_show_run_summary(_current_track_idx)
+	elif Economy.is_run_active(_current_track_idx):
+		GameHUD.set_build_active(false)
+	_refresh_run_bar()
 
 
 # ── Grid init ──────────────────────────────────────────────────────────────────
@@ -197,111 +262,348 @@ func _update_grid_highlight() -> void:
 
 # ── Shop UI ────────────────────────────────────────────────────────────────────
 
-func _setup_shop_ui() -> void:
-	var layer = CanvasLayer.new()
-	layer.layer = 2
-	add_child(layer)
+func _setup_camera() -> void:
+	# Kamera auf Grid-Mitte setzen; Offset nach oben damit das Grid unterhalb der HUD-Leiste beginnt.
+	# offset.y = -(viewport_center_y - hud_height - grid_start_margin)
+	# = -(270 - 50 - 15) = -205 → camera.center.y = 250 - 45 = 205
+	# → Grid-Oberkante (world y=0) erscheint bei screen y = 270 + (0-205) = 65
+	camera_2d.position = Vector2(GRID_COLS * TILE_SIZE / 2.0, GRID_ROWS * TILE_SIZE / 2.0)
+	camera_2d.offset   = Vector2(0, -45)
+	_update_camera_limits()
 
-	# Gemeinsame Währungs-HUD (oben mittig, identisch in 2D- und 3D-View)
-	_currency_hud = CurrencyHudScript.new()
-	add_child(_currency_hud)
 
-	# Rechte Seitenleiste: x=752 bis x=956 (204px), volle Höhe
-	# Grid endet bei x=148+600=748; 4px Abstand → Panel bei 752
-	const PANEL_X    = 752
-	const PANEL_W    = 204
-	const SLOT_W     = 188   # PANEL_W - 16 (8px Padding je Seite)
-	const SLOT_H     = 72
-	const SLOT_GAP   = 6
-	const START_Y    = 42    # unterhalb der CurrencyHUD
-	const DELETE_H   = 44
-	const DELETE_Y   = 540 - 8 - DELETE_H   # Lösch-Panel am unteren Rand
-	const SCROLL_H   = DELETE_Y - START_Y - 8
+func _update_camera_limits() -> void:
+	camera_2d.limit_left   = -PAN_BORDER
+	camera_2d.limit_right  = GRID_COLS * TILE_SIZE + PAN_BORDER
+	camera_2d.limit_top    = -PAN_BORDER
+	camera_2d.limit_bottom = GRID_ROWS * TILE_SIZE + PAN_BORDER
 
-	# Hintergrund-Panel
-	var shop_bg = Panel.new()
-	shop_bg.position = Vector2(PANEL_X, 0)
-	shop_bg.size     = Vector2(PANEL_W, 540)
-	var bg_style = StyleBoxFlat.new()
-	bg_style.bg_color          = Color(0.09, 0.10, 0.14)
-	bg_style.border_width_left = 1
-	bg_style.border_color      = Color(0.20, 0.23, 0.32)
-	shop_bg.add_theme_stylebox_override("panel", bg_style)
-	layer.add_child(shop_bg)
 
-	# "SHOP" Header
-	var shop_header = Label.new()
-	shop_header.text = "SHOP"
-	shop_header.position = Vector2(PANEL_X, 8)
-	shop_header.size = Vector2(PANEL_W, 28)
-	shop_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	shop_header.add_theme_font_size_override("font_size", 11)
-	shop_header.add_theme_color_override("font_color", Color(0.32, 0.37, 0.52))
-	layer.add_child(shop_header)
+const RUN_BAR_H = 42
+const RUN_BAR_Y = 540 - RUN_BAR_H
 
-	# Scrollbarer Bereich für die kaufbaren Tiles (untereinander)
-	var scroll = ScrollContainer.new()
-	scroll.position = Vector2(PANEL_X + 8, START_Y)
-	scroll.size     = Vector2(SLOT_W + 4, SCROLL_H)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	layer.add_child(scroll)
+func _setup_run_bar() -> void:
+	_run_bar        = CanvasLayer.new()
+	_run_bar.layer  = 4
+	add_child(_run_bar)
 
-	var vbox = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", SLOT_GAP)
-	scroll.add_child(vbox)
+	var bg := ColorRect.new()
+	bg.position = Vector2(0, RUN_BAR_Y)
+	bg.size     = Vector2(960, RUN_BAR_H)
+	bg.color    = Color(0.08, 0.09, 0.13)
+	_run_bar.add_child(bg)
+
+	var top_line := ColorRect.new()
+	top_line.position = Vector2(0, RUN_BAR_Y)
+	top_line.size     = Vector2(960, 1)
+	top_line.color    = C_LINE
+	_run_bar.add_child(top_line)
+
+	_run_bar_status = Label.new()
+	_run_bar_status.position = Vector2(12, RUN_BAR_Y)
+	_run_bar_status.size     = Vector2(700, RUN_BAR_H)
+	_run_bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_run_bar_status.add_theme_font_size_override("font_size", 12)
+	_run_bar_status.add_theme_color_override("font_color", C_TEXT_DIM)
+	_run_bar.add_child(_run_bar_status)
+
+	_run_bar_btn = Button.new()
+	_run_bar_btn.position = Vector2(720, RUN_BAR_Y + 4)
+	_run_bar_btn.size     = Vector2(228, RUN_BAR_H - 8)
+	_run_bar_btn.focus_mode = Control.FOCUS_NONE
+	_run_bar_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_run_bar_btn.pressed.connect(_on_fahren_pressed)
+	_run_bar.add_child(_run_bar_btn)
+	_refresh_run_bar()
+
+
+func _refresh_run_bar() -> void:
+	if _run_bar_status == null or _run_bar_btn == null:
+		return
+	var run_active := Economy.is_run_active(_current_track_idx)
+	if run_active:
+		_run_bar_status.text = "Runde läuft für Strecke %d" % (_current_track_idx + 1)
+		_run_bar_status.add_theme_color_override("font_color", Color(0.25, 0.90, 0.45))
+		_set_run_bar_btn_style("▶  Fahren!", C_SURFACE, C_ACCENT_MU.darkened(0.4), C_TEXT_DIM)
+		_run_bar_btn.disabled = true
+	elif _track_valid:
+		_run_bar_status.text = "✓ Strecke fertig — bereit zum Fahren"
+		_run_bar_status.add_theme_color_override("font_color", Color(0.35, 0.90, 0.45))
+		_set_run_bar_btn_style("▶  Fahren!", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
+	else:
+		_run_bar_status.text = "Strecke bauen und Runde prüfen"
+		_run_bar_status.add_theme_color_override("font_color", C_TEXT_DIM)
+		_set_run_bar_btn_style("▶  Fahren!", C_SURFACE, C_ACCENT_MU.darkened(0.4), C_TEXT_DIM)
+		_run_bar_btn.disabled = not _track_valid
+
+
+func _set_run_bar_btn_style(text: String, bg: Color, border: Color, fc: Color) -> void:
+	_run_bar_btn.text     = text
+	_run_bar_btn.disabled = false
+	var sb := StyleBoxFlat.new()
+	sb.bg_color          = bg
+	sb.border_width_left = 3
+	sb.border_color      = border
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 8; sb.content_margin_right  = 8
+	sb.content_margin_top  = 4; sb.content_margin_bottom = 4
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	sb_h.bg_color = bg.lightened(0.08)
+	_run_bar_btn.add_theme_stylebox_override("normal",   sb)
+	_run_bar_btn.add_theme_stylebox_override("hover",    sb_h)
+	_run_bar_btn.add_theme_stylebox_override("pressed",  sb)
+	_run_bar_btn.add_theme_stylebox_override("focus",    sb)
+	_run_bar_btn.add_theme_stylebox_override("disabled", sb)
+	_run_bar_btn.add_theme_color_override("font_color",          fc)
+	_run_bar_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+	_run_bar_btn.add_theme_font_size_override("font_size", 13)
+
+
+func _setup_build_panel() -> void:
+	_build_layer = CanvasLayer.new()
+	_build_layer.layer   = 5
+	_build_layer.visible = false
+	add_child(_build_layer)
+
+	# Hintergrund
+	var bg := Panel.new()
+	bg.position = Vector2(0, BUILD_PANEL_Y)
+	bg.size     = Vector2(960, BUILD_PANEL_H)
+	var bg_sb := StyleBoxFlat.new()
+	bg_sb.bg_color           = C_BG
+	bg_sb.border_width_top   = 1
+	bg_sb.border_color       = C_LINE
+	bg_sb.content_margin_top = 0
+	bg.add_theme_stylebox_override("panel", bg_sb)
+	_build_layer.add_child(bg)
+
+	# Header-Zeile
+	const HDR_Y = BUILD_PANEL_Y + 5
+	const HDR_H = 22
+
+	var mode_lbl := Label.new()
+	mode_lbl.text = "BAUMODUS"
+	mode_lbl.position = Vector2(10, HDR_Y)
+	mode_lbl.size = Vector2(100, HDR_H)
+	mode_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	mode_lbl.add_theme_font_size_override("font_size", 11)
+	mode_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_build_layer.add_child(mode_lbl)
+
+	_status_lbl = Label.new()
+	_status_lbl.position = Vector2(120, HDR_Y)
+	_status_lbl.size = Vector2(520, HDR_H)
+	_status_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_status_lbl.add_theme_font_size_override("font_size", 11)
+	_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	_build_layer.add_child(_status_lbl)
+
+	_hint_lbl = Label.new()
+	_hint_lbl.position = Vector2(660, HDR_Y)
+	_hint_lbl.size = Vector2(280, HDR_H)
+	_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hint_lbl.add_theme_font_size_override("font_size", 10)
+	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	_build_layer.add_child(_hint_lbl)
+
+	# _fahren_btn als Dummy damit der Shim nicht nullt (echter Button ist im Run-Bar)
+	_fahren_btn = Button.new()
+	_fahren_btn.visible = false
+	_build_layer.add_child(_fahren_btn)
+
+	# Horizontaler Scroll für Tile-Karten
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(0, BUILD_PANEL_Y + 30)
+	scroll.size     = Vector2(960, 78)
+	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_build_layer.add_child(scroll)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 4)
+	scroll.add_child(hbox)
+
+	var lpad := Control.new()
+	lpad.custom_minimum_size = Vector2(8, 0)
+	hbox.add_child(lpad)
 
 	for i in range(SHOP_SLOT_COUNT):
-		var panel = Panel.new()
-		panel.custom_minimum_size = Vector2(SLOT_W, SLOT_H)
+		var card := _make_build_card(i)
+		hbox.add_child(card)
+		_build_cards.append(card)
 
-		# Haupt-Label (Name + Ertrag + Preis)
-		var lbl = Label.new()
-		lbl.name = "TypeLabel"
-		lbl.position = Vector2(0, 0)
-		lbl.size = Vector2(SLOT_W, SLOT_H)
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		lbl.add_theme_font_size_override("font_size", 12)
-		panel.add_child(lbl)
+	var rpad := Control.new()
+	rpad.custom_minimum_size = Vector2(8, 0)
+	hbox.add_child(rpad)
 
-		var idx = i
-		panel.gui_input.connect(func(e): _on_shop_slot_gui_input(e, idx))
-		vbox.add_child(panel)
-		_shop_panels.append(panel)
-
-	# Löschen-Panel (ersetzt Verkaufen) am unteren Rand
-	_delete_panel = Panel.new()
-	_delete_panel.position = Vector2(PANEL_X + 8, DELETE_Y)
-	_delete_panel.size = Vector2(SLOT_W, DELETE_H)
-	var del_lbl = Label.new()
-	del_lbl.name = "DeleteLabel"
-	del_lbl.text = "🗑  Löschen"
-	del_lbl.size = Vector2(SLOT_W, DELETE_H)
-	del_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	del_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	del_lbl.add_theme_font_size_override("font_size", 12)
-	_delete_panel.add_child(del_lbl)
-	_delete_panel.gui_input.connect(_on_delete_panel_gui_input)
-	layer.add_child(_delete_panel)
-	_update_delete_panel_style()
+	# Papierkorb – außerhalb des Scrollbereichs, absolut am rechten Rand
+	_trash_panel = _make_trash_card()
+	_build_layer.add_child(_trash_panel)
+	_update_trash_visibility()
 
 
-func _style_shop_action_btn(btn: Button, accent: Color) -> void:
-	var C_S  = Color(0.13, 0.15, 0.21)
-	var C_S2 = Color(0.09, 0.10, 0.14)
-	var C_T  = Color(0.82, 0.85, 0.90)
-	var _mk = func(bg: Color, bc: Color) -> StyleBoxFlat:
-		var sb = StyleBoxFlat.new()
-		sb.bg_color = bg; sb.border_width_left = 3; sb.border_color = bc
-		sb.set_corner_radius_all(4)
-		sb.content_margin_top = 6; sb.content_margin_bottom = 6
-		return sb
-	btn.add_theme_stylebox_override("normal",  _mk.call(C_S,                 accent.darkened(0.5)))
-	btn.add_theme_stylebox_override("hover",   _mk.call(C_S.lightened(0.07), accent))
-	btn.add_theme_stylebox_override("pressed", _mk.call(C_S2,                accent))
-	btn.add_theme_stylebox_override("focus",   _mk.call(C_S,                 accent.darkened(0.5)))
-	btn.add_theme_color_override("font_color", C_T)
+func _make_header_action_btn(txt: String, pos: Vector2, w: float) -> Button:
+	var btn := Button.new()
+	btn.text     = txt
+	btn.position = pos
+	btn.size     = Vector2(w, 28)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_SURFACE
+	sb.border_width_bottom = 2
+	sb.border_color = C_ACCENT_MU
+	sb.set_corner_radius_all(3)
+	sb.content_margin_left = 8; sb.content_margin_right = 8
+	sb.content_margin_top = 4; sb.content_margin_bottom = 4
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	sb_h.border_color = C_ACCENT
+	btn.add_theme_stylebox_override("normal",  sb)
+	btn.add_theme_stylebox_override("hover",   sb_h)
+	btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_stylebox_override("focus",   sb)
+	btn.add_theme_color_override("font_color", C_TEXT)
 	btn.add_theme_font_size_override("font_size", 12)
+	return btn
+
+
+func _apply_fahren_style(btn: Button, enabled: bool) -> void:
+	var sb := StyleBoxFlat.new()
+	if enabled:
+		sb.bg_color = Color(0.09, 0.30, 0.16)
+		sb.border_width_bottom = 2
+		sb.border_color = Color(0.30, 0.95, 0.50)
+	else:
+		sb.bg_color = C_SURFACE
+		sb.border_width_bottom = 2
+		sb.border_color = C_ACCENT_MU.darkened(0.5)
+	sb.set_corner_radius_all(3)
+	sb.content_margin_left = 8; sb.content_margin_right = 8
+	sb.content_margin_top = 4; sb.content_margin_bottom = 4
+	btn.add_theme_stylebox_override("normal",   sb)
+	btn.add_theme_stylebox_override("hover",    sb)
+	btn.add_theme_stylebox_override("pressed",  sb)
+	btn.add_theme_stylebox_override("focus",    sb)
+	btn.add_theme_stylebox_override("disabled", sb)
+	var fc := Color(0.50, 1.00, 0.65) if enabled else C_TEXT_DIM
+	btn.add_theme_color_override("font_color",          fc)
+	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+
+
+func _make_build_card(idx: int) -> Panel:
+	const CARD_W = 138
+	const CARD_H = 72
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	var lbl := Label.new()
+	lbl.name = "TypeLabel"
+	lbl.position = Vector2(0, 0)
+	lbl.size = Vector2(CARD_W, CARD_H)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 11)
+	card.add_child(lbl)
+
+	card.gui_input.connect(func(e): _on_shop_slot_gui_input(e, idx))
+	return card
+
+
+func _make_trash_card() -> Panel:
+	const TW  = 56
+	const TH  = 72
+	const TX  = 960 - 4 - TW
+	const TY  = BUILD_PANEL_Y - 4 - TH   # Direkt ÜBER dem Baumodus-Panel
+	var card := Panel.new()
+	card.position = Vector2(TX, TY)
+	card.size     = Vector2(TW, TH)
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	var sb_n := StyleBoxFlat.new()
+	sb_n.bg_color = Color(0.25, 0.08, 0.08)
+	sb_n.border_width_left = 2; sb_n.border_color = C_ACCENT_RD.darkened(0.3)
+	sb_n.set_corner_radius_all(4)
+	var sb_h := sb_n.duplicate() as StyleBoxFlat
+	sb_h.bg_color = Color(0.38, 0.10, 0.10)
+	sb_h.border_color = C_ACCENT_RD
+	card.add_theme_stylebox_override("panel", sb_n)
+
+	var lbl := Label.new()
+	lbl.text = "🗑"
+	lbl.size = Vector2(TW, TH)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 22)
+	card.add_child(lbl)
+	return card
+
+
+func _update_trash_visibility() -> void:
+	if _trash_panel == null:
+		return
+	_trash_panel.visible = (placement_mode == "slow")
+
+
+func _is_over_trash(screen_pos: Vector2) -> bool:
+	if _trash_panel == null or not _trash_panel.visible:
+		return false
+	var r := Rect2(_trash_panel.position, _trash_panel.size)
+	return r.has_point(screen_pos)
+
+
+func _on_build_mode_toggled(active: bool) -> void:
+	if _build_layer != null:
+		_build_layer.visible = active
+	_update_trash_visibility()
+
+
+func _on_tab_changed(idx: int) -> void:
+	# Aktuellen Track mit dem ALTEN Index speichern, BEVOR der Index wechselt
+	Economy.set_track_grid(_current_track_idx, get_grid_state())
+	Economy.save_game()
+	_current_track_idx = idx
+
+	# Grid des neuen Tabs laden
+	var new_grid := Economy.get_track_grid(idx)
+	for c in grid_node.get_children():
+		c.queue_free()
+	_init_grid()
+	_draw_grid_background()
+	_place_start_tile()
+	_setup_grid_highlight()
+	if new_grid.size() > 0:
+		_restore_grid(new_grid)
+	_update_build_ui()
+	_roll_bonus_fields()
+	_refresh_jump_markers()
+	selected_grid_row  = -1
+	selected_grid_col  = -1
+	selected_shop_slot = -1
+	_update_grid_highlight()
+	tile_selector.deselect()
+
+	_track_valid = _is_track_valid()
+	_refresh_run_bar()
+
+	if Economy.has_pending_summary(idx):
+		_show_run_summary(idx)
+	elif Economy.is_run_active(idx):
+		tile_selector.set_status("")
+		GameHUD.set_build_active(false)
+
+
+func _on_view_3d_requested() -> void:
+	if not Economy.is_run_active(_current_track_idx):
+		return  # Button ist unsichtbar wenn kein Run läuft – Signal trotzdem ignorieren
+	_switch_to_3d_view()
+
+
+func _persist_track_for_current() -> void:
+	var state := get_grid_state()
+	Economy.set_track_grid(_current_track_idx, state)
+	Economy.save_track(state)
 
 
 # Anzahl bereits platzierter Default-Tiles dieses Typs (Kurve zählt curve+curve_alt).
@@ -367,43 +669,47 @@ func _tile_refund_for(data) -> int:
 
 
 func _update_currency_label() -> void:
-	# Die CurrencyHud aktualisiert sich selbst jeden Frame – nichts zu tun.
-	pass
+	pass  # GameHUD aktualisiert sich selbst jeden Frame
 
 
-func _update_shop_ui() -> void:
+func _update_build_ui() -> void:
+	if _build_cards.is_empty():
+		return
 	for i in range(SHOP_SLOT_COUNT):
-		var panel = _shop_panels[i]
-		var lbl   = panel.get_node("TypeLabel") as Label
+		var card  = _build_cards[i]
 		var item  = SHOP_ITEMS[i]
+		var lbl   = card.get_node("TypeLabel") as Label
+		var locked = not Economy.is_tile_unlocked(item["key"])
+
+		# Gesperrte Tiles nur im GlobalModal-Shop zeigen, nicht in der Bau-Leiste
+		card.visible = not locked
+		if locked:
+			continue
 
 		var icon = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━━")
-		var locked = not Economy.is_tile_unlocked(item["key"])
-		if locked:
-			lbl.text = "🔒  %s\nFreischalten:  %s💰" % [item["name"], Economy.format_currency(item["unlock"])]
-		elif item["tier"] == "dirt":
-			lbl.text = "%s  %s\n+5  ·  kostenlos" % [icon, item["name"]]
+		if item["tier"] == "dirt":
+			lbl.text = "%s\n%s\n+5 · frei" % [icon, item["name"]]
 		elif item["tier"] == "ramp":
 			var dirs = ["→", "↓", "←", "↑"]
-			lbl.text = "%s  %s  %s\nKreuzung ×2  ·  %s💰" % [icon, item["name"], dirs[ramp_preview_rot / 90], Economy.format_currency(_tile_price(item))]
+			lbl.text = "%s\n%s %s\n%s 💰" % [icon, item["name"], dirs[ramp_preview_rot / 90], Economy.format_currency(_tile_price(item))]
 		else:
-			lbl.text = "%s  %s\n+50 ×1.2  ·  %s💰" % [icon, item["name"], Economy.format_currency(_tile_price(item))]
+			lbl.text = "%s\n%s\n+50 ×1.2  %s 💰" % [icon, item["name"], Economy.format_currency(_tile_price(item))]
 
 		var style = StyleBoxFlat.new()
-		style.set_corner_radius_all(5)
+		style.set_corner_radius_all(4)
 		if i == selected_shop_slot:
-			style.bg_color     = Color(0.30, 0.24, 0.06)
-			style.border_color = Color(1.0, 0.82, 0.10)
-			style.set_border_width_all(3)
+			style.bg_color = Color(0.28, 0.20, 0.05)
+			style.border_color = C_ACCENT
+			style.set_border_width_all(2)
 		elif locked:
-			style.bg_color     = Color(0.16, 0.13, 0.13)
+			style.bg_color = C_SURFACE
 			style.border_color = Color(0.45, 0.30, 0.20)
 			style.set_border_width_all(1)
 		else:
-			style.bg_color     = Color(0.14, 0.16, 0.22)
-			style.border_color = Color(0.28, 0.32, 0.46)
+			style.bg_color = C_SURFACE2
+			style.border_color = C_ACCENT_MU
 			style.set_border_width_all(1)
-		panel.add_theme_stylebox_override("panel", style)
+		card.add_theme_stylebox_override("panel", style)
 
 		if i == selected_shop_slot:
 			lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.6))
@@ -412,80 +718,40 @@ func _update_shop_ui() -> void:
 		elif item["tier"] == "dirt":
 			lbl.add_theme_color_override("font_color", Color(0.70, 0.85, 0.55))
 		else:
-			lbl.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
-
+			lbl.add_theme_color_override("font_color", C_TEXT)
 
 func _update_delete_panel_style() -> void:
-	if _delete_panel == null:
-		return
-	var style = StyleBoxFlat.new()
-	style.set_corner_radius_all(5)
-	if delete_mode:
-		style.bg_color       = Color(0.32, 0.12, 0.05)
-		style.border_color   = Color(1.0, 0.55, 0.08)
-		style.border_width_left   = 3
-		style.border_width_right  = 1
-		style.border_width_top    = 1
-		style.border_width_bottom = 1
-	else:
-		style.bg_color     = Color(0.16, 0.10, 0.10)
-		style.border_color = Color(0.42, 0.22, 0.22)
-		style.set_border_width_all(1)
-	_delete_panel.add_theme_stylebox_override("panel", style)
-
-	var lbl = _delete_panel.get_node_or_null("DeleteLabel") as Label
-	if lbl != null:
-		lbl.add_theme_color_override("font_color",
-			Color(1.0, 0.65, 0.35) if delete_mode else Color(0.65, 0.40, 0.38))
+	pass  # Kein separater Delete-Panel mehr
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
 	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
 	var item = SHOP_ITEMS[idx]
-	# Gesperrtes Tile: Klick = freischalten (einmaliger Preis), dann direkt auswählen.
 	if not Economy.is_tile_unlocked(item["key"]):
 		if Economy.spend(item["unlock"]):
 			Economy.unlock_tile(item["key"])
 			tile_selector.set_status("%s freigeschaltet!" % item["name"])
+			_update_trash_visibility()
 		else:
 			_flash_currency()
-			_update_shop_ui()
+			_update_build_ui()
 			return
-	# Slow-Modus: Press startet das Ziehen einer Tile-Vorschau aus dem Shop.
 	if placement_mode == "slow":
 		_begin_shop_drag(idx)
-		_update_shop_ui()
+		_update_build_ui()
 		return
 	if selected_shop_slot == idx:
 		selected_shop_slot = -1
 	else:
-		selected_shop_slot  = idx
-		selected_grid_row   = -1
-		selected_grid_col   = -1
-		delete_mode         = false
+		selected_shop_slot = idx
+		selected_grid_row  = -1
+		selected_grid_col  = -1
 		_update_grid_highlight()
-		_update_delete_panel_style()
 		tile_selector.deselect()
-	_update_shop_ui()
+	_update_build_ui()
 
 
-func _on_delete_panel_gui_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
-		return
-	if selected_grid_row >= 0:
-		_delete_tile_at(selected_grid_row, selected_grid_col)
-	elif selected_shop_slot >= 0:
-		selected_shop_slot = -1
-		_update_shop_ui()
-	else:
-		delete_mode = not delete_mode
-		tile_selector.set_status("Lösch-Modus" if delete_mode else "")
-		_update_delete_panel_style()
-
-
-# Löscht ein Tile mit Rückerstattung (Default-Tiles) und aktualisiert die (gesunkenen) Preise.
-# Verändert den Lösch-Modus NICHT → im Lösch-Modus kann man mehrere Tiles am Stück entfernen.
 func _delete_tile_at(row: int, col: int) -> void:
 	var refund = _tile_refund_for(grid[row][col])
 	if refund > 0:
@@ -495,14 +761,12 @@ func _delete_tile_at(row: int, col: int) -> void:
 		selected_grid_row = -1
 		selected_grid_col = -1
 	_update_grid_highlight()
-	_update_delete_panel_style()
-	_update_shop_ui()   # Preise sind gesunken
+	_update_build_ui()
 	tile_selector.deselect()
 
 
 func _flash_currency() -> void:
-	if _currency_hud != null:
-		_currency_hud.flash()
+	GameHUD.flash_currency()
 
 
 # ── Tile spawnen ───────────────────────────────────────────────────────────────
@@ -785,14 +1049,34 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 # ── Input ──────────────────────────────────────────────────────────────────────
 
 func _input(event: InputEvent) -> void:
-	if _menu_open:
-		return   # Upgrade-Menü offen: Grid-/Tasten-Eingaben ignorieren
+	# Mittlere Maustaste: Kamera-Pan (in 2D immer aktiv, unabhängig vom Baumodus)
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_MIDDLE:
+			if event.pressed:
+				_panning          = true
+				_pan_start_mouse  = event.position
+				_pan_start_cam    = camera_2d.position
+			else:
+				_panning = false
+			return
+	if _panning and event is InputEventMouseMotion:
+		camera_2d.position = _pan_start_cam - event.position + _pan_start_mouse
+		return
+
+	# Bearbeitungssperre während ein Run läuft (erst pausieren)
+	if Economy.is_run_active(Economy.get_active_track()):
+		return
+
+	# Build-Modus nicht aktiv: nur Kamera-Pan erlaubt
+	if _build_layer != null and not _build_layer.visible:
+		return
 
 	# Maus-Eingaben je nach Platzierungs-Modus
 	if placement_mode == "slow":
 		_input_slow_mouse(event)
 	elif event is InputEventMouseButton and event.pressed:
-		var local_pos = grid_node.to_local(event.position)
+		# get_global_mouse_position() liefert Weltkoordinaten (Camera2D-bereinigt)
+		var local_pos = grid_node.to_local(get_global_mouse_position())
 		if local_pos.x < 0 or local_pos.y < 0 or local_pos.x >= GRID_COLS * TILE_SIZE or local_pos.y >= GRID_ROWS * TILE_SIZE:
 			return
 		var cell = _world_to_grid(local_pos)
@@ -822,15 +1106,23 @@ func _input(event: InputEvent) -> void:
 			return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		# Rampen-Werkzeug aktiv → Vorschau-Richtung drehen, sonst aktives Tile drehen
 		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] == "ramp":
 			ramp_preview_rot = (ramp_preview_rot + 90) % 360
-			_update_shop_ui()
+			_update_build_ui()
 		else:
 			_rotate_active(90)
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
 		_flip_active()
+
+	# D-Taste: ausgewähltes Tile löschen (Quick-Modus)
+	if event is InputEventKey and event.pressed and event.keycode == KEY_D:
+		var del_row = selected_grid_row if selected_grid_row >= 0 else last_placed_row
+		var del_col = selected_grid_col if selected_grid_row >= 0 else last_placed_col
+		if del_row >= 0 and _is_valid_cell(Vector2i(del_row, del_col)):
+			var dd = grid[del_row][del_col]
+			if dd != null and not dd.get("is_start", false):
+				_delete_tile_at(del_row, del_col)
 
 
 # ── Drag & Drop (Slow-Modus) ─────────────────────────────────────────────────────
@@ -840,29 +1132,28 @@ func _input(event: InputEvent) -> void:
 # hier laufen Bewegung und Loslassen für beide Quellen zusammen.
 func _input_slow_mouse(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
-		# Aufgehobener Grid-Press wird erst ab einer kleinen Schwelle zum Ziehen
-		# (darunter bleibt es ein Klick → Auswahl für [R]/[F]).
 		if _grid_drag_pending and not _drag_active:
-			if event.position.distance_to(_grid_press_pos) > DRAG_THRESHOLD:
+			# Schwellen-Check in Weltkoordinaten (Zoom=1 → gleiche Pixeldistanz)
+			if get_global_mouse_position().distance_to(_grid_press_pos) > DRAG_THRESHOLD:
 				_begin_grid_drag()
 		if _drag_active and _drag_ghost != null:
-			_drag_ghost.position = _ghost_pos_for(event.position)
+			_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
 		return
 
 	if not (event is InputEventMouseButton):
 		return
 
 	if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-		_slow_right_click(event.position)
+		_slow_right_click(get_global_mouse_position())
 		return
 
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
 
 	if event.pressed:
-		_slow_left_press(event.position)
+		_slow_left_press(get_global_mouse_position())
 	else:
-		_slow_left_release(event.position)
+		_slow_left_release(get_global_mouse_position())
 
 
 func _slow_left_press(global_pos: Vector2) -> void:
@@ -874,12 +1165,6 @@ func _slow_left_press(global_pos: Vector2) -> void:
 	if not _is_valid_cell(cell):
 		return
 	var d = grid[cell.x][cell.y]
-
-	# Lösch-Modus: Press entfernt das Tile direkt (kein Ziehen).
-	if delete_mode:
-		if d != null and not d.get("is_start", false):
-			_delete_tile_at(cell.x, cell.y)
-		return
 
 	# Leere Zelle oder Start-Tile: nichts zu greifen.
 	if d == null or d.get("is_start", false):
@@ -899,12 +1184,21 @@ func _slow_left_press(global_pos: Vector2) -> void:
 
 
 func _slow_left_release(global_pos: Vector2) -> void:
+	# Papierkorb-Drop (Screen-Koordinaten prüfen)
+	if _drag_active:
+		var screen_pos := get_viewport().get_mouse_position()
+		if _is_over_trash(screen_pos):
+			if _drag_source == "grid":
+				_delete_tile_at(_drag_grid_row, _drag_grid_col)
+			# Shop-Drag auf Papierkorb: einfach abbrechen (nichts löschen)
+			_reset_drag()
+			return
+
 	if _drag_active and _drag_source == "shop":
 		_drop_shop_drag(global_pos)
 	elif _drag_active and _drag_source == "grid":
 		_drop_grid_drag(global_pos)
 	elif _grid_drag_pending:
-		# Klick ohne Ziehen → Tile auswählen (für [R]/[F]).
 		_slow_click_select(_drag_grid_row, _drag_grid_col)
 	_reset_drag()
 
@@ -948,7 +1242,6 @@ func _begin_shop_drag(idx: int) -> void:
 	selected_shop_slot = -1
 	selected_grid_row  = -1
 	selected_grid_col  = -1
-	delete_mode        = false
 	_update_grid_highlight()
 	_update_delete_panel_style()
 
@@ -958,7 +1251,7 @@ func _begin_shop_drag(idx: int) -> void:
 	_drag_data     = _shop_drag_data(SHOP_ITEMS[idx])
 	_drag_ghost    = _make_ghost(_drag_data)
 	grid_node.add_child(_drag_ghost)
-	_drag_ghost.position = _ghost_pos_for(get_viewport().get_mouse_position())
+	_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
 	tile_selector.set_status("Ziehen…  [R] Drehen  [F] Wenden")
 
 
@@ -980,7 +1273,7 @@ func _begin_grid_drag() -> void:
 	}
 	_drag_ghost  = _make_ghost(_drag_data)
 	grid_node.add_child(_drag_ghost)
-	_drag_ghost.position = _ghost_pos_for(get_viewport().get_mouse_position())
+	_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
 	# Original-Node (inkl. Rampen-Partner) während des Ziehens ausblenden.
 	_set_drag_source_visible(false)
 	tile_selector.set_status("Ziehen…")
@@ -998,7 +1291,7 @@ func _drop_shop_drag(global_pos: Vector2) -> void:
 	selected_shop_slot = _drag_shop_idx
 	_place_shop_tile(cell.x, cell.y, _drag_data)
 	selected_shop_slot = -1
-	_update_shop_ui()
+	_update_build_ui()
 
 
 func _drop_grid_drag(global_pos: Vector2) -> void:
@@ -1237,7 +1530,7 @@ func _drag_rotate() -> void:
 	_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 90) % 360
 	if _drag_shop_idx >= 0 and SHOP_ITEMS[_drag_shop_idx]["tier"] == "ramp":
 		ramp_preview_rot = _drag_data["rotation"]   # Rampe platziert über ramp_preview_rot
-		_update_shop_ui()
+		_update_build_ui()
 	_rebuild_drag_ghost()
 
 
@@ -1255,13 +1548,13 @@ func _drag_flip() -> void:
 		_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 180) % 360
 		if _drag_shop_idx >= 0:
 			ramp_preview_rot = _drag_data["rotation"]
-			_update_shop_ui()
+			_update_build_ui()
 	_rebuild_drag_ghost()
 
 
 # Erzeugt die Ghost-Vorschau aus _drag_data neu (an gleicher Cursor-Position).
 func _rebuild_drag_ghost() -> void:
-	var pos = _ghost_pos_for(get_viewport().get_mouse_position())
+	var pos = _ghost_pos_for(get_global_mouse_position())
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		pos = _drag_ghost.position
 		_drag_ghost.queue_free()
@@ -1279,7 +1572,7 @@ func _after_quick_place(row: int, col: int) -> void:
 		return
 	selected_shop_slot = -1
 	_select_grid_tile(row, col)
-	_update_shop_ui()
+	_update_build_ui()
 
 
 # ── Platzierungs-Modus ───────────────────────────────────────────────────────────
@@ -1297,30 +1590,23 @@ func set_placement_mode(mode: String) -> void:
 	selected_shop_slot = -1
 	selected_grid_row  = -1
 	selected_grid_col  = -1
-	delete_mode        = false
-	_update_shop_ui()
-	_update_delete_panel_style()
+	_update_build_ui()
 	_update_grid_highlight()
 	tile_selector.deselect()
 	_update_hint_label()
+	_update_trash_visibility()
 
 
 func _update_hint_label() -> void:
 	if placement_mode == "slow":
-		tile_selector.set_hint("Ziehen & Ablegen\n[R] Drehen  [F] Wenden")
+		tile_selector.set_hint("[R] Drehen  [F] Wenden  ·  Modus: Ziehen & Ablegen")
 	else:
-		tile_selector.set_hint("[R]  Drehen\n[F]  Wenden")
+		tile_selector.set_hint("[R] Drehen  [F] Wenden  [D] Löschen  ·  Modus: Klick")
 
 
 func _handle_grid_left_click(row: int, col: int) -> void:
 	var cell_data = grid[row][col]
 	var is_start  = (cell_data != null and cell_data.get("is_start", false))
-
-	# Lösch-Modus: angeklicktes Tile entfernen, Modus bleibt aktiv (kein erneutes Klicken nötig)
-	if delete_mode:
-		if cell_data != null and not is_start:
-			_delete_tile_at(row, col)
-		return
 
 	# Shop-Werkzeug aktiv
 	if selected_shop_slot >= 0:
@@ -1371,8 +1657,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 
 func _select_grid_tile(row: int, col: int) -> void:
 	selected_shop_slot = -1
-	delete_mode        = false
-	_update_shop_ui()
+	_update_build_ui()
 	_update_delete_panel_style()
 	selected_grid_row = row
 	selected_grid_col = col
@@ -1501,7 +1786,7 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	last_placed_row = row
 	last_placed_col = col
 	_update_currency_label()
-	_update_shop_ui()
+	_update_build_ui()
 	_update_grid_highlight()
 	_invalidate_track()
 	# Schnell-Modus: Werkzeug abwählen & platziertes Tile markieren (Shift = mehrere platzieren).
@@ -1602,7 +1887,7 @@ func _place_ramp(row: int, col: int) -> void:
 			last_placed_row = row
 			last_placed_col = col
 			_update_currency_label()
-			_update_shop_ui()
+			_update_build_ui()
 			_update_grid_highlight()
 			_invalidate_track()
 			_after_quick_place(row, col)
@@ -1861,24 +2146,7 @@ func _restore_grid(state: Array) -> void:
 
 
 func _on_upgrades_pressed() -> void:
-	if _menu_open:
-		return
-	_menu_open = true
-	_bonus_sig_on_open = _bonus_signature()
-	_upgrade_menu = UpgradeMenuScript.new()
-	_upgrade_menu.closed.connect(_on_upgrade_menu_closed)
-	add_child(_upgrade_menu)
-
-
-func _on_upgrade_menu_closed() -> void:
-	_menu_open = false
-	_upgrade_menu = null
-	# Grid-Größe könnte sich geändert haben → ggf. neu aufbauen (löscht auch Bonus-Marker)
-	var size_changed = (Economy.get_grid_rows() != GRID_ROWS or Economy.get_grid_cols() != GRID_COLS)
-	_rebuild_grid_for_size()
-	# Bonusfelder neu würfeln, wenn Grid neu gebaut wurde oder Bonus-Upgrades sich änderten
-	if size_changed or _bonus_signature() != _bonus_sig_on_open:
-		_roll_bonus_fields()
+	GlobalModal.open()
 
 
 # Baut das Grid in der aktuellen Economy-Größe neu auf, falls sie sich geändert hat.
@@ -1890,7 +2158,7 @@ func _rebuild_grid_for_size() -> void:
 	if new_rows == GRID_ROWS and new_cols == GRID_COLS:
 		return
 
-	var saved = get_grid_state()   # alte Dimensionen (inkl. Dreck-Tiles, die jetzt bleiben)
+	var saved = get_grid_state()
 
 	for c in grid_node.get_children():
 		c.queue_free()
@@ -1902,34 +2170,61 @@ func _rebuild_grid_for_size() -> void:
 	_setup_grid_highlight()
 	_place_start_tile()
 	_restore_grid(saved)
+	_update_camera_limits()
 
 	selected_grid_row  = -1
 	selected_grid_col  = -1
 	selected_shop_slot = -1
-	delete_mode        = false
 	_update_grid_highlight()
-	_update_shop_ui()
-	_update_delete_panel_style()
+	_update_build_ui()
 	tile_selector.deselect()
 	_invalidate_track()
 
 
 func _on_pruefen_pressed() -> void:
-	if _is_track_valid():
-		tile_selector.set_fahren_enabled(true)
-		tile_selector.set_status("✓ Strecke fertig!")
+	_track_valid = _is_track_valid()
+	if _track_valid:
+		tile_selector.set_status("✓ Strecke gültig")
 	else:
-		tile_selector.set_fahren_enabled(false)
 		tile_selector.set_status("Keine vollständige Runde möglich")
+	_refresh_run_bar()
 
 
 func _on_fahren_pressed() -> void:
 	if not _is_track_valid():
+		tile_selector.set_status("Keine vollständige Runde möglich")
 		return
-	_persist_track()
-	# Fahr-Zustand: Tiles auf Bonusfeldern bekommen den Effekt mitgegeben.
+	if Economy.is_run_active(_current_track_idx):
+		# Runde läuft bereits → einfach zur 3D-Ansicht wechseln
+		_switch_to_3d_view()
+		return
+	_persist_track_for_current()
+	Economy.start_run(_current_track_idx)
 	Engine.set_meta("pending_grid_state", _build_drive_state())
 	Engine.set_meta("saved_grid_state",   get_grid_state())
+	Engine.set_meta("active_track_idx",   _current_track_idx)
+	# KEIN "resuming_run" Meta → World3D weiß: frischer Start
+	GameHUD.set_view_3d(true)
+	GameHUD.set_build_active(false)
+	var world_scene = load(Paths.SCENE_WORLD3D)
+	if world_scene:
+		get_tree().change_scene_to_packed(world_scene)
+
+
+func _switch_to_3d_view() -> void:
+	# Ansicht zu laufender Runde wechseln (kein neuer Run)
+	_persist_track_for_current()
+	Engine.set_meta("active_track_idx", _current_track_idx)
+	Engine.set_meta("saved_grid_state", get_grid_state())
+	Engine.set_meta("resuming_run",     true)
+	# Grid-State aus Economy holen (für Track-Generierung)
+	var track_grid := Economy.get_track_grid(_current_track_idx)
+	if track_grid.size() > 0:
+		Engine.set_meta("pending_grid_state", track_grid)
+	else:
+		Engine.set_meta("pending_grid_state", get_grid_state())
+	GameHUD.set_view_3d(true)
+	GameHUD.set_build_active(false)
 	var world_scene = load(Paths.SCENE_WORLD3D)
 	if world_scene:
 		get_tree().change_scene_to_packed(world_scene)
@@ -2070,10 +2365,11 @@ func _is_curve_dir_ok(data: Dictionary, entry: String) -> bool:
 
 
 func _invalidate_track() -> void:
-	tile_selector.set_fahren_enabled(false)
+	_track_valid = _is_track_valid()
 	tile_selector.set_status("")
+	_refresh_run_bar()
 	_refresh_jump_markers()
-	_persist_track()
+	_persist_track_for_current()
 
 
 # ── Sprung-Felder (Rampen-Kreuzungen) ───────────────────────────────────────────
@@ -2125,7 +2421,7 @@ func _make_jump_marker() -> Node2D:
 
 # Speichert die aktuelle Strecke dauerhaft (inkl. Dreck-Tiles – jetzt vollwertige Tiles).
 func _persist_track() -> void:
-	Economy.save_track(get_grid_state())
+	_persist_track_for_current()
 
 
 # ── Routing-Hilfsfunktionen (für Streckenvalidierung) ───────────────────────────
@@ -2176,3 +2472,147 @@ func _ac_opp(dir: String) -> String:
 
 func _ac_in_bounds(cell: Vector2i) -> bool:
 	return cell.x >= 0 and cell.x < GRID_ROWS and cell.y >= 0 and cell.y < GRID_COLS
+
+
+func _on_run_ended_background(track_idx: int, _earned: int) -> void:
+	if track_idx == _current_track_idx:
+		_show_run_summary(track_idx)
+		_track_valid = _is_track_valid()
+		_refresh_run_bar()
+	# Für andere Tracks: pending_summary in Economy; Summary bei Tab-Wechsel
+
+
+func _setup_run_summary_modal() -> void:
+	_summary_layer = CanvasLayer.new()
+	_summary_layer.layer   = 15
+	_summary_layer.visible = false
+	add_child(_summary_layer)
+
+	const PW := 420
+	const PH := 240
+	const VW := 960
+	const VH := 540
+
+	var dim := ColorRect.new()
+	dim.position = Vector2(0, 0)
+	dim.size     = Vector2(VW, VH)
+	dim.color    = Color(0, 0, 0, 0.65)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_summary_layer.add_child(dim)
+
+	var panel := Panel.new()
+	panel.position = Vector2((VW - PW) / 2.0, (VH - PH) / 2.0)
+	panel.size     = Vector2(PW, PH)
+	var ps := StyleBoxFlat.new()
+	ps.bg_color            = Color(0.09, 0.10, 0.15)
+	ps.border_width_left   = 3
+	ps.border_color        = C_ACCENT
+	ps.set_corner_radius_all(6)
+	ps.content_margin_left   = 28
+	ps.content_margin_right  = 28
+	ps.content_margin_top    = 24
+	ps.content_margin_bottom = 24
+	panel.add_theme_stylebox_override("panel", ps)
+	_summary_layer.add_child(panel)
+
+	var title := Label.new()
+	title.text     = "LAUF BEENDET"
+	title.position = Vector2(0, 12)
+	title.size     = Vector2(PW, 34)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", C_ACCENT)
+	panel.add_child(title)
+
+	var line := ColorRect.new()
+	line.position = Vector2(28, 54)
+	line.size     = Vector2(PW - 56, 1)
+	line.color    = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.3)
+	panel.add_child(line)
+
+	_summary_lbl = Label.new()
+	_summary_lbl.position = Vector2(0, 66)
+	_summary_lbl.size     = Vector2(PW, 46)
+	_summary_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_summary_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_summary_lbl.add_theme_font_size_override("font_size", 26)
+	_summary_lbl.add_theme_color_override("font_color", Color(0.50, 1.0, 0.60))
+	_summary_lbl.add_theme_constant_override("outline_size", 3)
+	_summary_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	panel.add_child(_summary_lbl)
+
+	var info := Label.new()
+	info.text     = "Der Betrag wurde deinem Konto gutgeschrieben."
+	info.position = Vector2(0, 118)
+	info.size     = Vector2(PW, 22)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	info.add_theme_font_size_override("font_size", 11)
+	info.add_theme_color_override("font_color", C_TEXT_DIM)
+	panel.add_child(info)
+
+	var ok_btn := Button.new()
+	ok_btn.text     = "✓  OK"
+	ok_btn.position = Vector2(28, 152)
+	ok_btn.size     = Vector2(PW - 56, 48)
+	ok_btn.focus_mode = Control.FOCUS_NONE
+	ok_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var sb_n := StyleBoxFlat.new()
+	sb_n.bg_color = C_SURFACE
+	sb_n.border_width_left = 3
+	sb_n.border_color = C_ACCENT
+	sb_n.set_corner_radius_all(4)
+	sb_n.content_margin_top = 8; sb_n.content_margin_bottom = 8
+	var sb_h := sb_n.duplicate() as StyleBoxFlat
+	sb_h.bg_color = C_SURFACE.lightened(0.06)
+	ok_btn.add_theme_stylebox_override("normal",  sb_n)
+	ok_btn.add_theme_stylebox_override("hover",   sb_h)
+	ok_btn.add_theme_stylebox_override("pressed", sb_n)
+	ok_btn.add_theme_stylebox_override("focus",   sb_n)
+	ok_btn.add_theme_color_override("font_color", C_TEXT)
+	ok_btn.add_theme_font_size_override("font_size", 14)
+	ok_btn.pressed.connect(_close_run_summary)
+	panel.add_child(ok_btn)
+
+
+func _show_run_summary(track_idx: int) -> void:
+	var earned := Economy.get_last_earned(track_idx)
+	Economy.clear_pending_summary(track_idx)
+	if _summary_lbl != null:
+		_summary_lbl.text = "+%s 💰  verdient" % Economy.format_currency(earned)
+	GameHUD.gain_currency(earned)
+	if _summary_layer != null:
+		_summary_layer.visible = true
+
+
+func _close_run_summary() -> void:
+	if _summary_layer != null:
+		_summary_layer.visible = false
+	tile_selector.set_status("")
+	_update_build_ui()
+
+
+# ── TileSelector-Shim (ersetzt die entfernte Sidebar) ─────────────────────────
+
+class _TileSelectorShim:
+	var _status: Label  = null
+	var _hint:   Label  = null
+	var _fahren: Button = null
+	var _main:   Node   = null
+
+	func set_status(text: String) -> void:
+		if _status != null and is_instance_valid(_status):
+			_status.text = text
+
+	func deselect() -> void:
+		if _status != null and is_instance_valid(_status):
+			_status.text = ""
+
+	func set_hint(text: String) -> void:
+		if _hint != null and is_instance_valid(_hint):
+			_hint.text = text
+
+	func set_fahren_enabled(enabled: bool) -> void:
+		# Run-Bar-Button aktualisieren (der echte Fahren-Button)
+		if _main != null:
+			_main._track_valid = enabled
+			_main._refresh_run_bar()
