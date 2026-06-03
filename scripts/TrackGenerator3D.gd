@@ -7,13 +7,17 @@ const ROAD_Y    = 0.01
 # längs in der Kachel liegt, hier 90 eintragen (Yaw-Korrektur in Grad).
 const STRAIGHT_MODEL_YAW_OFFSET = 90.0
 
-# Straßenbreite der Geraden als Anteil der Kachelbreite (Länge bleibt = volle Kachel).
-# Höher = breitere Straße. Wird unabhängig von der Modellgröße erzwungen.
-const STRAIGHT_WIDTH_FRAC = 0.55
-
 # Yaw-Korrektur für das Default-Kurven-GLB (Grad). Die Engine-Kurve bei rot=0 verbindet
 # Süd- und Ost-Kante; falls das Modell anders ausgerichtet ist, hier in 90°-Schritten anpassen.
-const CURVE_MODEL_YAW_OFFSET = 0.0
+const CURVE_MODEL_YAW_OFFSET = 180.0
+
+# Gerade und Kurve wurden auf demselben 3×3-Modellraster gebaut: eine Spielkachel
+# entspricht 3 Rasterzellen, also 3.0 Modell-Einheiten Kantenlänge. Beide Modelle mit
+# DEMSELBEN Faktor (TILE_SIZE / MODEL_TILE_NATIVE) skalieren und am Modell-Ursprung
+# (= Mittelzelle) zentrieren → gleiche Straßenbreite (1 Zelle) und nahtlose Übergänge.
+# NICHT über die einzelne Modell-AABB normieren: die Kurve belegt nur einen 2×2-Ausschnitt
+# des Rasters, ihre AABB ist also kleiner als eine ganze Kachel.
+const MODEL_TILE_NATIVE = 3.0
 
 
 
@@ -65,28 +69,13 @@ func _make_straight_model(path: String) -> Node3D:
 	holder.add_child(inst)
 
 	var aabb = _local_aabb(inst)
-	if aabb.size.x > 0.0 and aabb.size.z > 0.0:
-		# Längsachse (die längere horizontale) auf volle Kachel, Querachse (Breite)
-		# separat auf STRAIGHT_WIDTH_FRAC der Kachel → breiter, aber nicht länger.
-		var longest = max(aabb.size.x, aabb.size.z)
-		var len_s   = TILE_SIZE / longest
-		var width_w = TILE_SIZE * STRAIGHT_WIDTH_FRAC
-		var sx: float
-		var sz: float
-		if aabb.size.x >= aabb.size.z:
-			sx = len_s                  # x = Länge
-			sz = width_w / aabb.size.z  # z = Breite
-		else:
-			sz = len_s                  # z = Länge
-			sx = width_w / aabb.size.x  # x = Breite
-		var sy = len_s
-		inst.scale = Vector3(sx, sy, sz)
-		# horizontal mittig auf der Kachel, vertikal auf dem Boden (y=0)
-		inst.position = Vector3(
-			-(aabb.position.x + aabb.size.x / 2.0) * sx,
-			-aabb.position.y * sy,
-			-(aabb.position.z + aabb.size.z / 2.0) * sz
-		)
+	if aabb.size.z > 0.0:
+		# Gemeinsamer Rastermaßstab (Kachel = 3 Modellzellen), uniform – Straße bleibt
+		# 1 Zelle breit und füllt die Kachel der Länge nach. Am Modell-Ursprung zentriert
+		# (die Gerade ist symmetrisch), nur vertikal auf den Boden gesetzt.
+		var s = TILE_SIZE / MODEL_TILE_NATIVE
+		inst.scale = Vector3(s, s, s)
+		inst.position = Vector3(0.0, -aabb.position.y * s, 0.0)
 	return holder
 
 
@@ -104,15 +93,13 @@ func _make_curve_model(path: String) -> Node3D:
 
 	var aabb = _local_aabb(inst)
 	if aabb.size.x > 0.0 and aabb.size.z > 0.0:
-		var longest = max(aabb.size.x, aabb.size.z)
-		var s = TILE_SIZE / longest
+		# IDENTISCHER Maßstab wie die Gerade (Kachel = 3 Modellzellen), uniform.
+		# NICHT am AABB-Mittelpunkt zentrieren – der Modell-Ursprung (0,0) ist die
+		# Mittelzelle des 3×3-Rasters = Kachelmitte. So sitzen die Bogen-Enden genau
+		# auf den Kachelkanten-Mitten und stoßen bündig an die Geraden an.
+		var s = TILE_SIZE / MODEL_TILE_NATIVE
 		inst.scale = Vector3(s, s, s)
-		# horizontal mittig auf der Kachel, vertikal auf dem Boden (y=0)
-		inst.position = Vector3(
-			-(aabb.position.x + aabb.size.x / 2.0) * s,
-			-aabb.position.y * s,
-			-(aabb.position.z + aabb.size.z / 2.0) * s
-		)
+		inst.position = Vector3(0.0, -aabb.position.y * s, 0.0)
 	return holder
 
 
