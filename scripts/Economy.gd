@@ -84,6 +84,8 @@ var _tracks: Array = []   # TRACK_COUNT Einträge
 var endless_mode: bool = false   # Kein Timer, Geld wird live gutgeschrieben
 
 signal run_ended(track_idx: int, earned: int)
+# Eine (oder mehrere) Runde(n) wurden gutgeschrieben (Auto über die Startlinie) – Betrag = Summe.
+signal lap_credited(track_idx: int, amount: int)
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -110,8 +112,11 @@ func _init_tracks() -> void:
 			"grid":            [],
 			"run_active":      false,
 			"run_timer":       0.0,
-			"run_earned":      0,
-			"earn_per_sec":    0.0,
+			"run_duration":    0.0,   # Gesamt-Fahrzeit dieses Runs (für Restzeit→Position)
+			"run_elapsed":     0.0,   # monoton steigende Fahrzeit (Basis für Runden & Position)
+			"run_cars":        [],    # je Auto {lap_time, reward, start_delay} – aus 3D gesetzt
+			"run_earned":      0,     # bisher in diesem Run gutgeschriebener Gesamtbetrag
+			"run_credited":    0,     # davon bereits der Währung gutgeschrieben
 			"pending_summary": false,
 			"last_earned":     0,
 		})
@@ -119,27 +124,49 @@ func _init_tracks() -> void:
 
 func _process(delta: float) -> void:
 	for i in TRACK_COUNT:
-		if _tracks[i]["run_active"]:
-			var eps := float(_tracks[i].get("earn_per_sec", 0.0))
-			if endless_mode:
-				# Endlos-Modus: kein Timer, Hintergrund-Einnahmen sofort gutschreiben
-				if eps > 0.0:
-					_currency += eps * delta
-			else:
-				_tracks[i]["run_timer"] -= delta
-				# Hintergrund-Einnahmen wenn 2D-Ansicht aktiv (kein World3D vorhanden)
-				if eps > 0.0:
-					_tracks[i]["run_earned"] = float(_tracks[i]["run_earned"]) + eps * delta
-				if _tracks[i]["run_timer"] <= 0.0:
-					_tracks[i]["run_timer"]       = 0.0
-					_tracks[i]["run_active"]      = false
-					_tracks[i]["earn_per_sec"]    = 0.0
-					var earned: int = int(_tracks[i]["run_earned"])
-					_currency += earned              # Gesamtbetrag gutschreiben
-					_tracks[i]["pending_summary"] = true
-					_tracks[i]["last_earned"]     = earned
-					save_game()
-					emit_signal("run_ended", i, earned)
+		if not _tracks[i]["run_active"]:
+			continue
+		# Fahrzeit läuft weiter – egal ob 2D- oder 3D-Ansicht offen ist.
+		_tracks[i]["run_elapsed"] = float(_tracks[i]["run_elapsed"]) + delta
+		# Geld kommt in Runden-Häppchen: immer wenn ein Auto (rechnerisch) die Startlinie
+		# überquert. Das gilt im Hintergrund (2D) genauso wie sichtbar in der 3D-Ansicht.
+		_credit_laps(i)
+		if endless_mode:
+			continue   # Endlos-Modus: kein Timer
+		_tracks[i]["run_timer"] -= delta
+		if _tracks[i]["run_timer"] <= 0.0:
+			_tracks[i]["run_timer"]       = 0.0
+			_tracks[i]["run_active"]      = false
+			_credit_laps(i)               # letzte fällige Runde(n) noch gutschreiben
+			var earned: int = int(_tracks[i]["run_credited"])
+			_tracks[i]["pending_summary"] = true
+			_tracks[i]["last_earned"]     = earned
+			save_game()
+			emit_signal("run_ended", i, earned)
+
+
+# Schreibt fällige Runden gut: aus der verstrichenen Fahrzeit und den Auto-Parametern
+# (lap_time/reward/start_delay) ergibt sich, wie oft jedes Auto die Startlinie schon
+# überquert hat. Der Gesamtbetrag ist deterministisch → keine Doppelzählung bei 2D↔3D.
+func _credit_laps(i: int) -> void:
+	var cars: Array = _tracks[i].get("run_cars", [])
+	if cars.is_empty():
+		return
+	var elapsed := float(_tracks[i]["run_elapsed"])
+	var target := 0
+	for car in cars:
+		var lt := float(car.get("lap_time", 0.0))
+		if lt <= 0.0:
+			continue
+		var laps := int(floor(maxf(0.0, elapsed - float(car.get("start_delay", 0.0))) / lt))
+		target += laps * int(car.get("reward", 0))
+	var credited := int(_tracks[i]["run_credited"])
+	if target > credited:
+		var gain := target - credited
+		_currency += gain
+		_tracks[i]["run_credited"] = target
+		_tracks[i]["run_earned"]   = target
+		emit_signal("lap_credited", i, gain)
 
 
 # ── Multi-Track API ─────────────────────────────────────────────────────────────
@@ -184,33 +211,39 @@ func start_run(track_idx: int) -> void:
 		return
 	_tracks[track_idx]["run_active"]   = true
 	_tracks[track_idx]["run_timer"]    = get_drive_time()
+	_tracks[track_idx]["run_duration"] = get_drive_time()
+	_tracks[track_idx]["run_elapsed"]  = 0.0
+	_tracks[track_idx]["run_cars"]     = []
 	_tracks[track_idx]["run_earned"]   = 0
-	_tracks[track_idx]["earn_per_sec"] = 0.0
+	_tracks[track_idx]["run_credited"] = 0
 
 
-func add_run_earned(track_idx: int, amount: int) -> void:
+# Bisher verstrichene Fahrzeit dieses Runs (für die Rückrechnung der Auto-Position).
+func get_run_elapsed(track_idx: int) -> float:
+	if track_idx < 0 or track_idx >= _tracks.size():
+		return 0.0
+	return float(_tracks[track_idx].get("run_elapsed", 0.0))
+
+
+# Auto-Parameter für die Hintergrund-Simulation setzen (von World3D beim Start der Autos).
+# cars: Array von {lap_time: float, reward: int, start_delay: float}.
+func set_run_cars(track_idx: int, cars: Array) -> void:
 	if track_idx < 0 or track_idx >= _tracks.size():
 		return
-	_tracks[track_idx]["run_earned"] += amount
+	_tracks[track_idx]["run_cars"] = cars
+	_credit_laps(track_idx)   # ggf. bereits fällige Runden sofort abrechnen
 
 
 func stop_run(track_idx: int) -> void:
 	if track_idx < 0 or track_idx >= _tracks.size():
 		return
-	_tracks[track_idx]["run_active"]   = false
-	_tracks[track_idx]["earn_per_sec"] = 0.0
+	_tracks[track_idx]["run_active"] = false
 
 
 func get_run_earned(track_idx: int) -> int:
 	if track_idx < 0 or track_idx >= _tracks.size():
 		return 0
 	return int(_tracks[track_idx]["run_earned"])
-
-
-func set_earn_rate(track_idx: int, rate: float) -> void:
-	if track_idx < 0 or track_idx >= _tracks.size():
-		return
-	_tracks[track_idx]["earn_per_sec"] = maxf(rate, 0.0)
 
 
 func has_pending_summary(track_idx: int) -> bool:

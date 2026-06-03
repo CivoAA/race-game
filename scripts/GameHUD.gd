@@ -65,6 +65,12 @@ signal shop_requested()
 func _ready() -> void:
 	layer = 20
 	_build_bar()
+	# Runden-Gutschrift (Auto über die Startlinie) – auch im 2D-Hintergrund den "+X"-Effekt zeigen.
+	Economy.lap_credited.connect(_on_lap_credited)
+
+
+func _on_lap_credited(_track_idx: int, amount: int) -> void:
+	gain_currency(amount)
 
 
 func _build_bar() -> void:

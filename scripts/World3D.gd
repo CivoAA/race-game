@@ -28,7 +28,6 @@ var _track_cz: float = 3.0
 
 # Lauf-Zustand
 var _run_time_left:   float = 0.0
-var _run_earned:      int   = 0
 var _run_active:      bool  = false
 var _active_track_idx: int  = 0
 
@@ -36,7 +35,6 @@ var _timer_label:  Label = null
 var _earned_label: Label = null
 var _round_label:  Label = null
 var _lap_running:  Array = []     # laufender Rundenertrag je Auto
-var _expected_earn_rate: float = 0.0  # Fallback-Rate wenn noch kein Lap abgeschlossen
 
 
 func _ready() -> void:
@@ -69,8 +67,6 @@ func _ready() -> void:
 	# Timer kommt immer aus Economy (single source of truth)
 	_run_time_left = Economy.get_run_time_left(_active_track_idx)
 	_run_active    = Economy.is_run_active(_active_track_idx)
-	# Hintergrund-Einnahmen stoppen: Lap-Completions übernehmen die Einnahmen in 3D
-	Economy.set_earn_rate(_active_track_idx, 0.0)
 
 	if not _run_active:
 		# Runde ist bereits beendet (während Ansichtswechsel abgelaufen)
@@ -130,17 +126,14 @@ func _on_economy_run_ended(track_idx: int, _earned: int) -> void:
 		_end_run()
 
 
-func _on_lap_completed(reward: int, idx: int) -> void:
-	_run_earned += reward
-	if Economy.endless_mode:
-		Economy.add(reward)  # Endlos-Modus: sofort gutschreiben
-	else:
-		Economy.add_run_earned(_active_track_idx, reward)  # Geld kommt am Run-Ende
+func _on_lap_completed(_reward: int, idx: int) -> void:
+	# Gutschrift + "+X"-Effekt laufen zentral über Economy (Signal lap_credited), damit
+	# 2D-Hintergrund und 3D dieselbe runden-basierte Abrechnung nutzen. Hier nur die
+	# laufende Runden-Anzeige für dieses Auto zurücksetzen.
 	if idx >= 0 and idx < _lap_running.size():
 		_lap_running[idx] = 0
 	_update_round_hud()
 	_update_run_hud()
-	GameHUD.gain_currency(reward)  # Visueller Effekt
 
 
 func _on_lap_progress(running: int, idx: int) -> void:
@@ -227,7 +220,7 @@ func _update_run_hud() -> void:
 	if _timer_label != null:
 		_timer_label.text = "⏱  ∞" if Economy.endless_mode else "⏱  %.1f s" % _run_time_left
 	if _earned_label != null:
-		_earned_label.text = "Ges +%s 💰" % Economy.format_currency(_run_earned)
+		_earned_label.text = "Ges +%s 💰" % Economy.format_currency(Economy.get_run_earned(_active_track_idx))
 
 
 func _update_round_hud() -> void:
@@ -291,7 +284,7 @@ func _show_summary() -> void:
 
 	# Verdient-Label
 	var earned_lbl := Label.new()
-	earned_lbl.text = "+%s 💰  verdient" % Economy.format_currency(_run_earned)
+	earned_lbl.text = "+%s 💰  verdient" % Economy.format_currency(Economy.get_run_earned(_active_track_idx))
 	earned_lbl.position = Vector2(0, 72)
 	earned_lbl.size = Vector2(PW, 38)
 	earned_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -356,23 +349,31 @@ func _start_cars(grid_state: Array) -> void:
 		ctrl.lap_progress.connect(_on_lap_progress.bind(i))
 		car_controllers.append(ctrl)
 	await get_tree().process_frame
+	# Bereits verstrichene Fahrzeit → Autos an die passende Stelle der Strecke setzen
+	# (statt am Start), damit sie nach einem 2D↔3D-Wechsel nahtlos weiterfahren.
+	var resume_elapsed := Economy.get_run_elapsed(_active_track_idx)
 	for ctrl in car_controllers:
-		ctrl.start(grid_state)
-	# Erwartete Einnahmen/Sekunde aus exakter Wegpunkt-Länge ableiten.
-	# Wird als Fallback genutzt wenn noch keine Runde abgeschlossen war.
-	var total_eps: float = 0.0
+		ctrl.start(grid_state, resume_elapsed)
+	# Auto-Parameter für die runden-basierte Abrechnung an Economy übergeben:
+	# lap_time (geschlossene Rundenlänge ÷ Tempo), Ertrag je Runde und Startversatz.
+	# Damit kann Economy die Startlinien-Überquerungen exakt – auch im 2D-Hintergrund – abrechnen.
+	var cars: Array = []
 	for ctrl in car_controllers:
-		if ctrl.waypoints.size() < 2 or float(ctrl.speed) <= 0.0:
+		var n: int = ctrl.waypoints.size()
+		if n < 2 or float(ctrl.speed) <= 0.0:
 			continue
-		var path_len: float = 0.0
-		for j in range(ctrl.waypoints.size() - 1):
-			path_len += ctrl.waypoints[j].distance_to(ctrl.waypoints[j + 1])
-		if path_len <= 0.0:
+		var loop_len: float = 0.0
+		for j in range(n):
+			loop_len += ctrl.waypoints[j].distance_to(ctrl.waypoints[(j + 1) % n])
+		if loop_len <= 0.0:
 			continue
-		var lap_time: float = path_len / float(ctrl.speed)
-		var rpl: int = int(round((float(ctrl.lap_base) + float(ctrl.tile_bonus) * float(ctrl.tile_count)) * float(ctrl.end_mult)))
-		total_eps += float(rpl) / lap_time
-	_expected_earn_rate = total_eps
+		var reward: int = int(round((float(ctrl.lap_base) + float(ctrl.tile_bonus) * float(ctrl.tile_count)) * float(ctrl.end_mult)))
+		cars.append({
+			"lap_time":    loop_len / float(ctrl.speed),
+			"reward":      reward,
+			"start_delay": float(ctrl.start_delay),
+		})
+	Economy.set_run_cars(_active_track_idx, cars)
 
 
 # ── Zurück zum Bauplan ────────────────────────────────────────────────────────
@@ -383,16 +384,8 @@ func _on_back_pressed() -> void:
 		GameHUD.view_changed_to_2d.disconnect(_on_back_pressed)
 	if Economy.run_ended.is_connected(_on_economy_run_ended):
 		Economy.run_ended.disconnect(_on_economy_run_ended)
-	# Hintergrund-Einnahmen aktivieren: Einnahmen-Rate für 2D-Modus berechnen
-	var elapsed := Economy.get_drive_time() - Economy.get_run_time_left(_active_track_idx)
-	var total_earned := Economy.get_run_earned(_active_track_idx)
-	if elapsed > 0.1 and total_earned > 0:
-		# Tatsächliche Rate aus abgeschlossenen Runden
-		Economy.set_earn_rate(_active_track_idx, float(total_earned) / elapsed)
-	elif _expected_earn_rate > 0.0:
-		# Fallback: berechnete Rate aus Wegpunktlänge (kein Lap abgeschlossen)
-		Economy.set_earn_rate(_active_track_idx, _expected_earn_rate)
-	# Run läuft WEITER im Hintergrund (Economy._process)
+	# Run läuft im Hintergrund weiter: Economy rechnet die Runden weiter aus der Fahrzeit
+	# (run_cars bleiben gesetzt) – jede gedachte Startlinien-Überquerung schreibt gut.
 	GameHUD.set_view_3d(false)
 	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
