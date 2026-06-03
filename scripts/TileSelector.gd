@@ -91,5 +91,9 @@ func set_status(text: String) -> void:
 	label_selected.text = text
 
 
+func set_hint(text: String) -> void:
+	label_hint.text = text
+
+
 func set_fahren_enabled(enabled: bool) -> void:
 	$Panel/VBox/BtnFahren.disabled = not enabled

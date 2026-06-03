@@ -66,6 +66,22 @@ var selected_shop_slot: int   = -1    # Index in SHOP_ITEMS, -1 = nichts gewähl
 var delete_mode:        bool  = false
 var ramp_preview_rot:   int   = 0     # (Alt-Rampen)
 
+# Platzierungs-Modus: "quick" (Klick) oder "slow" (Ziehen & Ablegen). Kommt aus den Einstellungen.
+var placement_mode: String = "slow"
+
+# Drag-&-Drop-Zustand (nur im "slow"-Modus aktiv)
+var _drag_ghost:        Node2D  = null   # mitlaufende Tile-Vorschau am Cursor
+var _drag_data:    Dictionary = {}       # aktuelle Daten der Vorschau (Typ/Rotation/Richtung) – via [R]/[F] änderbar
+var _drag_orig:    Dictionary = {}       # Originaldaten des gezogenen Grid-Tiles (für Snap-back / Werterhalt)
+var _drag_source:       String  = ""     # "shop" | "grid"
+var _drag_shop_idx:     int     = -1
+var _drag_grid_row:     int     = -1
+var _drag_grid_col:     int     = -1
+var _grid_drag_pending: bool    = false  # Maustaste auf Tile gedrückt, noch nicht über Schwelle bewegt
+var _grid_press_pos:    Vector2 = Vector2.ZERO
+var _drag_active:       bool    = false
+const DRAG_THRESHOLD := 6.0              # Pixel-Schwelle: Klick (Auswahl) vs. Ziehen
+
 # UI nodes (created programmatically)
 var _currency_hud           = null   # CurrencyHud-Instanz
 var _shop_panels:    Array = []
@@ -95,6 +111,9 @@ func _ready() -> void:
 	_update_shop_ui()
 	_roll_bonus_fields()
 	_refresh_jump_markers()
+
+	placement_mode = _load_placement_mode()
+	_update_hint_label()
 
 
 # ── Grid init ──────────────────────────────────────────────────────────────────
@@ -433,6 +452,11 @@ func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
 			_flash_currency()
 			_update_shop_ui()
 			return
+	# Slow-Modus: Press startet das Ziehen einer Tile-Vorschau aus dem Shop.
+	if placement_mode == "slow":
+		_begin_shop_drag(idx)
+		_update_shop_ui()
+		return
 	if selected_shop_slot == idx:
 		selected_shop_slot = -1
 	else:
@@ -763,7 +787,11 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 func _input(event: InputEvent) -> void:
 	if _menu_open:
 		return   # Upgrade-Menü offen: Grid-/Tasten-Eingaben ignorieren
-	if event is InputEventMouseButton and event.pressed:
+
+	# Maus-Eingaben je nach Platzierungs-Modus
+	if placement_mode == "slow":
+		_input_slow_mouse(event)
+	elif event is InputEventMouseButton and event.pressed:
 		var local_pos = grid_node.to_local(event.position)
 		if local_pos.x < 0 or local_pos.y < 0 or local_pos.x >= GRID_COLS * TILE_SIZE or local_pos.y >= GRID_ROWS * TILE_SIZE:
 			return
@@ -783,6 +811,16 @@ func _input(event: InputEvent) -> void:
 				_update_grid_highlight()
 				tile_selector.deselect()
 
+	# Beim Ziehen (Shop oder Grid) verändern [R]/[F] das gezogene Teil selbst „in der Hand"
+	# – nicht das auf dem Feld liegende/markierte. Wirkt erst beim Ablegen aufs Grid.
+	if _drag_active and event is InputEventKey and event.pressed:
+		if event.keycode == KEY_R:
+			_drag_rotate()
+			return
+		if event.keycode == KEY_F:
+			_drag_flip()
+			return
+
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
 		# Rampen-Werkzeug aktiv → Vorschau-Richtung drehen, sonst aktives Tile drehen
 		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] == "ramp":
@@ -793,6 +831,485 @@ func _input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
 		_flip_active()
+
+
+# ── Drag & Drop (Slow-Modus) ─────────────────────────────────────────────────────
+
+# Maus-Handling im "slow"-Modus: Ziehen aus dem Shop und Verschieben platzierter Tiles.
+# Der Shop-Press wird in _on_shop_slot_gui_input begonnen (kennt den Slot-Index);
+# hier laufen Bewegung und Loslassen für beide Quellen zusammen.
+func _input_slow_mouse(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		# Aufgehobener Grid-Press wird erst ab einer kleinen Schwelle zum Ziehen
+		# (darunter bleibt es ein Klick → Auswahl für [R]/[F]).
+		if _grid_drag_pending and not _drag_active:
+			if event.position.distance_to(_grid_press_pos) > DRAG_THRESHOLD:
+				_begin_grid_drag()
+		if _drag_active and _drag_ghost != null:
+			_drag_ghost.position = _ghost_pos_for(event.position)
+		return
+
+	if not (event is InputEventMouseButton):
+		return
+
+	if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		_slow_right_click(event.position)
+		return
+
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	if event.pressed:
+		_slow_left_press(event.position)
+	else:
+		_slow_left_release(event.position)
+
+
+func _slow_left_press(global_pos: Vector2) -> void:
+	# Shop-Bereich wird über _on_shop_slot_gui_input behandelt → hier nur das Grid.
+	var local = grid_node.to_local(global_pos)
+	if local.x < 0 or local.y < 0 or local.x >= GRID_COLS * TILE_SIZE or local.y >= GRID_ROWS * TILE_SIZE:
+		return
+	var cell = _world_to_grid(local)
+	if not _is_valid_cell(cell):
+		return
+	var d = grid[cell.x][cell.y]
+
+	# Lösch-Modus: Press entfernt das Tile direkt (kein Ziehen).
+	if delete_mode:
+		if d != null and not d.get("is_start", false):
+			_delete_tile_at(cell.x, cell.y)
+		return
+
+	# Leere Zelle oder Start-Tile: nichts zu greifen.
+	if d == null or d.get("is_start", false):
+		return
+
+	# ramp_end greift immer das ramp_start-Feld (das Paar wird als Ganzes bewegt).
+	var grab_row = cell.x
+	var grab_col = cell.y
+	if d.get("type", "") == "ramp_end":
+		grab_row = d.get("ramp_partner_row", cell.x)
+		grab_col = d.get("ramp_partner_col", cell.y)
+
+	_grid_drag_pending = true
+	_grid_press_pos    = global_pos
+	_drag_grid_row     = grab_row
+	_drag_grid_col     = grab_col
+
+
+func _slow_left_release(global_pos: Vector2) -> void:
+	if _drag_active and _drag_source == "shop":
+		_drop_shop_drag(global_pos)
+	elif _drag_active and _drag_source == "grid":
+		_drop_grid_drag(global_pos)
+	elif _grid_drag_pending:
+		# Klick ohne Ziehen → Tile auswählen (für [R]/[F]).
+		_slow_click_select(_drag_grid_row, _drag_grid_col)
+	_reset_drag()
+
+
+func _slow_right_click(global_pos: Vector2) -> void:
+	var local = grid_node.to_local(global_pos)
+	if local.x < 0 or local.y < 0 or local.x >= GRID_COLS * TILE_SIZE or local.y >= GRID_ROWS * TILE_SIZE:
+		return
+	var cell = _world_to_grid(local)
+	if not _is_valid_cell(cell):
+		return
+	var rc = grid[cell.x][cell.y]
+	if rc != null and not rc.get("is_start", false):
+		_delete_tile_at(cell.x, cell.y)
+	elif selected_grid_row >= 0:
+		selected_grid_row = -1
+		selected_grid_col = -1
+		_update_grid_highlight()
+		tile_selector.deselect()
+
+
+# Klick (ohne Ziehen) auf ein platziertes Tile → Auswahl umschalten.
+func _slow_click_select(row: int, col: int) -> void:
+	if not _is_valid_cell(Vector2i(row, col)):
+		return
+	var d = grid[row][col]
+	if d == null or d.get("is_start", false):
+		return
+	if selected_grid_row == row and selected_grid_col == col:
+		selected_grid_row = -1
+		selected_grid_col = -1
+		_update_grid_highlight()
+		tile_selector.deselect()
+	else:
+		_select_grid_tile(row, col)
+
+
+func _begin_shop_drag(idx: int) -> void:
+	_reset_drag()
+	# Andere Werkzeug-/Auswahlzustände aufheben, damit nur das Ziehen aktiv ist.
+	selected_shop_slot = -1
+	selected_grid_row  = -1
+	selected_grid_col  = -1
+	delete_mode        = false
+	_update_grid_highlight()
+	_update_delete_panel_style()
+
+	_drag_active   = true
+	_drag_source   = "shop"
+	_drag_shop_idx = idx
+	_drag_data     = _shop_drag_data(SHOP_ITEMS[idx])
+	_drag_ghost    = _make_ghost(_drag_data)
+	grid_node.add_child(_drag_ghost)
+	_drag_ghost.position = _ghost_pos_for(get_viewport().get_mouse_position())
+	tile_selector.set_status("Ziehen…  [R] Drehen  [F] Wenden")
+
+
+func _begin_grid_drag() -> void:
+	var d = grid[_drag_grid_row][_drag_grid_col]
+	if d == null:
+		_grid_drag_pending = false
+		return
+	_drag_active = true
+	_drag_source = "grid"
+	selected_shop_slot = -1
+	# Originaldaten merken (für Snap-back & Werterhalt); Vorschau-Transform separat – via [R]/[F] änderbar.
+	_drag_orig = d.duplicate()
+	_drag_data = {
+		"type":      String(d.get("type", "")),
+		"rotation":  int(d.get("rotation", 0)),
+		"direction": int(d.get("direction", 1)),
+		"is_dirt":   d.get("is_dirt", false),
+	}
+	_drag_ghost  = _make_ghost(_drag_data)
+	grid_node.add_child(_drag_ghost)
+	_drag_ghost.position = _ghost_pos_for(get_viewport().get_mouse_position())
+	# Original-Node (inkl. Rampen-Partner) während des Ziehens ausblenden.
+	_set_drag_source_visible(false)
+	tile_selector.set_status("Ziehen…")
+
+
+func _drop_shop_drag(global_pos: Vector2) -> void:
+	var local = grid_node.to_local(global_pos)
+	if local.x < 0 or local.y < 0 or local.x >= GRID_COLS * TILE_SIZE or local.y >= GRID_ROWS * TILE_SIZE:
+		return   # außerhalb des Grids → abbrechen
+	var cell = _world_to_grid(local)
+	if not _is_valid_cell(cell):
+		return
+	# Platzieren über die bestehende Shop-Logik (Preis, Rampe, Überschreiben, Start-Schutz).
+	# Das gezogene Teil trägt seine per [R]/[F] geänderte Ausrichtung (_drag_data) mit.
+	selected_shop_slot = _drag_shop_idx
+	_place_shop_tile(cell.x, cell.y, _drag_data)
+	selected_shop_slot = -1
+	_update_shop_ui()
+
+
+func _drop_grid_drag(global_pos: Vector2) -> void:
+	var local = grid_node.to_local(global_pos)
+	var inside = local.x >= 0 and local.y >= 0 and local.x < GRID_COLS * TILE_SIZE and local.y < GRID_ROWS * TILE_SIZE
+	var ok = false
+	if inside:
+		var cell = _world_to_grid(local)
+		if _is_valid_cell(cell):
+			ok = _place_dragged_grid_tile(cell)
+	if not ok:
+		# Snap-back: passt nicht / außerhalb → Original (inkl. ursprünglicher Drehung) zurück.
+		_set_drag_source_visible(true)
+		selected_grid_row = -1
+		selected_grid_col = -1
+		_update_grid_highlight()
+		tile_selector.deselect()
+
+
+# Legt das gezogene Grid-Tile mit seiner „in der Hand" geänderten Ausrichtung (_drag_data) ab.
+# Gibt false zurück, wenn die Zielposition nicht passt (→ Snap-back).
+func _place_dragged_grid_tile(target: Vector2i) -> bool:
+	var t = String(_drag_data.get("type", ""))
+	if t == "ramp_start" or t == "ramp_end":
+		return _drop_grid_ramp(target, int(_drag_data.get("rotation", 0)))
+	return _drop_grid_normal(target)
+
+
+func _drop_grid_normal(target: Vector2i) -> bool:
+	var src = Vector2i(_drag_grid_row, _drag_grid_col)
+	var dd  = grid[target.x][target.y]
+	# Nur auf leeres Feld (oder zurück aufs eigene Feld = reine Drehung) ablegen.
+	if not (dd == null or target == src):
+		return false
+	# Originalwerte (Punkte/Combine/…) erhalten, nur Transform aus _drag_data übernehmen.
+	var nd = _drag_orig.duplicate()
+	nd.erase("node")
+	nd["type"]      = String(_drag_data.get("type", nd.get("type", "")))
+	nd["rotation"]  = int(_drag_data.get("rotation", nd.get("rotation", 0)))
+	nd["direction"] = int(_drag_data.get("direction", nd.get("direction", 1)))
+	_free_tile_node(src.x, src.y)
+	_spawn_tile(target.x, target.y, nd)
+	last_placed_row = target.x
+	last_placed_col = target.y
+	selected_grid_row = -1
+	selected_grid_col = -1
+	_update_grid_highlight()
+	tile_selector.deselect()
+	_invalidate_track()
+	return true
+
+
+func _drop_grid_ramp(target: Vector2i, rot: int) -> bool:
+	var src_s = Vector2i(_drag_grid_row, _drag_grid_col)
+	var sdata = grid[src_s.x][src_s.y]
+	if sdata == null:
+		return false
+	var src_e = Vector2i(int(sdata.get("ramp_partner_row", -1)), int(sdata.get("ramp_partner_col", -1)))
+	var tgt_e = _ramp_end_pos(target.x, target.y, rot)
+	if not (_ac_in_bounds(target) and _ac_in_bounds(tgt_e)):
+		return false
+	# Start- & End-Feld müssen frei (oder Dreck) sein – die eigenen alten Felder zählen als frei.
+	for c in [target, tgt_e]:
+		var cd = grid[c.x][c.y]
+		var own = (c == src_s or c == src_e)
+		if not (cd == null or cd.get("is_dirt", false) or own):
+			return false
+	# Altes Paar entfernen (inkl. Partner), evtl. Dreck auf den Zielfeldern räumen.
+	_free_tile_node(src_s.x, src_s.y)
+	_clear_dirt_cell(target.x, target.y)
+	_clear_dirt_cell(tgt_e.x, tgt_e.y)
+	_spawn_tile(target.x, target.y, {
+		"type": "ramp_start", "rotation": rot, "flipped": false,
+		"direction": 1, "points": 0.0, "multiplier": 1.0,
+		"variant_label": "", "series": "", "combine_level": 0,
+		"is_start": false, "is_dirt": false,
+		"ramp_partner_row": tgt_e.x, "ramp_partner_col": tgt_e.y,
+	})
+	_spawn_tile(tgt_e.x, tgt_e.y, {
+		"type": "ramp_end", "rotation": rot, "flipped": false,
+		"direction": 1, "points": 0.0, "multiplier": 1.0,
+		"variant_label": "", "series": "", "combine_level": 0,
+		"is_start": false, "is_dirt": false,
+		"ramp_partner_row": target.x, "ramp_partner_col": target.y,
+	})
+	last_placed_row = target.x
+	last_placed_col = target.y
+	selected_grid_row = -1
+	selected_grid_col = -1
+	_update_grid_highlight()
+	tile_selector.deselect()
+	_invalidate_track()
+	return true
+
+
+func _reset_drag() -> void:
+	if _drag_ghost != null and is_instance_valid(_drag_ghost):
+		_drag_ghost.queue_free()
+	# Sicherheit: evtl. ausgeblendete Quell-Tiles wieder zeigen.
+	if _drag_source == "grid":
+		_set_drag_source_visible(true)
+	_drag_ghost        = null
+	_drag_data         = {}
+	_drag_orig         = {}
+	_drag_active       = false
+	_drag_source       = ""
+	_drag_shop_idx     = -1
+	_drag_grid_row     = -1
+	_drag_grid_col     = -1
+	_grid_drag_pending = false
+
+
+# Blendet das gezogene Grid-Tile (inkl. Rampen-Partner) aus bzw. wieder ein.
+func _set_drag_source_visible(vis: bool) -> void:
+	if not _is_valid_cell(Vector2i(_drag_grid_row, _drag_grid_col)):
+		return
+	var d = grid[_drag_grid_row][_drag_grid_col]
+	if d == null:
+		return
+	if d.get("node") != null and is_instance_valid(d["node"]):
+		d["node"].visible = vis
+	if d.get("type", "") in ["ramp_start", "ramp_end"]:
+		var pr = d.get("ramp_partner_row", -1)
+		var pc = d.get("ramp_partner_col", -1)
+		if pr >= 0 and pc >= 0 and _is_valid_cell(Vector2i(pr, pc)):
+			var pd = grid[pr][pc]
+			if pd != null and pd.get("node") != null and is_instance_valid(pd["node"]):
+				pd["node"].visible = vis
+
+
+# Minimal-Datensatz für die Ziehen-Vorschau eines Shop-Items.
+func _shop_drag_data(item: Dictionary) -> Dictionary:
+	if item["tier"] == "ramp":
+		return {"type": "ramp_start", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false}
+	return {
+		"type":      item["type"],
+		"rotation":  0,
+		"direction": -1 if item["type"] == "curve_alt" else 1,
+		"is_dirt":   item["tier"] == "dirt",
+	}
+
+
+# Halbtransparente Ziehen-Vorschau. Der Wurzel-Node hält die Umrisse aller belegten
+# Felder (Footprint) plus die einzelnen Tile-Grafiken – so lassen sich auch mehrfeldrige
+# Teile (Rampe = 3×1, später z. B. größere Strecken-Stücke) korrekt darstellen.
+func _make_ghost(data: Dictionary) -> Node2D:
+	var root = Node2D.new()
+	root.z_index = 50
+	# Footprint-Umrisse (zeigt die gesamte belegte Struktur, auch >1 Feld)
+	for cell_off in _ghost_footprint_cells(data):
+		root.add_child(_make_footprint_outline(cell_off))
+	# Tile-Grafiken an ihren relativen Positionen
+	for part in _ghost_parts(data):
+		var n = _make_tile_visual(part["data"])
+		n.position = part["offset"]
+		root.add_child(n)
+	var m = root.modulate
+	m.a = 0.6
+	root.modulate = m   # propagiert auf alle Kinder
+	return root
+
+
+# Einzelne Tile-Grafik (ohne Badges/Labels) für die Vorschau.
+func _make_tile_visual(data: Dictionary) -> Node2D:
+	var node: Node2D
+	if data.get("is_dirt", false):
+		node = _create_dirt_node(data)
+	elif data.get("type", "") in ["ramp_start", "ramp_end"]:
+		node = _create_ramp_node(data)
+	else:
+		var scene_path: String
+		match data.get("type", ""):
+			"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+			"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
+			_:           scene_path = Paths.SCENE_TILE_CURVE_2D
+		var scene = load(scene_path)
+		node = scene.instantiate() if scene != null else Node2D.new()
+		if "direction" in node:
+			node.direction = data.get("direction", 1)
+			node.queue_redraw()
+	node.rotation_degrees = data.get("rotation", 0)
+	return node
+
+
+# Tile-Teile einer Struktur als {offset (px, zellzentriert), data}. Rampe = Start + Ende.
+func _ghost_parts(data: Dictionary) -> Array:
+	var t = String(data.get("type", ""))
+	if t == "ramp_start" or t == "ramp_end":
+		var rot = int(data.get("rotation", 0))
+		return [
+			{"offset": Vector2.ZERO,             "data": {"type": "ramp_start", "rotation": rot, "direction": 1}},
+			{"offset": _cell_offset_px(_ramp_end_pos(0, 0, rot)), "data": {"type": "ramp_end", "rotation": rot, "direction": 1}},
+		]
+	return [{"offset": Vector2.ZERO, "data": data}]
+
+
+# Belegte Felder einer Struktur als relative Zell-Deltas. Rampe = Start, Mittelfeld, Ende.
+func _ghost_footprint_cells(data: Dictionary) -> Array:
+	var t = String(data.get("type", ""))
+	if t == "ramp_start" or t == "ramp_end":
+		var e = _ramp_end_pos(0, 0, int(data.get("rotation", 0)))
+		return [Vector2i(0, 0), Vector2i(e.x / 2, e.y / 2), e]
+	return [Vector2i(0, 0)]
+
+
+# Zell-Delta (row,col) → Pixel-Versatz relativ zur Start-Zelle (zellzentriert).
+func _cell_offset_px(cell: Vector2i) -> Vector2:
+	return Vector2(cell.y * TILE_SIZE, cell.x * TILE_SIZE)
+
+
+# Dünner Rahmen um ein Footprint-Feld (Stil wie das Grid-Highlight), zellzentriert.
+func _make_footprint_outline(cell: Vector2i) -> Node2D:
+	var node = Node2D.new()
+	var tl   = Vector2(-TILE_SIZE / 2.0, -TILE_SIZE / 2.0) + _cell_offset_px(cell)
+	var bw   = 2
+	var col  = Color(1.0, 0.85, 0.0, 0.7)
+	for i in range(4):
+		var r = ColorRect.new()
+		r.color = col
+		match i:
+			0: r.position = tl;                                 r.size = Vector2(TILE_SIZE, bw)
+			1: r.position = tl + Vector2(0, TILE_SIZE - bw);    r.size = Vector2(TILE_SIZE, bw)
+			2: r.position = tl;                                 r.size = Vector2(bw, TILE_SIZE)
+			3: r.position = tl + Vector2(TILE_SIZE - bw, 0);    r.size = Vector2(bw, TILE_SIZE)
+		node.add_child(r)
+	return node
+
+
+# Cursor-Position (global) in Grid-lokale Koordinaten – Tile-Nodes sitzen zellzentriert.
+func _ghost_pos_for(global_pos: Vector2) -> Vector2:
+	return grid_node.to_local(global_pos)
+
+
+# [R] beim Ziehen (Shop oder Grid): gezogenes Teil „in der Hand" um 90° drehen.
+func _drag_rotate() -> void:
+	_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 90) % 360
+	if _drag_shop_idx >= 0 and SHOP_ITEMS[_drag_shop_idx]["tier"] == "ramp":
+		ramp_preview_rot = _drag_data["rotation"]   # Rampe platziert über ramp_preview_rot
+		_update_shop_ui()
+	_rebuild_drag_ghost()
+
+
+# [F] beim Ziehen (Shop oder Grid): gezogenes Teil wenden (Kurve tauschen / Gerade umkehren / Rampe).
+func _drag_flip() -> void:
+	var t = String(_drag_data.get("type", ""))
+	if t == "curve" or t == "curve_alt":
+		var nt = "curve_alt" if t == "curve" else "curve"
+		_drag_data["type"]      = nt
+		_drag_data["direction"] = -1 if nt == "curve_alt" else 1
+	elif t == "straight":
+		_drag_data["direction"] = -1 if int(_drag_data.get("direction", 1)) == 1 else 1
+	elif t == "ramp_start":
+		# Auffahrseite wechseln ≈ um 180° drehen (Fahrtrichtung kehrt sich um).
+		_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 180) % 360
+		if _drag_shop_idx >= 0:
+			ramp_preview_rot = _drag_data["rotation"]
+			_update_shop_ui()
+	_rebuild_drag_ghost()
+
+
+# Erzeugt die Ghost-Vorschau aus _drag_data neu (an gleicher Cursor-Position).
+func _rebuild_drag_ghost() -> void:
+	var pos = _ghost_pos_for(get_viewport().get_mouse_position())
+	if _drag_ghost != null and is_instance_valid(_drag_ghost):
+		pos = _drag_ghost.position
+		_drag_ghost.queue_free()
+	_drag_ghost = _make_ghost(_drag_data)
+	grid_node.add_child(_drag_ghost)
+	_drag_ghost.position = pos
+
+
+# Nach einem Kauf im Schnell-Modus: Werkzeug abwählen und platziertes Tile markieren.
+# Mit gehaltener Shift-Taste bleibt das Shop-Werkzeug aktiv → mehrere Teile am Stück platzieren.
+func _after_quick_place(row: int, col: int) -> void:
+	if placement_mode != "quick":
+		return
+	if Input.is_key_pressed(KEY_SHIFT):
+		return
+	selected_shop_slot = -1
+	_select_grid_tile(row, col)
+	_update_shop_ui()
+
+
+# ── Platzierungs-Modus ───────────────────────────────────────────────────────────
+
+func _load_placement_mode() -> String:
+	var cfg = ConfigFile.new()
+	cfg.load(Paths.SETTINGS_FILE)
+	return String(cfg.get_value("options", "placement_mode", "slow"))
+
+
+# Wird von PauseMenu beim Umschalten in den Einstellungen aufgerufen (Live-Wechsel).
+func set_placement_mode(mode: String) -> void:
+	placement_mode = mode
+	_reset_drag()
+	selected_shop_slot = -1
+	selected_grid_row  = -1
+	selected_grid_col  = -1
+	delete_mode        = false
+	_update_shop_ui()
+	_update_delete_panel_style()
+	_update_grid_highlight()
+	tile_selector.deselect()
+	_update_hint_label()
+
+
+func _update_hint_label() -> void:
+	if placement_mode == "slow":
+		tile_selector.set_hint("Ziehen & Ablegen\n[R] Drehen  [F] Wenden")
+	else:
+		tile_selector.set_hint("[R]  Drehen\n[F]  Wenden")
 
 
 func _handle_grid_left_click(row: int, col: int) -> void:
@@ -941,7 +1458,9 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 	_invalidate_track()
 
 
-func _place_shop_tile(row: int, col: int) -> void:
+# xform (optional): überschreibt Typ/Rotation/Richtung – z. B. das aus dem Shop
+# gezogene Teil trägt seine per [R]/[F] geänderte Ausrichtung mit (Slow-Modus).
+func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	var item = SHOP_ITEMS[selected_shop_slot]
 	if not Economy.is_tile_unlocked(item["key"]):
 		return   # Sicherheitshalber: gesperrte Tiles nicht platzieren
@@ -965,11 +1484,12 @@ func _place_shop_tile(row: int, col: int) -> void:
 		if refund > 0:
 			Economy.add(refund)
 		_free_tile_node(row, col)
+	var def_dir = -1 if item["type"] == "curve_alt" else 1
 	_spawn_tile(row, col, {
-		"type":          item["type"],
-		"rotation":      0,
+		"type":          String(xform.get("type", item["type"])),
+		"rotation":      int(xform.get("rotation", 0)),
 		"flipped":       false,
-		"direction":     1,
+		"direction":     int(xform.get("direction", def_dir)),
 		"points":        0.0,
 		"multiplier":    1.0,
 		"variant_label": "",
@@ -980,12 +1500,12 @@ func _place_shop_tile(row: int, col: int) -> void:
 	})
 	last_placed_row = row
 	last_placed_col = col
-	# Werkzeug bleibt ausgewählt → man kann mehrere gleiche Tiles hintereinander setzen.
-	# Das zuletzt platzierte Tile wird markiert (Ziel für [R]/[F]).
 	_update_currency_label()
 	_update_shop_ui()
 	_update_grid_highlight()
 	_invalidate_track()
+	# Schnell-Modus: Werkzeug abwählen & platziertes Tile markieren (Shift = mehrere platzieren).
+	_after_quick_place(row, col)
 
 
 # Entfernt nur die Node + Grid-Eintrag einer Zelle (inkl. Rampen-Partner), ohne UI-Update.
@@ -1085,6 +1605,7 @@ func _place_ramp(row: int, col: int) -> void:
 			_update_shop_ui()
 			_update_grid_highlight()
 			_invalidate_track()
+			_after_quick_place(row, col)
 			return
 		rot = (rot + 90) % 360
 	tile_selector.set_status("Kein Platz für Rampe (2 freie Felder in einer Richtung nötig)")

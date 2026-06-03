@@ -25,7 +25,8 @@ var _lang_option:    OptionButton
 var _master_slider:  HSlider
 var _music_slider:   HSlider
 var _sfx_slider:     HSlider
-var _window_option:  OptionButton
+var _window_option:    OptionButton
+var _placement_switch: CheckButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
@@ -241,6 +242,14 @@ func _build_settings_panel() -> Control:
 		_window_option.add_item(mode)
 	_window_option.item_selected.connect(_on_window_mode_changed)
 	win_row.add_child(_window_option)
+
+	_add_hline(vbox)
+	_add_section_label(vbox, "STEUERUNG")
+	var place_row := _make_hrow(vbox)
+	_make_row_label(place_row, "Platzierung:")
+	_placement_switch = _make_placement_switch()
+	_placement_switch.toggled.connect(_on_placement_toggled)
+	place_row.add_child(_placement_switch)
 
 	_add_spacer(vbox, 8)
 	_add_back_button(vbox, _show_pause)
@@ -577,6 +586,10 @@ func _sync_settings_ui() -> void:
 	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
 	_window_option.selected = settings.get_value("options", "window_mode",   0)
 
+	var slow := (settings.get_value("options", "placement_mode", "slow") as String) == "slow"
+	_placement_switch.button_pressed = slow
+	_update_placement_switch_text(slow)
+
 	_loading_settings = false
 
 
@@ -618,6 +631,54 @@ func _on_window_mode_changed(index: int) -> void:
 	settings.set_value("options", "window_mode", index)
 	settings.save(Paths.SETTINGS_FILE)
 	_apply_window_mode(index)
+
+
+func _on_placement_toggled(pressed: bool) -> void:
+	_update_placement_switch_text(pressed)
+	if _loading_settings: return
+	var mode := "slow" if pressed else "quick"
+	settings.set_value("options", "placement_mode", mode)
+	settings.save(Paths.SETTINGS_FILE)
+	# Laufende Bauplan-Szene live umschalten (falls geöffnet).
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("set_placement_mode"):
+		scene.set_placement_mode(mode)
+
+
+# Schalter-Beschriftung zeigt den aktiven Modus an (an = Langsam/Ziehen, aus = Schnell/Klick).
+func _update_placement_switch_text(slow: bool) -> void:
+	_placement_switch.text = "Langsam" if slow else "Schnell"
+
+
+func _make_placement_switch() -> CheckButton:
+	var sw := CheckButton.new()
+	sw.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sw.focus_mode = Control.FOCUS_NONE
+	sw.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	sw.add_theme_color_override("font_color",         C_TEXT)
+	sw.add_theme_color_override("font_hover_color",   C_TEXT)
+	sw.add_theme_color_override("font_pressed_color", C_TEXT)
+	sw.add_theme_font_size_override("font_size", 13)
+	# Helle Schalter-Grafik, damit sie sich vom dunklen Panel abhebt (v. a. im "Schnell"/Aus-Zustand).
+	sw.add_theme_color_override("icon_normal_color",  Color(0.78, 0.82, 0.92))
+	sw.add_theme_color_override("icon_hover_color",   Color(0.95, 0.97, 1.00))
+	sw.add_theme_color_override("icon_pressed_color", C_ACCENT)
+	sw.add_theme_color_override("icon_focus_color",   Color(0.78, 0.82, 0.92))
+	# Leicht aufgehellter Hintergrund (wie die OptionButtons) für besseren Kontrast.
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_SURFACE
+	sb.border_width_left = 2
+	sb.border_color = C_ACCENT_MU
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left   = 8
+	sb.content_margin_right  = 8
+	sb.content_margin_top    = 4
+	sb.content_margin_bottom = 4
+	sw.add_theme_stylebox_override("normal",  sb)
+	sw.add_theme_stylebox_override("hover",   sb)
+	sw.add_theme_stylebox_override("pressed", sb)
+	sw.add_theme_stylebox_override("focus",   sb)
+	return sw
 
 
 func _apply_window_mode(index: int) -> void:
