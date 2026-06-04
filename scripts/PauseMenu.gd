@@ -23,6 +23,7 @@ var _settings_panel:     Control
 var _achievements_panel: Control
 var _quit_modal:         Control
 var _discard_modal:      Control
+var _save_modal:         Control
 
 var _save_status_lbl: Label
 var _settings_dirty:  bool = false
@@ -61,6 +62,7 @@ func _ready() -> void:
 	_achievements_panel = _build_achievements_panel()
 	_quit_modal         = _build_quit_modal()
 	_discard_modal      = _build_discard_modal()
+	_save_modal         = _build_save_modal()
 
 	_show_pause()
 
@@ -345,44 +347,101 @@ func _build_settings_panel() -> Control:
 	outer_vbox.add_child(bot_line)
 
 	var btn_row := HBoxContainer.new()
-	btn_row.custom_minimum_size = Vector2(0, 56)
+	btn_row.custom_minimum_size = Vector2(0, 76)
 	btn_row.add_theme_constant_override("separation", 0)
 	outer_vbox.add_child(btn_row)
 
-	var bpad := Control.new(); bpad.custom_minimum_size = Vector2(20, 0)
+	var bpad := Control.new(); bpad.custom_minimum_size = Vector2(24, 0)
 	btn_row.add_child(bpad)
 
-	var back_btn := _build_settings_btn("← Zurück", C_SURFACE, C_ACCENT_MU)
+	var back_btn := _build_settings_btn("←  Zurück", C_SURFACE, C_ACCENT_MU)
+	back_btn.size_flags_stretch_ratio = 1.0
 	back_btn.pressed.connect(_on_settings_back)
 	btn_row.add_child(back_btn)
 
-	var sep := Control.new(); sep.custom_minimum_size = Vector2(8, 0)
+	var sep := Control.new(); sep.custom_minimum_size = Vector2(14, 0)
 	btn_row.add_child(sep)
 
-	var save_btn := _build_settings_btn("💾 Speichern", Color(0.08, 0.26, 0.14), Color(0.25, 0.80, 0.42))
-	save_btn.add_theme_color_override("font_color", Color(0.55, 1.0, 0.65))
+	var save_btn := _build_settings_btn("💾  Speichern", Color(0.13, 0.45, 0.26), Color(0.30, 0.85, 0.48))
+	save_btn.size_flags_stretch_ratio = 1.7
+	save_btn.add_theme_color_override("font_color", Color(0.88, 1.0, 0.92))
 	save_btn.pressed.connect(_on_settings_save)
 	btn_row.add_child(save_btn)
 
-	var epad := Control.new(); epad.custom_minimum_size = Vector2(20, 0)
+	var epad := Control.new(); epad.custom_minimum_size = Vector2(24, 0)
 	btn_row.add_child(epad)
 
 	return overlay
 
 
+# Footer-Button (Zurück/Speichern) – abgerundet, voller Rahmen, größere Klickfläche.
 func _build_settings_btn(txt: String, bg: Color, border: Color) -> Button:
 	var btn := Button.new()
 	btn.text = txt
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.custom_minimum_size = Vector2(0, 44)
+	btn.custom_minimum_size = Vector2(0, 52)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.add_theme_stylebox_override("normal",  _btn_style(bg,                 border))
-	btn.add_theme_stylebox_override("hover",   _btn_style(bg.lightened(0.06), border.lightened(0.1)))
-	btn.add_theme_stylebox_override("pressed", _btn_style(bg,                 border))
-	btn.add_theme_stylebox_override("focus",   _btn_style(bg,                 border))
+	btn.add_theme_stylebox_override("normal",  _footer_btn_style(bg,                 border))
+	btn.add_theme_stylebox_override("hover",   _footer_btn_style(bg.lightened(0.10), border.lightened(0.18)))
+	btn.add_theme_stylebox_override("pressed", _footer_btn_style(bg.darkened(0.10),  border))
+	btn.add_theme_stylebox_override("focus",   _footer_btn_style(bg,                 border))
 	btn.add_theme_color_override("font_color", C_TEXT)
+	btn.add_theme_color_override("font_hover_color", C_TEXT)
+	btn.add_theme_font_size_override("font_size", 15)
+	return btn
+
+
+func _footer_btn_style(bg: Color, border: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_border_width_all(2)
+	sb.border_color = border
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left   = 14
+	sb.content_margin_right  = 14
+	sb.content_margin_top    = 12
+	sb.content_margin_bottom = 12
+	return sb
+
+
+# Großer, gefüllter Haupt-Button (z. B. grünes „Übernehmen") – zentrierter Text, abgerundet.
+func _build_primary_btn(txt: String, cb: Callable,
+		bg := Color(0.15, 0.60, 0.35), border := Color(0.30, 0.85, 0.48)) -> Button:
+	var btn := Button.new()
+	btn.text = txt
+	btn.custom_minimum_size = Vector2(0, 54)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal",  _footer_btn_style(bg,                 border))
+	btn.add_theme_stylebox_override("hover",   _footer_btn_style(bg.lightened(0.10), border.lightened(0.18)))
+	btn.add_theme_stylebox_override("pressed", _footer_btn_style(bg.darkened(0.10),  border))
+	btn.add_theme_stylebox_override("focus",   _footer_btn_style(bg,                 border))
+	btn.add_theme_color_override("font_color",       Color(0.95, 1.0, 0.96))
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.pressed.connect(cb)
+	return btn
+
+
+# Dezenter Text-Link (kein Hintergrund) – z. B. „Abbrechen“ unter dem Haupt-Button.
+func _build_ghost_btn(txt: String, cb: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = txt
+	btn.custom_minimum_size = Vector2(0, 40)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var empty := StyleBoxEmpty.new()
+	btn.add_theme_stylebox_override("normal",  empty)
+	btn.add_theme_stylebox_override("hover",   empty)
+	btn.add_theme_stylebox_override("pressed", empty)
+	btn.add_theme_stylebox_override("focus",   empty)
+	btn.add_theme_color_override("font_color",       C_TEXT_DIM)
+	btn.add_theme_color_override("font_hover_color", C_TEXT)
 	btn.add_theme_font_size_override("font_size", 13)
+	btn.pressed.connect(cb)
 	return btn
 
 
@@ -577,6 +636,7 @@ func _hide_all() -> void:
 	_achievements_panel.visible = false
 	_quit_modal.visible         = false
 	_discard_modal.visible      = false
+	_save_modal.visible         = false
 
 
 func _show_pause() -> void:
@@ -882,8 +942,16 @@ func _on_settings_back() -> void:
 
 
 func _on_settings_save() -> void:
+	# Vor dem Speichern nachfragen, ob die Änderungen übernommen werden sollen.
+	_hide_all()
+	_save_modal.visible = true
+
+
+# Bestätigt: speichern, übernehmen und die Einstellungen schließen.
+func _on_save_confirm() -> void:
 	settings.save(Paths.SETTINGS_FILE)
 	_settings_dirty = false
+	_show_pause()
 
 
 func _on_discard_confirm() -> void:
@@ -930,6 +998,39 @@ func _build_discard_modal() -> Control:
 		_hide_all()
 		_settings_panel.visible = true
 	)
+
+	return center
+
+
+func _build_save_modal() -> Control:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_add_panel_title(vbox, "ÜBERNEHMEN?")
+	_add_hline(vbox)
+
+	var text_lbl := Label.new()
+	text_lbl.text = "Die Änderungen werden gespeichert\nund die Einstellungen geschlossen."
+	text_lbl.add_theme_color_override("font_color", C_TEXT)
+	text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(text_lbl)
+
+	_add_spacer(vbox, 10)
+	vbox.add_child(_build_primary_btn("✓  ÜBERNEHMEN", _on_save_confirm))
+	vbox.add_child(_build_ghost_btn("Abbrechen", func():
+		_hide_all()
+		_settings_panel.visible = true
+	))
 
 	return center
 
