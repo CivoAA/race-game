@@ -3,7 +3,8 @@ extends Node3D
 ## Position und Rotation werden von außen gesetzt (durch CarController).
 
 # Skalierung des Modells – anpassen falls zu groß/klein
-const MODEL_SCALE = Vector3(0.3, 0.3, 0.3)
+# (Straße ist ~0.4 Einheiten breit; Auto kleiner gehalten, damit es auf die Bahn passt)
+const MODEL_SCALE = Vector3(0.18, 0.18, 0.18)
 
 # Höhe über dem Boden
 const CAR_Y = 0.05

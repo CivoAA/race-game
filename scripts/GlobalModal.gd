@@ -36,6 +36,17 @@ var _shop_sidebar_btns: Array[Button] = []
 var _tab_panels:  Array[Control] = []
 var _shop_cats:   Array[Control] = []
 
+# Streckenteile-Tab: rotierende 3D-Vorschauen + Karten-Raster (für Neuaufbau nach Freischalten)
+var _tile_preview_pivots: Array         = []   # Node3D-Pivots, drehen sich wenn der Tab sichtbar ist
+var _tiles_grid:          GridContainer = null
+# true = das Karten-Raster muss neu gebaut werden (z. B. nach Speicherstand-Wechsel),
+# weil dieser Autoload Szenenwechsel überlebt und Freischaltungen pro Slot gelten.
+var _tiles_dirty:         bool          = false
+# Freischalt-/Kauf-Buttons (nur noch nicht erworbene) für günstiges Nachfärben bei Geldänderung.
+var _tile_buttons:        Array         = []   # je {btn, key}
+var _upgrade_buttons:     Array         = []   # je {btn, id}
+var _last_currency_seen:  int           = -1
+
 
 func _ready() -> void:
 	layer        = 25
@@ -43,10 +54,29 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_modal()
 	GameHUD.shop_requested.connect(open)
+	# Beim Wechsel des Speicherstands gelten andere Freischaltungen → Raster neu aufbauen.
+	Economy.slot_changed.connect(_on_slot_changed)
+
+
+func _on_slot_changed(_slot: int) -> void:
+	_tiles_dirty = true
 
 
 func open() -> void:
+	# Streckenteile-Status ist slot-abhängig; nach einem Slot-Wechsel hier neu aufbauen.
+	if _tiles_dirty:
+		_populate_tiles_grid()
+		_tiles_dirty = false
+	# Button-Optik (Streckenteile + Upgrades) an den aktuellen Geldstand anpassen.
+	_last_currency_seen = Economy.get_currency()
+	_refresh_affordability()
 	visible = true
+
+
+# Färbt alle noch kaufbaren Buttons (Streckenteile + Upgrades) nach dem aktuellen Geldstand.
+func _refresh_affordability() -> void:
+	_refresh_tile_buttons()
+	_refresh_upgrade_buttons()
 
 
 func close() -> void:
@@ -54,9 +84,24 @@ func close() -> void:
 
 
 func _process(delta: float) -> void:
+	if not visible:
+		return
 	# Vorschau-Auto langsam drehen, solange die Werkstatt sichtbar ist
-	if visible and _active_modal_tab == 2 and _preview_pivot != null:
+	if _active_modal_tab == 2 and _preview_pivot != null:
 		_preview_pivot.rotate_y(delta * 0.6)
+	# Streckenteil-Vorschauen drehen, solange der Streckenteile-Tab sichtbar ist
+	elif _active_modal_tab == 0 and _active_shop_cat == 0:
+		for p in _tile_preview_pivots:
+			if is_instance_valid(p):
+				p.rotate_y(delta * 0.6)
+
+	# Kauf-Buttons (Streckenteile + Upgrades) live nachfärben, sobald sich der Geldstand
+	# ändert. Läuft nur, solange das Upgrade-Center offen ist (oben steht `if not visible:
+	# return`) und färbt nur um – daher kein Lag im normalen Spiel.
+	var cur := Economy.get_currency()
+	if cur != _last_currency_seen:
+		_last_currency_seen = cur
+		_refresh_affordability()
 
 
 func _input(event: InputEvent) -> void:
@@ -156,6 +201,7 @@ func _on_modal_tab(idx: int) -> void:
 	for i in _modal_tab_btns.size():
 		_style_modal_tab(_modal_tab_btns[i], i == idx)
 	_show_modal_tab(idx)
+	_refresh_affordability()
 
 
 func _show_modal_tab(idx: int) -> void:
@@ -224,6 +270,7 @@ func _on_shop_cat(idx: int) -> void:
 	for i in _shop_sidebar_btns.size():
 		_style_sidebar_btn(_shop_sidebar_btns[i], i == idx)
 	_show_shop_cat(idx)
+	_refresh_affordability()
 
 
 func _show_shop_cat(idx: int) -> void:
@@ -231,6 +278,27 @@ func _show_shop_cat(idx: int) -> void:
 		cat.visible = false
 	if idx < _shop_cats.size():
 		_shop_cats[idx].visible = true
+
+
+# ── Streckenteile-Katalog ───────────────────────────────────────────────────────
+# Werkstatt-Stil: pro Tile eine rotierende 3D-Vorschau + Freischalt-Button darunter.
+# key/cost werden aus Economy.TILE_UNLOCK_COST gezogen (gemeinsame Quelle mit Main.gd).
+#   key ""       → kostenlos/immer freigeschaltet (Dreck-Tiles)
+#   model ""     → noch kein eigenes 3D-Modell → Default-Strecke unter schwarzem Film
+#   film true    → Modell vorhanden, aber als Platzhalter abgedunkelt
+#   coming true  → noch nicht verfügbar (Button deaktiviert)
+func _tile_entries() -> Array:
+	return [
+		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+5 Ertrag · frei"},
+		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+5 Ertrag · frei", "film": true},
+		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+50 Ertrag · ×1.2"},
+		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+50 Ertrag · ×1.2"},
+		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung"},
+		{"name": "Schikane",     "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
+		{"name": "Steilkurve",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
+		{"name": "Boost-Feld",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
+		{"name": "Tunnel",       "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
+	]
 
 
 func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
@@ -249,13 +317,249 @@ func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
 	_add_cat_header(vbox, "STRECKENTEILE")
 
 	var info := Label.new()
-	info.text = "Die Streckenteile werden im Baumodus über den\nHammer-Button am linken Bildschirmrand angezeigt\nund ausgewählt. Hier kannst du neue Tiles freischalten."
-	info.add_theme_font_size_override("font_size", 13)
-	info.add_theme_color_override("font_color", C_TEXT)
+	info.text = "Schalte neue Streckenteile frei. Freigeschaltete Teile stehen danach im Baumodus (Hammer-Button) zur Verfügung."
+	info.add_theme_font_size_override("font_size", 12)
+	info.add_theme_color_override("font_color", C_TEXT_DIM)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD
+	info.custom_minimum_size = Vector2(w - 32, 0)
 	var ipad := HBoxContainer.new()
 	ipad.add_child(_hpad(16)); ipad.add_child(info)
 	vbox.add_child(ipad)
+
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 10)
+	vbox.add_child(pad)
+
+	# Karten-Raster (4 Spalten); füllt 2 Reihen sichtbar, Rest scrollbar.
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	vbox.add_child(margin)
+
+	_tiles_grid = GridContainer.new()
+	_tiles_grid.columns = 4
+	_tiles_grid.add_theme_constant_override("h_separation", 12)
+	_tiles_grid.add_theme_constant_override("v_separation", 12)
+	margin.add_child(_tiles_grid)
+
+	_populate_tiles_grid()
+
+
+func _populate_tiles_grid() -> void:
+	if _tiles_grid == null:
+		return
+	_tile_preview_pivots.clear()
+	_tile_buttons.clear()
+	for c in _tiles_grid.get_children():
+		c.queue_free()
+	for entry in _tile_entries():
+		var card := _make_tile_card(entry)
+		_tiles_grid.add_child(card)
+		# Vorschau erst NACH dem Einhängen aufbauen, damit global_transform/Kamera gültig sind.
+		_attach_tile_preview(card, entry)
+
+
+const CARD_PREV_POS = Vector2(7, 7)
+const CARD_PREV_SZ  = Vector2(160, 110)
+
+
+# Fügt die rotierende 3D-Vorschau (+ optionalen schwarzen Film) in eine bereits
+# im Baum hängende Karte ein.
+func _attach_tile_preview(card: Panel, entry: Dictionary) -> void:
+	var coming: bool   = entry.get("coming", false)
+	var model:  String = entry.get("model", "")
+	var film:   bool   = coming or model == "" or entry.get("film", false)
+	var show_model = model if model != "" else Paths.MODEL_TRACK_STRAIGHT_DEFAULT
+
+	_build_tile_preview(card, CARD_PREV_POS, CARD_PREV_SZ, show_model)
+
+	if film:
+		var veil := ColorRect.new()
+		veil.position = CARD_PREV_POS
+		veil.size     = CARD_PREV_SZ
+		veil.color    = Color(0, 0, 0, 0.74)
+		veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(veil)
+
+		var veil_lbl := Label.new()
+		veil_lbl.position = Vector2(CARD_PREV_POS.x, CARD_PREV_POS.y + CARD_PREV_SZ.y / 2.0 - 11)
+		veil_lbl.size     = Vector2(CARD_PREV_SZ.x, 22)
+		veil_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		veil_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		veil_lbl.add_theme_font_size_override("font_size", 12)
+		veil_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+		veil_lbl.text = "BALD" if coming else "VORSCHAU FOLGT"
+		veil_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(veil_lbl)
+
+
+func _make_tile_card(entry: Dictionary) -> Panel:
+	const CARD_W = 174
+	const CARD_H = 214
+
+	var key:    String = entry.get("key", "")
+	var coming: bool   = entry.get("coming", false)
+	var owned:  bool   = (not coming) and Economy.is_tile_unlocked(key)
+
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = C_SURFACE
+	csb.border_color = C_ACCENT if owned else C_LINE
+	csb.set_border_width_all(2 if owned else 1)
+	csb.set_corner_radius_all(6)
+	card.add_theme_stylebox_override("panel", csb)
+
+	# Name
+	var name_lbl := Label.new()
+	name_lbl.position = Vector2(0, 122)
+	name_lbl.size     = Vector2(CARD_W, 20)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", C_TEXT if not coming else C_TEXT_DIM)
+	name_lbl.text = entry.get("name", "?")
+	card.add_child(name_lbl)
+
+	# Beschreibung
+	var desc_lbl := Label.new()
+	desc_lbl.position = Vector2(0, 143)
+	desc_lbl.size     = Vector2(CARD_W, 16)
+	desc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc_lbl.add_theme_font_size_override("font_size", 11)
+	desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	desc_lbl.text = entry.get("desc", "")
+	card.add_child(desc_lbl)
+
+	# Aktions-/Freischalt-Button
+	var btn := Button.new()
+	btn.position = Vector2(10, 168)
+	btn.size     = Vector2(CARD_W - 20, 36)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", 12)
+	if owned:
+		btn.text     = "✓ Freigeschaltet"
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
+		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
+	elif coming:
+		btn.text     = "Bald verfügbar"
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
+		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+	else:
+		btn.text = "🔒 %s 💰" % Economy.format_currency(Economy.get_tile_unlock_cost(key))
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		_style_unlock_btn(btn, Economy.get_currency() >= Economy.get_tile_unlock_cost(key))
+		btn.pressed.connect(_on_tile_unlock.bind(key))
+		_tile_buttons.append({"btn": btn, "key": key})
+	card.add_child(btn)
+
+	return card
+
+
+# Färbt einen Freischalt-Button: leistbar = helleres Blau, sonst gedämpft.
+func _style_unlock_btn(btn: Button, can: bool) -> void:
+	if can:
+		btn.add_theme_stylebox_override("normal",  _sbf(C_ACCENT_MU.darkened(0.2), C_ACCENT))
+		btn.add_theme_stylebox_override("hover",   _sbf(C_ACCENT_MU, C_ACCENT))
+		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
+	else:
+		var sb := _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5))
+		btn.add_theme_stylebox_override("normal",  sb)
+		btn.add_theme_stylebox_override("hover",   sb)
+		btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_color_override("font_color", C_TEXT if can else C_TEXT_DIM)
+
+
+# Aktualisiert nur die Button-Optik (leistbar/nicht leistbar) ohne Neuaufbau der Vorschauen.
+func _refresh_tile_buttons() -> void:
+	for e in _tile_buttons:
+		var btn = e["btn"]
+		if not is_instance_valid(btn):
+			continue
+		var key: String = e["key"]
+		if Economy.is_tile_unlocked(key):
+			continue
+		_style_unlock_btn(btn, Economy.get_currency() >= Economy.get_tile_unlock_cost(key))
+
+
+func _on_tile_unlock(key: String) -> void:
+	if Economy.is_tile_unlocked(key):
+		return
+	var cost := Economy.get_tile_unlock_cost(key)
+	if Economy.spend(cost):
+		Economy.unlock_tile(key)   # → Signal tile_unlocked: Bau-Leiste in Main aktualisiert sich
+		_populate_tiles_grid()     # Karte auf "✓ Freigeschaltet" umstellen
+
+
+# Baut eine kleine 3D-Vorschau (eigene SubViewport-Welt) auf und merkt sich den
+# rotierenden Pivot. Kamera rahmt das Modell automatisch über sein AABB.
+func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_path: String) -> void:
+	var svc := SubViewportContainer.new()
+	svc.position     = pos
+	svc.size         = sz
+	svc.stretch      = true
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(svc)
+
+	var sv := SubViewport.new()
+	sv.size          = Vector2i(int(sz.x), int(sz.y))
+	sv.own_world_3d   = true
+	sv.transparent_bg = false
+	sv.msaa_3d        = Viewport.MSAA_DISABLED
+	svc.add_child(sv)
+
+	var world := Node3D.new()
+	sv.add_child(world)
+
+	var env_node := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode      = Environment.BG_COLOR
+	env.background_color     = Color(0.12, 0.13, 0.18)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color  = Color(0.55, 0.60, 0.70)
+	env.ambient_light_energy = 0.7
+	env_node.environment = env
+	world.add_child(env_node)
+
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-55, -40, 0)
+	key_light.light_energy     = 1.3
+	world.add_child(key_light)
+
+	var cam := Camera3D.new()
+	cam.fov = 40
+	world.add_child(cam)
+
+	var pivot := Node3D.new()
+	world.add_child(pivot)
+	_tile_preview_pivots.append(pivot)
+
+	var model: Node3D = null
+	if model_path != "" and ResourceLoader.exists(model_path):
+		model = (load(model_path) as PackedScene).instantiate()
+	else:
+		model = Node3D.new()
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(1.0, 0.2, 3.0)
+		mi.mesh  = box
+		model.add_child(mi)
+	pivot.add_child(model)
+
+	# Kamera leicht von schräg oben auf das gerahmte Modell ausrichten.
+	var aabb := _calc_aabb(pivot)
+	if aabb.size == Vector3.ZERO:
+		cam.position = Vector3(2.0, 1.6, 3.2)
+		cam.look_at(Vector3.ZERO, Vector3.UP)
+		return
+	var center := aabb.position + aabb.size * 0.5
+	model.position -= center
+	var radius := aabb.size.length() * 0.5
+	var dist := radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.15
+	cam.position = Vector3(dist * 0.35, radius * 0.85, dist)
+	cam.look_at(Vector3.ZERO, Vector3.UP)
 
 
 func _build_cat_placeholder(parent: Control, x: int, h: int, w: int,
@@ -760,6 +1064,7 @@ func _apply_ws_config() -> void:
 # ── Upgrade-Reihen ────────────────────────────────────────────────────────────
 
 func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
+	_upgrade_buttons.clear()
 	var ids = ["speed", "drive_time", "car_count", "endmult", "tilebonus",
 			   "bonus_plus5", "bonus_plus10", "bonus_mult15"]
 	for id in ids:
@@ -812,19 +1117,9 @@ func _make_upgrade_row(id: String, row_w: float) -> Control:
 		buy_btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		buy_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	else:
-		var cost = Economy.get_upgrade_cost(id)
-		buy_btn.text = "⬆  %s 💰" % Economy.format_currency(cost)
-		var can = Economy.can_buy(id)
-		if can:
-			buy_btn.add_theme_stylebox_override("normal",  _sbf(C_ACCENT_MU.darkened(0.2), C_ACCENT))
-			buy_btn.add_theme_stylebox_override("hover",   _sbf(C_ACCENT_MU, C_ACCENT))
-			buy_btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
-		else:
-			buy_btn.add_theme_stylebox_override("normal",   _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
-			buy_btn.add_theme_stylebox_override("hover",    _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
-			buy_btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
-		buy_btn.add_theme_color_override("font_color",          C_TEXT if can else C_TEXT_DIM)
-		buy_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+		buy_btn.text = "⬆  %s 💰" % Economy.format_currency(Economy.get_upgrade_cost(id))
+		_style_upgrade_btn(buy_btn, Economy.can_buy(id))
+		_upgrade_buttons.append({"btn": buy_btn, "id": id})
 	buy_btn.add_theme_font_size_override("font_size", 12)
 	buy_btn.pressed.connect(_on_buy_upgrade.bind(id))
 	row.add_child(buy_btn)
@@ -837,6 +1132,33 @@ func _on_buy_upgrade(id: String) -> void:
 		# Upgrades leben jetzt nur noch im Shop-Tab
 		if _active_modal_tab == 0 and _active_shop_cat == 4:
 			_rebuild_shop_upgrades()
+
+
+# Stil eines Upgrade-Kauf-Buttons (nicht maxed): leistbar = helleres Blau, sonst gedämpft.
+func _style_upgrade_btn(btn: Button, can: bool) -> void:
+	if can:
+		btn.add_theme_stylebox_override("normal",  _sbf(C_ACCENT_MU.darkened(0.2), C_ACCENT))
+		btn.add_theme_stylebox_override("hover",   _sbf(C_ACCENT_MU, C_ACCENT))
+		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
+	else:
+		var sb := _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5))
+		btn.add_theme_stylebox_override("normal",   sb)
+		btn.add_theme_stylebox_override("hover",    sb)
+		btn.add_theme_stylebox_override("disabled", sb)
+	btn.add_theme_color_override("font_color",          C_TEXT if can else C_TEXT_DIM)
+	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+
+
+# Aktualisiert nur die Upgrade-Button-Optik (leistbar/nicht) ohne Zeilen-Neuaufbau.
+func _refresh_upgrade_buttons() -> void:
+	for e in _upgrade_buttons:
+		var btn = e["btn"]
+		if not is_instance_valid(btn):
+			continue
+		var id: String = e["id"]
+		if Economy.is_maxed(id):
+			continue
+		_style_upgrade_btn(btn, Economy.can_buy(id))
 
 
 func _rebuild_shop_upgrades() -> void:

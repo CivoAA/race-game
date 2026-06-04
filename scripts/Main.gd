@@ -182,6 +182,8 @@ func _ready() -> void:
 	GameHUD.set_view_3d(false)
 
 	Economy.run_ended.connect(_on_run_ended_background)
+	# Im Shop (Streckenteile) freigeschaltete Tiles sofort in der Bau-Leiste spiegeln.
+	Economy.tile_unlocked.connect(_on_tile_unlocked)
 
 	if Economy.has_pending_summary(_current_track_idx):
 		_show_run_summary(_current_track_idx)
@@ -762,7 +764,7 @@ func _update_build_ui() -> void:
 
 		var icon = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━━")
 		if locked:
-			lbl.text = "%s\n%s 🔒\n%s 💰 freischalten" % [icon, item["name"], Economy.format_currency(item["unlock"])]
+			lbl.text = "%s\n%s 🔒\nIm Shop freischalten" % [icon, item["name"]]
 		elif item["tier"] == "dirt":
 			lbl.text = "%s\n%s\n+5 · frei" % [icon, item["name"]]
 		elif item["tier"] == "ramp":
@@ -800,19 +802,19 @@ func _update_delete_panel_style() -> void:
 	pass  # Kein separater Delete-Panel mehr
 
 
+# Reaktion auf eine Freischaltung im Shop (Streckenteile): Bau-Leiste auffrischen.
+func _on_tile_unlocked(_key: String) -> void:
+	_update_build_ui()
+	_update_trash_visibility()
+
+
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
 	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
 	var item = SHOP_ITEMS[idx]
 	if not Economy.is_tile_unlocked(item["key"]):
-		# Erster Klick auf eine gesperrte Strecke = einmalig freischalten (kein Platzieren).
-		if Economy.spend(item["unlock"]):
-			Economy.unlock_tile(item["key"])
-			tile_selector.set_status("%s freigeschaltet!" % item["name"])
-			_update_trash_visibility()
-		else:
-			_flash_currency()
-		_update_build_ui()
+		# Freischalten passiert jetzt im Shop → Streckenteile, nicht mehr hier.
+		tile_selector.set_status("🔒 %s im Shop → Streckenteile freischalten" % item["name"])
 		return
 	if placement_mode == "slow":
 		_begin_shop_drag(idx)

@@ -1,8 +1,11 @@
 extends Node3D
 
-const CAM_ANGLE_DEG = 65.0
-const CAM_DISTANCE  = 13.0
-const CAM_FOV       = 60.0
+# Kamera: Elevation = Höhenwinkel über dem Boden (klein = flacher/mehr von der Seite),
+# Azimut = seitliches Herumschwenken um die Streckenmitte (0 = gerade von vorne).
+const CAM_ELEVATION_DEG = 45.0
+const CAM_AZIMUTH_DEG   = 0.0
+const CAM_DISTANCE      = 7.0
+const CAM_FOV           = 60.0
 const SUN_ENERGY    = 1.3
 const SUN_ANGLE_DEG = 55.0
 const GROUND_SIZE   = 24.0
@@ -466,11 +469,13 @@ func _setup_sun() -> void:
 
 func _setup_camera() -> void:
 	camera.fov = CAM_FOV
-	var angle_rad = deg_to_rad(CAM_ANGLE_DEG)
+	var elev = deg_to_rad(CAM_ELEVATION_DEG)
+	var azim = deg_to_rad(CAM_AZIMUTH_DEG)
+	var horiz = CAM_DISTANCE * cos(elev)   # horizontale Entfernung zur Mitte
 	camera.position = Vector3(
-		_track_cx,
-		CAM_DISTANCE * sin(angle_rad),
-		_track_cz + CAM_DISTANCE * cos(angle_rad)
+		_track_cx + horiz * sin(azim),
+		CAM_DISTANCE * sin(elev),
+		_track_cz + horiz * cos(azim)
 	)
 	camera.look_at(Vector3(_track_cx, 0, _track_cz), Vector3.UP)
 

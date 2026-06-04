@@ -86,9 +86,26 @@ var endless_mode: bool = false   # Kein Timer, Geld wird live gutgeschrieben
 signal run_ended(track_idx: int, earned: int)
 # Eine (oder mehrere) Runde(n) wurden gutgeschrieben (Auto über die Startlinie) – Betrag = Summe.
 signal lap_credited(track_idx: int, amount: int)
+# Ein Shop-Tile wurde freigeschaltet (im Streckenteile-Shop) – Bau-Leiste aktualisiert sich daraufhin.
+signal tile_unlocked(key: String)
+# Ein anderer Speicherstand wurde geladen/zurückgesetzt – Slot-abhängige UI (z. B. der
+# Streckenteile-Shop im GlobalModal-Autoload) muss sich daraufhin neu aufbauen.
+signal slot_changed(slot: int)
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
+# Zentrale Freischaltkosten (gemeinsame Quelle für Bau-Shop in Main.gd und den
+# Streckenteile-Tab in GlobalModal.gd). Main.SHOP_ITEMS spiegelt diese Werte.
+const TILE_UNLOCK_COST = {
+	"def_straight": 1500,
+	"def_curve":    3000,
+	"ramp":         50000,
+}
+
+
+func get_tile_unlock_cost(key: String) -> int:
+	return int(TILE_UNLOCK_COST.get(key, 0))
+
 
 func is_tile_unlocked(key: String) -> bool:
 	return key == "" or unlocked_tiles.get(key, false)
@@ -99,6 +116,7 @@ func unlock_tile(key: String) -> void:
 		return
 	unlocked_tiles[key] = true
 	save_game()
+	tile_unlocked.emit(key)
 
 
 func _ready() -> void:
@@ -547,36 +565,42 @@ func load_game() -> void:
 
 func load_game_from_slot(slot: int) -> void:
 	_current_slot = slot
-	var path = get_save_path(slot)
-	if not FileAccess.file_exists(path):
-		return
-	var f = FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return
-	var txt = f.get_as_text()
-	f.close()
-	var data = str_to_var(txt)
-	if typeof(data) != TYPE_DICTIONARY:
-		return
-	_currency      = int(data.get("currency", START_CURRENCY))
-	var ups        = data.get("upgrades", {})
-	upgrade_levels = ups.duplicate() if typeof(ups) == TYPE_DICTIONARY else {}
-	var tr         = data.get("track", [])
-	track          = tr if typeof(tr) == TYPE_ARRAY else []
-	var unl        = data.get("unlocked", {})
-	unlocked_tiles = unl.duplicate() if typeof(unl) == TYPE_DICTIONARY else {}
-	_slot_name     = String(data.get("name", ""))
-	# Multi-Track-Grids laden
+	# Erst auf Standardwerte zurücksetzen, damit KEIN Zustand (z. B. freigeschaltete
+	# Tiles) vom vorher geladenen Slot übrig bleibt – auch wenn die Datei fehlt/defekt ist.
+	_currency      = START_CURRENCY
+	upgrade_levels = {}
+	track          = []
+	unlocked_tiles = {}
+	_slot_name     = ""
 	_init_tracks()
-	var tg = data.get("track_grids", [])
-	if typeof(tg) == TYPE_ARRAY:
-		for i in min(tg.size(), TRACK_COUNT):
-			if typeof(tg[i]) == TYPE_ARRAY:
-				_tracks[i]["grid"] = tg[i]
-	else:
-		# Rückwärtskompatibilität: alten track-State in Track 0 laden
-		if track.size() > 0:
-			_tracks[0]["grid"] = track
+
+	var path = get_save_path(slot)
+	if FileAccess.file_exists(path):
+		var f = FileAccess.open(path, FileAccess.READ)
+		if f != null:
+			var txt = f.get_as_text()
+			f.close()
+			var data = str_to_var(txt)
+			if typeof(data) == TYPE_DICTIONARY:
+				_currency      = int(data.get("currency", START_CURRENCY))
+				var ups        = data.get("upgrades", {})
+				upgrade_levels = ups.duplicate() if typeof(ups) == TYPE_DICTIONARY else {}
+				var tr         = data.get("track", [])
+				track          = tr if typeof(tr) == TYPE_ARRAY else []
+				var unl        = data.get("unlocked", {})
+				unlocked_tiles = unl.duplicate() if typeof(unl) == TYPE_DICTIONARY else {}
+				_slot_name     = String(data.get("name", ""))
+				# Multi-Track-Grids laden
+				var tg = data.get("track_grids", [])
+				if typeof(tg) == TYPE_ARRAY:
+					for i in min(tg.size(), TRACK_COUNT):
+						if typeof(tg[i]) == TYPE_ARRAY:
+							_tracks[i]["grid"] = tg[i]
+				elif track.size() > 0:
+					# Rückwärtskompatibilität: alten track-State in Track 0 laden
+					_tracks[0]["grid"] = track
+
+	slot_changed.emit(slot)
 
 
 func reset_slot(slot: int) -> void:
@@ -588,6 +612,7 @@ func reset_slot(slot: int) -> void:
 	_slot_name     = ""
 	_init_tracks()
 	save_game_to_slot(slot)
+	slot_changed.emit(slot)
 
 
 func rename_slot(slot: int, new_name: String) -> void:
