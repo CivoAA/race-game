@@ -6,10 +6,12 @@ signal lap_progress(running: int)   # laufender Rundenertrag (pro überfahrenem 
 const TILE_SIZE = 1.2
 
 # Ertrag pro überfahrenem Tile:
-#   Standard-/Dreck-Tile (und Start): +5 additiv
-#   Default-Tile (gekauft):           +50 additiv UND ×1.2 multiplikativ
+#   Dreck-Tile:              +1 additiv (per Dreck-Ertrag-Upgrade steigerbar)
+#   Standard-Tile (u. Start): +5 additiv
+#   Default-Tile (gekauft):  +50 additiv UND ×1.2 multiplikativ
 # → lange Strecken mit Default-Tiles lohnen sich überproportional.
-const BASIC_TILE_EARN   = 5.0
+const BASIC_TILE_EARN   = 0.0   # Standard-/Start-Felder: kein Grundertrag (nur Upgrades zählen)
+const DIRT_TILE_EARN    = 1.0   # Dreck-Felder: Grundertrag +1, per Dreck-Upgrade steigerbar
 const PREMIUM_TILE_EARN  = 50.0
 const PREMIUM_TILE_MULT  = 1.2
 
@@ -26,6 +28,10 @@ var start_delay: float = 0.0   # verzögerter Start (gestaffelt bei mehreren Aut
 # Rundenertrag (in _build_waypoints berechnet)
 var lap_base:   float = 0.0
 var tile_count: int   = 0
+var dirt_straight_count: int = 0   # Dreck-Geraden (für das Dreck-Geraden-Upgrade)
+var dirt_curve_count:    int = 0   # Dreck-Kurven (für das Dreck-Kurven-Upgrade)
+var straight_count:      int = 0   # Default-Geraden (für das Geraden-Upgrade)
+var curve_count:         int = 0   # Default-Kurven (für das Kurven-Upgrade)
 
 # ── Bullet-proof Sync: EINE Wahrheitsquelle = Fahrzeit (Economy.run_elapsed) ──────
 # Visuelle Position UND Geld-Runden werden ausschließlich aus der verstrichenen Zeit
@@ -339,11 +345,20 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	var n        = route.size()
 	var cum_add  = 0.0
 	var cum_mult = 1.0
+	dirt_straight_count = 0
+	dirt_curve_count    = 0
+	straight_count      = 0
+	curve_count         = 0
 	_cum_reward = PackedInt32Array()
 	var step_speed := PackedFloat32Array()   # Tempo-Faktor je Step (Booster/Bremse, sonst 1.0)
 	for k in range(n):
 		var d = route[k]["data"]
 		step_speed.append(_tile_speed_factor(d))
+		if typeof(d) == TYPE_DICTIONARY and d.get("is_dirt", false):
+			if d.get("type", "") == "straight":
+				dirt_straight_count += 1
+			else:
+				dirt_curve_count += 1
 		var a = 0.0
 		var m = 1.0
 		if typeof(d) == TYPE_DICTIONARY:
@@ -354,6 +369,12 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			if is_premium:
 				a = PREMIUM_TILE_EARN + d.get("bonus_points", 0.0)
 				m = PREMIUM_TILE_MULT
+				if t == "straight":
+					straight_count += 1
+				else:
+					curve_count += 1
+			elif d.get("is_dirt", false):
+				a = DIRT_TILE_EARN + d.get("bonus_points", 0.0)
 			else:
 				a = BASIC_TILE_EARN + d.get("bonus_points", 0.0)
 			# Sprung-Kreuzung: dieses Tile bringt doppelten (× jump_mult) Ertrag

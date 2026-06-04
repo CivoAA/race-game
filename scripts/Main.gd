@@ -29,7 +29,7 @@ const BUILD_PANEL_BOT = 540 - 42                     # = 498 (Panel reicht bis z
 const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
 
 # Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
-#   tier "dirt"    = kostenlos, Standard-Tile (Ertrag +5 pro überfahrenem Feld)
+#   tier "dirt"    = kostenlos (Ertrag +1 pro Feld, per Dreck-Ertrag-Upgrade steigerbar)
 #   tier "default" = Idle-Preis (steigt je platziertem Tile dieses Typs),
 #                    Ertrag +50 UND ×1.2 pro überfahrenem Feld
 #   tier "ramp"    = Sprung-Paar; verdoppelt den Ertrag eines Tiles im übersprungenen Feld
@@ -38,10 +38,10 @@ const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
 # key/unlock: Default-Tiles & Rampe müssen einmalig freigeschaltet werden (unlock-Preis);
 # der Kaufpreis startet danach bei 20 % des Freischaltpreises (base_price) und skaliert idle.
 const SHOP_ITEMS = [
-	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0},
-	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0},
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 1500,  "base_price": 300,   "growth": 4.0},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 3000,  "base_price": 600,   "growth": 4.0},
+	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
+	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 1500,  "base_price": 300,   "growth": 4.0, "upgrade": "straightbonus"},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 3000,  "base_price": 600,   "growth": 4.0, "upgrade": "curvebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 50000, "base_price": 10000, "growth": 5.0},
 ]
 
@@ -116,10 +116,6 @@ var _run_bar_status:   Label       = null
 var _run_bar_btn:      Button      = null
 var _track_valid:      bool        = false
 
-# Run-Summary-Modal (zeigt sich wenn man auf einen Tab wechselt dessen Run beendet ist)
-var _summary_layer: CanvasLayer = null
-var _summary_lbl:   Label       = null
-
 # Kamera-Pan (mittlere Maustaste)
 var _panning:         bool    = false
 var _pan_start_mouse: Vector2 = Vector2.ZERO
@@ -147,7 +143,6 @@ func _ready() -> void:
 	_setup_run_bar()
 	_setup_build_panel()
 	_setup_build_toggle_btn()
-	_setup_run_summary_modal()
 
 	# TileSelector-Shim aufsetzen NACH Build-Panel (Nodes already created)
 	var shim := _TileSelectorShim.new()
@@ -159,14 +154,13 @@ func _ready() -> void:
 
 	_current_track_idx = Economy.get_active_track()
 	var active_idx := _current_track_idx
+	# Jede Strecke ist eigenständig → IMMER aus dem Per-Track-Grid laden. Vor jedem Wechsel in
+	# die 3D-Ansicht wird die Strecke nach Economy persistiert (_persist_track_for_current);
+	# Legacy-Einzelstrecken migriert load_game_from_slot nach Strecke 1. KEIN streckenüber-
+	# greifender Fallback (sonst übernähme eine leere Strecke den Bauplan einer anderen).
 	var saved_tg := Economy.get_track_grid(active_idx)
-	if Engine.has_meta("saved_grid_state"):
-		_restore_grid(Engine.get_meta("saved_grid_state"))
-		Engine.remove_meta("saved_grid_state")
-	elif saved_tg.size() > 0:
+	if saved_tg.size() > 0:
 		_restore_grid(saved_tg)
-	elif Economy.has_track():
-		_restore_grid(Economy.get_track())
 
 	_update_build_ui()
 	_roll_bonus_fields()
@@ -184,10 +178,11 @@ func _ready() -> void:
 	Economy.run_ended.connect(_on_run_ended_background)
 	# Im Shop (Streckenteile) freigeschaltete Tiles sofort in der Bau-Leiste spiegeln.
 	Economy.tile_unlocked.connect(_on_tile_unlocked)
+	# Tile-Upgrade gekauft → Ertragswert in der Bau-Leiste sofort aktualisieren.
+	Economy.upgrade_purchased.connect(func(_id): _update_build_ui())
 
-	if Economy.has_pending_summary(_current_track_idx):
-		_show_run_summary(_current_track_idx)
-	elif Economy.is_run_active(_current_track_idx):
+	# Das Lauf-Ende-Popup erscheint nur in der 3D-Ansicht (World3D), nie im 2D-Bauplan.
+	if Economy.is_run_active(_current_track_idx):
 		GameHUD.set_build_active(false)
 	_refresh_run_bar()
 
@@ -640,6 +635,12 @@ func _on_tab_changed(idx: int) -> void:
 	# Aktuellen Track mit dem ALTEN Index speichern, BEVOR der Index wechselt
 	Economy.set_track_grid(_current_track_idx, get_grid_state())
 	Economy.save_game()
+
+	# Ist die Zielstrecke in der 3D-Ansicht? Dann Szene wechseln statt im 2D-Bauplan zu bleiben.
+	if GameHUD.is_track_3d(idx):
+		GameHUD.goto_world3d(idx)
+		return
+
 	_current_track_idx = idx
 
 	# Grid des neuen Tabs laden
@@ -664,9 +665,8 @@ func _on_tab_changed(idx: int) -> void:
 	_track_valid = _is_track_valid()
 	_refresh_run_bar()
 
-	if Economy.has_pending_summary(idx):
-		_show_run_summary(idx)
-	elif Economy.is_run_active(idx):
+	# Lauf-Ende-Popup nur in der 3D-Ansicht – beim Tab-Wechsel im 2D-Bauplan nichts zeigen.
+	if Economy.is_run_active(idx):
 		tile_selector.set_status("")
 		GameHUD.set_build_active(false)
 
@@ -710,6 +710,14 @@ func _tile_price(item: Dictionary) -> int:
 		return 0
 	var n = _count_paid_tiles(item["type"])
 	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n)))
+
+
+# Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
+# Dreck-Grundwert 1, Default-Grundwert 50; das zugehörige Upgrade addiert seinen Live-Effekt.
+func _tile_field_earn(item: Dictionary) -> int:
+	# Dreck-Grundwert 1, Default-Grundwert 50; das zugehörige Upgrade addiert seinen Live-Effekt.
+	var base := 1 if item.get("tier", "") == "dirt" else 50
+	return base + int(round(Economy.get_effect(item.get("upgrade", ""))))
 
 
 # Shop-Item (Default/Rampe) zu einem Tile-Typ; curve_alt→Kurve, ramp_*→Rampe. Leer falls keins.
@@ -766,12 +774,12 @@ func _update_build_ui() -> void:
 		if locked:
 			lbl.text = "%s\n%s 🔒\nIm Shop freischalten" % [icon, item["name"]]
 		elif item["tier"] == "dirt":
-			lbl.text = "%s\n%s\n+5 · frei" % [icon, item["name"]]
+			lbl.text = "%s\n%s\n+%d · frei" % [icon, item["name"], _tile_field_earn(item)]
 		elif item["tier"] == "ramp":
 			var dirs = ["→", "↓", "←", "↑"]
 			lbl.text = "%s\n%s %s\n%s 💰" % [icon, item["name"], dirs[ramp_preview_rot / 90], Economy.format_currency(_tile_price(item))]
 		else:
-			lbl.text = "%s\n%s\n+50 ×1.2  %s 💰" % [icon, item["name"], Economy.format_currency(_tile_price(item))]
+			lbl.text = "%s\n%s\n+%d ×1.2  %s 💰" % [icon, item["name"], _tile_field_earn(item), Economy.format_currency(_tile_price(item))]
 
 		var style = StyleBoxFlat.new()
 		style.set_corner_radius_all(4)
@@ -928,19 +936,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		vlbl.add_theme_constant_override("outline_size", 3)
 		vlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		node.add_child(vlbl)
-	elif data["type"] in ["straight", "curve", "curve_alt"]:
-		# Default-Tile (kostet, +50 & ×1.2): goldene Ertrags-Badge
-		var rot_rad = deg_to_rad(data.get("rotation", 0))
-		var elbl = Label.new()
-		elbl.name = "EarnLabel"
-		elbl.text = "+50"
-		elbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-rot_rad)
-		elbl.rotation_degrees = -data.get("rotation", 0)
-		elbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
-		elbl.add_theme_font_size_override("font_size", 12)
-		elbl.add_theme_constant_override("outline_size", 2)
-		elbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-		node.add_child(elbl)
+	# Default-Tiles (straight/curve) zeigen bewusst KEINE Ertrags-Badge mehr.
 
 	# Kombinations-Visuell: self_modulate trifft nur _draw des Tile-Nodes, nicht Kind-Labels
 	var clvl = data.get("combine_level", 0)
@@ -1023,17 +1019,7 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 		tri.color = Color(1.0, 0.5, 0.15) if c_dir == 1 else Color(0.3, 0.65, 1.0)
 		node.add_child(tri)
 
-	# +5 Badge – position gegen Rotation kompensiert, immer lesbar
-	var lbl = Label.new()
-	lbl.name             = "EarnLabel"
-	lbl.text             = "+5"
-	lbl.position         = Vector2(-half + 2.0, -half + 2.0).rotated(-rot_rad)
-	lbl.rotation_degrees = -rot
-	lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 0.4))
-	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.add_theme_constant_override("outline_size", 2)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	node.add_child(lbl)
+	# Dreck-Tiles zeigen bewusst KEINE Ertrags-Badge mehr.
 
 	return node
 
@@ -2279,10 +2265,9 @@ func _on_fahren_pressed() -> void:
 	_persist_track_for_current()
 	Economy.start_run(_current_track_idx)
 	Engine.set_meta("pending_grid_state", _build_drive_state())
-	Engine.set_meta("saved_grid_state",   get_grid_state())
 	Engine.set_meta("active_track_idx",   _current_track_idx)
 	# KEIN "resuming_run" Meta → World3D weiß: frischer Start
-	GameHUD.set_view_3d(true)
+	GameHUD.set_track_3d(_current_track_idx, true)
 	GameHUD.set_build_active(false)
 	var world_scene = load(Paths.SCENE_WORLD3D)
 	if world_scene:
@@ -2293,7 +2278,6 @@ func _switch_to_3d_view() -> void:
 	# Ansicht zu laufender Runde wechseln (kein neuer Run)
 	_persist_track_for_current()
 	Engine.set_meta("active_track_idx", _current_track_idx)
-	Engine.set_meta("saved_grid_state", get_grid_state())
 	Engine.set_meta("resuming_run",     true)
 	# Grid-State aus Economy holen (für Track-Generierung)
 	var track_grid := Economy.get_track_grid(_current_track_idx)
@@ -2301,7 +2285,7 @@ func _switch_to_3d_view() -> void:
 		Engine.set_meta("pending_grid_state", track_grid)
 	else:
 		Engine.set_meta("pending_grid_state", get_grid_state())
-	GameHUD.set_view_3d(true)
+	GameHUD.set_track_3d(_current_track_idx, true)
 	GameHUD.set_build_active(false)
 	var world_scene = load(Paths.SCENE_WORLD3D)
 	if world_scene:
@@ -2563,120 +2547,11 @@ func _ac_in_bounds(cell: Vector2i) -> bool:
 
 
 func _on_run_ended_background(track_idx: int, _earned: int) -> void:
+	# Kein Popup im 2D-Bauplan – das Lauf-Ende-Popup zeigt nur die 3D-Ansicht.
+	# Hier nur die Bau-Leiste aktualisieren, damit ein neuer Lauf gestartet werden kann.
 	if track_idx == _current_track_idx:
-		_show_run_summary(track_idx)
 		_track_valid = _is_track_valid()
 		_refresh_run_bar()
-	# Für andere Tracks: pending_summary in Economy; Summary bei Tab-Wechsel
-
-
-func _setup_run_summary_modal() -> void:
-	_summary_layer = CanvasLayer.new()
-	_summary_layer.layer   = 15
-	_summary_layer.visible = false
-	add_child(_summary_layer)
-
-	const PW := 420
-	const PH := 240
-	const VW := 960
-	const VH := 540
-
-	var dim := ColorRect.new()
-	dim.position = Vector2(0, 0)
-	dim.size     = Vector2(VW, VH)
-	dim.color    = Color(0, 0, 0, 0.65)
-	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	_summary_layer.add_child(dim)
-
-	var panel := Panel.new()
-	panel.position = Vector2((VW - PW) / 2.0, (VH - PH) / 2.0)
-	panel.size     = Vector2(PW, PH)
-	var ps := StyleBoxFlat.new()
-	ps.bg_color            = Color(0.09, 0.10, 0.15)
-	ps.border_width_left   = 3
-	ps.border_color        = C_ACCENT
-	ps.set_corner_radius_all(6)
-	ps.content_margin_left   = 28
-	ps.content_margin_right  = 28
-	ps.content_margin_top    = 24
-	ps.content_margin_bottom = 24
-	panel.add_theme_stylebox_override("panel", ps)
-	_summary_layer.add_child(panel)
-
-	var title := Label.new()
-	title.text     = "LAUF BEENDET"
-	title.position = Vector2(0, 12)
-	title.size     = Vector2(PW, 34)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
-	title.add_theme_color_override("font_color", C_ACCENT)
-	panel.add_child(title)
-
-	var line := ColorRect.new()
-	line.position = Vector2(28, 54)
-	line.size     = Vector2(PW - 56, 1)
-	line.color    = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.3)
-	panel.add_child(line)
-
-	_summary_lbl = Label.new()
-	_summary_lbl.position = Vector2(0, 66)
-	_summary_lbl.size     = Vector2(PW, 46)
-	_summary_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_summary_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_summary_lbl.add_theme_font_size_override("font_size", 26)
-	_summary_lbl.add_theme_color_override("font_color", Color(0.50, 1.0, 0.60))
-	_summary_lbl.add_theme_constant_override("outline_size", 3)
-	_summary_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	panel.add_child(_summary_lbl)
-
-	var info := Label.new()
-	info.text     = "Der Betrag wurde deinem Konto gutgeschrieben."
-	info.position = Vector2(0, 118)
-	info.size     = Vector2(PW, 22)
-	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info.add_theme_font_size_override("font_size", 11)
-	info.add_theme_color_override("font_color", C_TEXT_DIM)
-	panel.add_child(info)
-
-	var ok_btn := Button.new()
-	ok_btn.text     = "✓  OK"
-	ok_btn.position = Vector2(28, 152)
-	ok_btn.size     = Vector2(PW - 56, 48)
-	ok_btn.focus_mode = Control.FOCUS_NONE
-	ok_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var sb_n := StyleBoxFlat.new()
-	sb_n.bg_color = C_SURFACE
-	sb_n.border_width_left = 3
-	sb_n.border_color = C_ACCENT
-	sb_n.set_corner_radius_all(4)
-	sb_n.content_margin_top = 8; sb_n.content_margin_bottom = 8
-	var sb_h := sb_n.duplicate() as StyleBoxFlat
-	sb_h.bg_color = C_SURFACE.lightened(0.06)
-	ok_btn.add_theme_stylebox_override("normal",  sb_n)
-	ok_btn.add_theme_stylebox_override("hover",   sb_h)
-	ok_btn.add_theme_stylebox_override("pressed", sb_n)
-	ok_btn.add_theme_stylebox_override("focus",   sb_n)
-	ok_btn.add_theme_color_override("font_color", C_TEXT)
-	ok_btn.add_theme_font_size_override("font_size", 14)
-	ok_btn.pressed.connect(_close_run_summary)
-	panel.add_child(ok_btn)
-
-
-func _show_run_summary(track_idx: int) -> void:
-	var earned := Economy.get_last_earned(track_idx)
-	Economy.clear_pending_summary(track_idx)
-	if _summary_lbl != null:
-		_summary_lbl.text = "+%s 💰  verdient" % Economy.format_currency(earned)
-	GameHUD.gain_currency(earned)
-	if _summary_layer != null:
-		_summary_layer.visible = true
-
-
-func _close_run_summary() -> void:
-	if _summary_layer != null:
-		_summary_layer.visible = false
-	tile_selector.set_status("")
-	_update_build_ui()
 
 
 # ── TileSelector-Shim (ersetzt die entfernte Sidebar) ─────────────────────────
