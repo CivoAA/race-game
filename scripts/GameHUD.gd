@@ -290,7 +290,12 @@ func _on_tab_pressed(idx: int) -> void:
 	if idx == _active_tab:
 		return
 	_active_tab   = idx
-	_build_active = false
+	# Baumodus über 2D→2D-Streckenwechsel hinweg beibehalten; nur beim Wechsel in eine
+	# 3D-Strecke schließen (dort gibt es kein Baumenü). Main.gd synchronisiert die Sichtbarkeit
+	# des Baupanels in _on_tab_changed an diesen Zustand – sonst bliebe das Panel desynchron
+	# sichtbar und der Schließen-Knopf bräuchte zwei Klicks.
+	if is_track_3d(idx):
+		_build_active = false
 	# Die gezeigte Ansicht richtet sich nach dem gemerkten Modus der Zielstrecke.
 	_is_3d_view   = is_track_3d(idx)
 	Economy.set_active_track(idx)

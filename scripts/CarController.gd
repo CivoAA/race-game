@@ -480,7 +480,17 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) ->
 			_:
 				cx =  half; cz =  half; a_from = PI;        a_to = PI * 1.5
 
-		if type == "curve_alt":
+		# Sweep-Richtung des Bogens an die TATSÄCHLICHE Durchfahrtsrichtung (exit_dir) koppeln,
+		# nicht an den Tile-Typ (curve/curve_alt). Der Vorwärts-Bogen (a_from→a_to) verlässt das
+		# Tile je Rotation Richtung E/S/W/N; fährt das Auto andersherum, Reihenfolge tauschen –
+		# sonst läge der erste Wegpunkt an der Ausgangskante und das Auto würde rückwärts fahren.
+		var fwd_exit := "E"
+		match rot % 360:
+			0:   fwd_exit = "E"
+			90:  fwd_exit = "S"
+			180: fwd_exit = "W"
+			270: fwd_exit = "N"
+		if exit_dir != fwd_exit:
 			var tmp = a_from; a_from = a_to; a_to = tmp
 
 		var steps = 10
