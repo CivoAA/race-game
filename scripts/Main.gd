@@ -178,8 +178,9 @@ func _ready() -> void:
 	Economy.run_ended.connect(_on_run_ended_background)
 	# Im Shop (Streckenteile) freigeschaltete Tiles sofort in der Bau-Leiste spiegeln.
 	Economy.tile_unlocked.connect(_on_tile_unlocked)
-	# Tile-Upgrade gekauft → Ertragswert in der Bau-Leiste sofort aktualisieren.
-	Economy.upgrade_purchased.connect(func(_id): _update_build_ui())
+	# Tile-Upgrade gekauft → Ertragswert in der Bau-Leiste sofort aktualisieren;
+	# Bonusfeld-Kauf zeigt das neue Feld sofort auf dem Grid (nicht erst nach einer Runde).
+	Economy.upgrade_purchased.connect(_on_upgrade_purchased)
 
 	# Das Lauf-Ende-Popup erscheint nur in der 3D-Ansicht (World3D), nie im 2D-Bauplan.
 	if Economy.is_run_active(_current_track_idx):
@@ -264,6 +265,18 @@ func _update_grid_highlight() -> void:
 	else:
 		_grid_highlight.position = _grid_to_world(hr, hc)
 		_grid_highlight.visible  = true
+
+
+# Auswahl bewusst aufheben (zweiter Klick aufs ausgewählte Feld / Rechtsklick ins Leere).
+# Blendet den gelben Rahmen direkt aus – _update_grid_highlight würde sonst auf das zuletzt
+# platzierte Tile zurückfallen und der Rahmen bliebe sichtbar, obwohl das Baumenü abwählt.
+# last_placed bleibt absichtlich erhalten (weiterhin Ziel-Fallback für [R]/[F]/[D]).
+func _clear_grid_selection() -> void:
+	selected_grid_row = -1
+	selected_grid_col = -1
+	if _grid_highlight != null:
+		_grid_highlight.visible = false
+	tile_selector.deselect()
 
 
 # ── Shop UI ────────────────────────────────────────────────────────────────────
@@ -670,6 +683,11 @@ func _on_tab_changed(idx: int) -> void:
 		tile_selector.set_status("")
 		GameHUD.set_build_active(false)
 
+	# Baupanel-Sichtbarkeit an den (maßgeblichen) GameHUD-Zustand angleichen. Ohne diese
+	# Synchronisierung bliebe das Panel nach einem Streckenwechsel sichtbar, obwohl GameHUD
+	# es als geschlossen führt → der Schließen-Knopf würde erst beim zweiten Klick wirken.
+	_on_build_mode_toggled(GameHUD.is_build_active())
+
 
 func _on_view_3d_requested() -> void:
 	if not Economy.is_run_active(_current_track_idx):
@@ -683,14 +701,15 @@ func _persist_track_for_current() -> void:
 	Economy.save_track(state)
 
 
-# Anzahl bereits platzierter Default-Tiles dieses Typs (Kurve zählt curve+curve_alt).
-# Idle-Preise steigen mit dieser Anzahl.
-func _count_paid_tiles(type: String) -> int:
+# Anzahl platzierter Default-Tiles dieses Typs in EINEM Grid (Kurve zählt curve+curve_alt).
+# Akzeptiert sowohl das Live-Grid (leer = null) als auch ein gespeichertes Track-Grid (leer = "").
+func _count_paid_tiles_in(g: Array, type: String) -> int:
 	var n = 0
-	for r in range(GRID_ROWS):
-		for c in range(GRID_COLS):
-			var d = grid[r][c]
-			if d == null or d.get("is_dirt", false) or d.get("is_start", false):
+	for r in range(g.size()):
+		var row = g[r]
+		for c in range(row.size()):
+			var d = row[c]
+			if typeof(d) != TYPE_DICTIONARY or d.get("is_dirt", false) or d.get("is_start", false):
 				continue
 			var t = d.get("type", "")
 			if type == "ramp":
@@ -702,6 +721,20 @@ func _count_paid_tiles(type: String) -> int:
 			elif t == type:
 				n += 1
 	return n
+
+
+# Anzahl bereits platzierter Default-Tiles dieses Typs über ALLE Strecken.
+# Die Idle-Preise steigen streckenübergreifend: jede Strecke hat denselben Preis, sodass man
+# sich entscheiden muss, auf welcher Strecke man wie viele Tiles baut (kein billiger Neustart
+# je Strecke). Aktuelle Strecke aus dem Live-Grid, übrige aus den gespeicherten Track-Grids.
+func _count_paid_tiles(type: String) -> int:
+	var total = 0
+	for ti in range(Economy.TRACK_COUNT):
+		if ti == _current_track_idx:
+			total += _count_paid_tiles_in(grid, type)
+		else:
+			total += _count_paid_tiles_in(Economy.get_track_grid(ti), type)
+	return total
 
 
 # Aktueller Preis eines Shop-Items (Dreck = 0, Default/Rampe = idle-skalierend).
@@ -814,6 +847,14 @@ func _update_delete_panel_style() -> void:
 func _on_tile_unlocked(_key: String) -> void:
 	_update_build_ui()
 	_update_trash_visibility()
+
+
+# Reaktion auf einen Upgrade-Kauf: Bau-Leiste auffrischen; bei Bonusfeldern (im Shop gekauft)
+# sofort neu würfeln, damit das gekaufte Feld unmittelbar auf einem bebauten Tile erscheint.
+func _on_upgrade_purchased(id: String) -> void:
+	_update_build_ui()
+	if id.begins_with("bonus_"):
+		_roll_bonus_fields()
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
@@ -1003,21 +1044,7 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 		arc.polygon = pts
 		arc.color   = soil
 		node.add_child(arc)
-		# Fahrtrichtungs-Pfeil entlang des Bogens (wie bei den normalen Kurven:
-		# direction 1 = curve/orange, -1 = curve_alt/blau). Node-Rotation orientiert mit.
-		var c_dir   = data.get("direction", 1)
-		var a_mid   = PI * 1.25
-		var arr_pos = center + Vector2(cos(a_mid), sin(a_mid)) * half
-		var tangent = a_mid + PI / 2.0 * c_dir
-		var s       = 9.0
-		var tri = Polygon2D.new()
-		tri.polygon = PackedVector2Array([
-			arr_pos + Vector2(cos(tangent), sin(tangent)) * s,
-			arr_pos + Vector2(cos(tangent + 2.4), sin(tangent + 2.4)) * s * 0.6,
-			arr_pos + Vector2(cos(tangent - 2.4), sin(tangent - 2.4)) * s * 0.6,
-		])
-		tri.color = Color(1.0, 0.5, 0.15) if c_dir == 1 else Color(0.3, 0.65, 1.0)
-		node.add_child(tri)
+		# Kein Richtungspfeil mehr – die Fahrtrichtung ergibt sich automatisch aus dem Streckenfluss.
 
 	# Dreck-Tiles zeigen bewusst KEINE Ertrags-Badge mehr.
 
@@ -1156,10 +1183,7 @@ func _input(event: InputEvent) -> void:
 			if rc != null and not rc.get("is_start", false):
 				_delete_tile_at(cell.x, cell.y)
 			elif selected_grid_row >= 0:
-				selected_grid_row = -1
-				selected_grid_col = -1
-				_update_grid_highlight()
-				tile_selector.deselect()
+				_clear_grid_selection()
 
 	# Beim Ziehen (Shop oder Grid) verändern [R]/[F] das gezogene Teil selbst „in der Hand"
 	# – nicht das auf dem Feld liegende/markierte. Wirkt erst beim Ablegen aufs Grid.
@@ -1204,6 +1228,10 @@ func _input_slow_mouse(event: InputEvent) -> void:
 				_begin_grid_drag()
 		if _drag_active and _drag_ghost != null:
 			_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
+		elif not _drag_active and not _grid_drag_pending:
+			# Nichts „in der Hand" → das Tile unter der Maus automatisch auswählen, damit es
+			# direkt per [R]/[F] gedreht/gewendet werden kann (kein Linksklick zum Auswählen nötig).
+			_update_hover_selection(get_global_mouse_position())
 		return
 
 	if not (event is InputEventMouseButton):
@@ -1280,10 +1308,7 @@ func _slow_right_click(global_pos: Vector2) -> void:
 	if rc != null and not rc.get("is_start", false):
 		_delete_tile_at(cell.x, cell.y)
 	elif selected_grid_row >= 0:
-		selected_grid_row = -1
-		selected_grid_col = -1
-		_update_grid_highlight()
-		tile_selector.deselect()
+		_clear_grid_selection()
 
 
 # Klick (ohne Ziehen) auf ein platziertes Tile → Auswahl umschalten.
@@ -1294,12 +1319,45 @@ func _slow_click_select(row: int, col: int) -> void:
 	if d == null or d.get("is_start", false):
 		return
 	if selected_grid_row == row and selected_grid_col == col:
-		selected_grid_row = -1
-		selected_grid_col = -1
-		_update_grid_highlight()
-		tile_selector.deselect()
+		_clear_grid_selection()
 	else:
 		_select_grid_tile(row, col)
+
+
+# Slow-Modus: Highlight dem Feld unter der Maus folgen lassen (Hover-Auswahl). Bewusst
+# leichtgewichtig – setzt nur die Auswahl, das Highlight und den Status, ohne last_placed
+# oder die Bau-Leiste anzufassen (würde sonst bei jeder Mausbewegung neu aufgebaut).
+# Auch leere Zellen und das Start-Tile bekommen den gelben Rahmen (rein visuell – Drehen/
+# Verschieben/Löschen sind dort ohnehin gesperrt). Nur außerhalb des Grids → Auswahl weg.
+func _update_hover_selection(global_pos: Vector2) -> void:
+	var row := -1
+	var col := -1
+	var local := grid_node.to_local(global_pos)
+	if local.x >= 0 and local.y >= 0 and local.x < GRID_COLS * TILE_SIZE and local.y < GRID_ROWS * TILE_SIZE:
+		var cell := _world_to_grid(local)
+		if _is_valid_cell(cell):
+			row = cell.x
+			col = cell.y
+	if row == selected_grid_row and col == selected_grid_col:
+		return  # keine Änderung – nichts neu zeichnen
+	selected_grid_row = row
+	selected_grid_col = col
+	if row < 0:
+		# Über keinem Feld (außerhalb des Grids) → gar kein Highlight. Im Slow-Modus folgt der
+		# Rahmen strikt der Maus, KEIN Rückfall auf das zuletzt platzierte Tile (den nähme sonst
+		# _update_grid_highlight vor).
+		if _grid_highlight != null:
+			_grid_highlight.visible = false
+		tile_selector.deselect()
+		return
+	_update_grid_highlight()
+	var d = grid[row][col]
+	if d == null:
+		tile_selector.set_status("Leer")
+	elif d.get("is_start", false):
+		tile_selector.set_status("Start-Tile")
+	else:
+		tile_selector.set_status(_type_display_name(d["type"]))
 
 
 func _begin_shop_drag(idx: int) -> void:
@@ -1375,10 +1433,7 @@ func _drop_grid_drag(global_pos: Vector2) -> void:
 	if not ok:
 		# Snap-back: passt nicht / außerhalb → Original (inkl. ursprünglicher Drehung) zurück.
 		_set_drag_source_visible(true)
-		selected_grid_row = -1
-		selected_grid_col = -1
-		_update_grid_highlight()
-		tile_selector.deselect()
+		_clear_grid_selection()
 
 
 # Legt das gezogene Grid-Tile mit seiner „in der Hand" geänderten Ausrichtung (_drag_data) ab.
@@ -1695,8 +1750,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 			target_r = cell_data.get("ramp_partner_row", row)
 			target_c = cell_data.get("ramp_partner_col", col)
 		if selected_grid_row == target_r and selected_grid_col == target_c:
-			selected_grid_row = -1; selected_grid_col = -1
-			_update_grid_highlight(); tile_selector.deselect()
+			_clear_grid_selection()
 		else:
 			selected_grid_row = target_r; selected_grid_col = target_c
 			_update_grid_highlight()
@@ -1708,10 +1762,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 		if cell_data == null:
 			_move_selected_tile_to(row, col)
 		elif selected_grid_row == row and selected_grid_col == col:
-			selected_grid_row = -1
-			selected_grid_col = -1
-			_update_grid_highlight()
-			tile_selector.deselect()
+			_clear_grid_selection()
 		else:
 			_select_grid_tile(row, col)
 		return
@@ -2319,7 +2370,8 @@ func _bonus_signature() -> String:
 	]
 
 
-# Würfelt die Bonusfelder neu (auf leere Zellen, ohne sich gegenseitig zu überschreiben).
+# Würfelt die Bonusfelder neu – bevorzugt auf bebaute Fahrkacheln, sonst auf leere Zellen,
+# ohne sich gegenseitig zu überschreiben.
 func _roll_bonus_fields() -> void:
 	for n in _bonus_marker_nodes:
 		if is_instance_valid(n):
@@ -2334,13 +2386,21 @@ func _roll_bonus_fields() -> void:
 	if to_place.is_empty():
 		return
 
-	# Kandidaten: leere Zellen (Start-Tile + belegte Zellen sind dadurch ausgenommen)
-	var cells: Array = []
+	# Kandidaten: Bonusfelder wirken nur auf überfahrene Tiles (siehe _build_drive_state +
+	# CarController), deshalb BEVORZUGT bebaute Fahrkacheln. Solange ein bebautes Tile (außer
+	# Start) noch frei ist, landet der Bonus dort; erst danach dienen leere Zellen als Reserve.
+	# Innerhalb jeder Gruppe wird gewürfelt → weiterhin zufällige Position.
+	var built: Array = []
+	var empty: Array = []
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
 			if grid[r][c] == null:
-				cells.append(Vector2i(r, c))
-	cells.shuffle()
+				empty.append(Vector2i(r, c))
+			elif not grid[r][c].get("is_start", false):
+				built.append(Vector2i(r, c))
+	built.shuffle()
+	empty.shuffle()
+	var cells: Array = built + empty
 
 	var idx = 0
 	for eff in to_place:
@@ -2406,23 +2466,10 @@ func _is_track_valid() -> bool:
 		var entry = _ac_opp(exit_dir)
 		var nxt_exit = _ac_through(nxt_data, entry)
 		if nxt_exit == "": return false
-		var t = nxt_data.get("type", "")
-		if (t == "curve" or t == "curve_alt") and not _is_curve_dir_ok(nxt_data, entry):
-			return false
+		# Kurven sind in BEIDE Richtungen befahrbar (gleiche Bogenform); die Fahrtrichtung ergibt
+		# sich im 3D-Lauf automatisch aus dem Streckenfluss. Daher KEINE Richtungs-Ablehnung mehr –
+		# eine geschlossene Runde genügt.
 		row = nxt.x; col = nxt.y; exit_dir = nxt_exit
-	return false
-
-
-# curve/curve_alt: prüft ob das Tile in die richtige Richtung zeigt.
-# Jede Rotation hat genau einen korrekten Eintritt pro Kurventyp.
-func _is_curve_dir_ok(data: Dictionary, entry: String) -> bool:
-	var rot = int(data.get("rotation", 0)) % 360
-	var t   = data["type"]
-	match rot:
-		0:   return (t == "curve" and entry == "S") or (t == "curve_alt" and entry == "E")
-		90:  return (t == "curve" and entry == "W") or (t == "curve_alt" and entry == "S")
-		180: return (t == "curve" and entry == "N") or (t == "curve_alt" and entry == "W")
-		270: return (t == "curve" and entry == "E") or (t == "curve_alt" and entry == "N")
 	return false
 
 
@@ -2552,6 +2599,8 @@ func _on_run_ended_background(track_idx: int, _earned: int) -> void:
 	if track_idx == _current_track_idx:
 		_track_valid = _is_track_valid()
 		_refresh_run_bar()
+		# Bonusfelder nach jeder Runde neu würfeln (weiterhin zufällig, bebaute Tiles bevorzugt).
+		_roll_bonus_fields()
 
 
 # ── TileSelector-Shim (ersetzt die entfernte Sidebar) ─────────────────────────
