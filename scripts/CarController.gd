@@ -15,6 +15,9 @@ const PREMIUM_TILE_MULT  = 1.2
 
 var speed: float = 2.5
 
+# Track-Index dieses Autos – Quelle der Fahrzeit (Economy.get_run_elapsed). Von World3D gesetzt.
+var track_idx: int = 0
+
 # Pro-Auto-Parameter (von World3D vor start() gesetzt)
 var end_mult:    float = 1.0   # Multiplikator auf den Rundenertrag
 var tile_bonus:  float = 0.0   # + je überfahrenem Tile
@@ -23,10 +26,17 @@ var start_delay: float = 0.0   # verzögerter Start (gestaffelt bei mehreren Aut
 # Rundenertrag (in _build_waypoints berechnet)
 var lap_base:   float = 0.0
 var tile_count: int   = 0
-var _delay_remaining: float = 0.0
+
+# ── Bullet-proof Sync: EINE Wahrheitsquelle = Fahrzeit (Economy.run_elapsed) ──────
+# Visuelle Position UND Geld-Runden werden ausschließlich aus der verstrichenen Zeit
+# über eine pro-Segment-Zeittabelle abgeleitet. Dadurch ist das Auto visuell immer
+# genau dann auf dem Start-Tile, wenn Economy eine Runde gutschreibt – bei jedem Tempo.
+var lap_time: float = 0.0                              # Zeit für eine volle Runde (Summe seg_time)
+var _seg_time: PackedFloat32Array = PackedFloat32Array()  # Dauer je Wegpunkt-Segment
+var _cum_time: PackedFloat32Array = PackedFloat32Array()  # Zeit, zu der wp[i] erreicht wird
+var _last_lap: int = 0                                 # zuletzt gemeldete Rundennummer
 
 var waypoints: Array[Vector3] = []
-var current_wp: int = 0
 var driving: bool = false
 var car: Node3D = null
 
@@ -34,6 +44,7 @@ var car: Node3D = null
 var _wp_to_step: PackedInt32Array = PackedInt32Array()
 var _cum_reward: PackedInt32Array = PackedInt32Array()
 var _cur_step: int = -1
+var _emitted_step: int = -1   # zuletzt per lap_progress gemeldeter Step (Entprellung)
 
 const MODEL_ROTATION_OFFSET = PI / 2.0
 
@@ -59,53 +70,45 @@ func _ready() -> void:
 
 func start(grid_state: Array, resume_elapsed: float = 0.0) -> void:
 	waypoints = _build_waypoints(grid_state)
-	if waypoints.size() < 2:
+	if waypoints.size() < 2 or lap_time <= 0.0:
 		push_warning("Keine gültige Route – mind. 2 verbundene Tiles nötig.")
 		return
-	_cur_step = -1
+	_cur_step     = -1
+	_emitted_step = -1
+	_yaw_init     = false
 	# Effektiv bereits gefahrene Zeit dieses Autos (gestaffelten Startversatz abziehen).
-	var eff := resume_elapsed - start_delay
-	if eff <= 0.0:
+	var t := resume_elapsed - start_delay
+	if t <= 0.0:
 		# Frischer Start – oder das Auto wartet noch auf seinen versetzten Start.
-		car.position     = waypoints[0]
-		current_wp       = 1
-		_delay_remaining = -eff   # = start_delay - resume_elapsed, immer >= 0
-	else:
-		# Wiederaufnahme nach 2D↔3D-Wechsel: Position aus zurückgelegter Strecke
-		# (verstrichene Zeit × Tempo) entlang der geschlossenen Route ableiten.
-		_place_at_arc_distance(eff * speed)
-		_delay_remaining = 0.0
-	driving = true
-	print("Route: %d Wegpunkte (resume %.1fs)" % [waypoints.size(), resume_elapsed])
-
-
-# Setzt das Auto auf die geschlossene Wegpunkt-Schleife an die Stelle, die der zurück-
-# gelegten Bogenlänge (modulo Rundenlänge) entspricht, und wählt den nächsten Zielwegpunkt.
-func _place_at_arc_distance(dist: float) -> void:
-	var n := waypoints.size()
-	var total := 0.0
-	var seglen := PackedFloat32Array()
-	for i in range(n):
-		var l := waypoints[i].distance_to(waypoints[(i + 1) % n])
-		seglen.append(l)
-		total += l
-	if total <= 0.0:
 		car.position = waypoints[0]
-		current_wp   = 1
+		_last_lap    = 0
+	else:
+		# Wiederaufnahme nach 2D↔3D-Wechsel: Position rein aus der Fahrzeit ableiten.
+		_sample_at_time(t)
+		_last_lap = int(floor(t / lap_time))
+	_prev_car_y = car.position.y
+	driving = true
+	print("Route: %d Wegpunkte, lap_time %.2fs (resume %.1fs)" % [waypoints.size(), lap_time, resume_elapsed])
+
+
+# Setzt das Auto rein aus der verstrichenen Fahrzeit (mod Rundenzeit) auf die geschlossene
+# Schleife. Nutzt die Segment-Zeittabelle – dadurch identisch zur Geld-Abrechnung in Economy,
+# unabhängig von Tempo, Framerate oder (künftig) Booster-/Brems-Tiles.
+func _sample_at_time(t: float) -> void:
+	var n := waypoints.size()
+	if n < 2 or lap_time <= 0.0:
 		return
-	var d := fmod(dist, total)
-	var acc := 0.0
+	var t_in_lap := fmod(t, lap_time)
+	if t_in_lap < 0.0:
+		t_in_lap += lap_time
 	for i in range(n):
-		if d <= acc + seglen[i] or i == n - 1:
-			var f := (d - acc) / seglen[i] if seglen[i] > 0.0 else 0.0
+		var st := _seg_time[i]
+		if t_in_lap <= _cum_time[i] + st or i == n - 1:
+			var f := (t_in_lap - _cum_time[i]) / st if st > 0.0 else 0.0
 			car.position = waypoints[i].lerp(waypoints[(i + 1) % n], clampf(f, 0.0, 1.0))
-			current_wp   = (i + 1) % n
 			if i < _wp_to_step.size():
 				_cur_step = _wp_to_step[i]
 			return
-		acc += seglen[i]
-	car.position = waypoints[0]
-	current_wp   = 1
 
 
 func stop() -> void:
@@ -117,50 +120,55 @@ func _on_lap_completed() -> void:
 	lap_completed.emit(reward)
 
 
-# Meldet den laufenden Rundenertrag, sobald das Auto ein neues Tile betritt.
+# Meldet den laufenden Rundenertrag, sobald das Auto ein neues Tile (Step) betritt.
 func _emit_progress_if_changed() -> void:
-	if _wp_to_step.is_empty() or current_wp < 0 or current_wp >= _wp_to_step.size():
-		return
-	var st = _wp_to_step[current_wp]
-	if st != _cur_step:
-		_cur_step = st
-		lap_progress.emit(_cum_reward[st])
+	if _cur_step != _emitted_step and _cur_step >= 0 and _cur_step < _cum_reward.size():
+		_emitted_step = _cur_step
+		lap_progress.emit(_cum_reward[_cur_step])
 
 
 func _process(delta: float) -> void:
-	if not driving or waypoints.is_empty():
-		return
-	if _delay_remaining > 0.0:
-		_delay_remaining -= delta
+	if not driving or waypoints.is_empty() or lap_time <= 0.0:
 		return
 
-	var target = waypoints[current_wp]
-	var dir    = target - car.position
-	var dist   = dir.length()
-
-	if dist < 0.04:
-		var nxt = (current_wp + 1) % waypoints.size()
-		if nxt < current_wp:   # Wegpunkt-Liste umgebrochen → eine Runde fertig
-			_on_lap_completed()
-			_cur_step = -1     # Runden-Anzeige für die nächste Runde zurücksetzen
-		current_wp = nxt
-		_emit_progress_if_changed()
+	# EINE Wahrheitsquelle: Fahrzeit aus Economy (läuft in 2D wie 3D identisch weiter).
+	var t := Economy.get_run_elapsed(track_idx) - start_delay
+	if t < 0.0:
+		# Gestaffelter Start – dieses Auto wartet noch am Start-Tile.
+		car.position = waypoints[0]
 		return
 
-	car.position += dir.normalized() * speed * delta
+	var prev_pos := car.position
+	_sample_at_time(t)
 
-	var flat_dir = Vector3(dir.x, 0, dir.z).normalized()
-	if flat_dir.length() > 0.001:
-		var new_yaw = atan2(flat_dir.x, flat_dir.z)
+	# Runden zählen → Anzeige zurücksetzen (die Gutschrift macht zentral Economy aus
+	# derselben t/lap_time, daher visuell exakt auf dem Start-Tile und nicht doppelt).
+	var lap := int(floor(t / lap_time))
+	if lap > _last_lap:
+		_last_lap     = lap
+		_emitted_step = -1   # erzwingt Neu-Emit der Runden-Anzeige für die neue Runde
+		_on_lap_completed()
+	_emit_progress_if_changed()
+
+	_update_orientation(prev_pos, delta)
+
+
+# Visuelle Ausrichtung (Yaw) + Kurvenneigung (Roll) + Rampenneigung (Pitch) aus der
+# tatsächlichen Positionsänderung – funktioniert unverändert mit dem Zeit-Sampling.
+func _update_orientation(prev_pos: Vector3, delta: float) -> void:
+	var dir := car.position - prev_pos
+	var flat_dir := Vector3(dir.x, 0, dir.z)
+	if flat_dir.length() > 0.0001:
+		var new_yaw := atan2(flat_dir.x, flat_dir.z)
 		car.rotation.y = new_yaw + MODEL_ROTATION_OFFSET
 
 		# ── Kurvenneigung (Roll) ──────────────────────────────────────────
 		if _yaw_init:
-			var dyaw = new_yaw - _prev_yaw
+			var dyaw := new_yaw - _prev_yaw
 			if dyaw >  PI: dyaw -= 2.0 * PI
 			if dyaw < -PI: dyaw += 2.0 * PI
-			var yaw_rate  = dyaw / max(delta, 0.001)
-			var roll_t    = clamp(-yaw_rate * ROLL_FACTOR, -ROLL_MAX, ROLL_MAX)
+			var yaw_rate  := dyaw / maxf(delta, 0.001)
+			var roll_t    := clampf(-yaw_rate * ROLL_FACTOR, -ROLL_MAX, ROLL_MAX)
 			car.rotation.z = lerp(car.rotation.z, roll_t, delta * ROLL_SMOOTH)
 		else:
 			car.rotation.z = lerp(car.rotation.z, 0.0, delta * ROLL_SMOOTH)
@@ -168,8 +176,8 @@ func _process(delta: float) -> void:
 		_yaw_init  = true
 
 	# ── Rampen-Neigung (Pitch) ────────────────────────────────────────────
-	var vy      = (car.position.y - _prev_car_y) / max(delta, 0.001)
-	var pitch_t = clamp(vy * PITCH_FACTOR, -PITCH_MAX, PITCH_MAX)
+	var vy      := (car.position.y - _prev_car_y) / maxf(delta, 0.001)
+	var pitch_t := clampf(vy * PITCH_FACTOR, -PITCH_MAX, PITCH_MAX)
 	car.rotation.x = lerp(car.rotation.x, pitch_t, delta * PITCH_SMOOTH)
 	_prev_car_y = car.position.y
 
@@ -332,8 +340,10 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	var cum_add  = 0.0
 	var cum_mult = 1.0
 	_cum_reward = PackedInt32Array()
+	var step_speed := PackedFloat32Array()   # Tempo-Faktor je Step (Booster/Bremse, sonst 1.0)
 	for k in range(n):
 		var d = route[k]["data"]
+		step_speed.append(_tile_speed_factor(d))
 		var a = 0.0
 		var m = 1.0
 		if typeof(d) == TYPE_DICTIONARY:
@@ -372,7 +382,36 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			_wp_to_step.append(si)
 		wps.append_array(tile_wps)
 
+	# Segment-Zeittabelle bauen: Position UND Geld leiten sich ab jetzt nur noch hieraus ab.
+	_build_time_table(wps, step_speed)
 	return wps
+
+
+# Tempo-Faktor eines Tiles (1.0 = normal). Booster-/Brems-Tiles setzen später "speed_mult"
+# in ihrem Tile-Dictionary; lap_time und visuelle Position passen sich automatisch an.
+func _tile_speed_factor(data) -> float:
+	if typeof(data) == TYPE_DICTIONARY:
+		return maxf(0.05, float(data.get("speed_mult", 1.0)))
+	return 1.0
+
+
+# Pro Wegpunkt-Segment: Dauer = Länge ÷ (Tempo × Tile-Faktor). lap_time = Summe aller Dauern.
+# Das ist die EINE Wahrheitsquelle für visuelle Position (_sample_at_time) und Geld
+# (Economy._credit_laps bekommt dasselbe lap_time von World3D).
+func _build_time_table(wps: Array[Vector3], step_speed: PackedFloat32Array) -> void:
+	var n := wps.size()
+	_seg_time = PackedFloat32Array()
+	_cum_time = PackedFloat32Array()
+	var acc := 0.0
+	for i in range(n):
+		_cum_time.append(acc)
+		var seg_len := wps[i].distance_to(wps[(i + 1) % n])
+		var stp := _wp_to_step[i] if i < _wp_to_step.size() else 0
+		var factor : float = step_speed[stp] if stp < step_speed.size() else 1.0
+		var seg_speed : float = maxf(0.01, speed * factor)
+		_seg_time.append(seg_len / seg_speed)
+		acc += seg_len / seg_speed
+	lap_time = acc
 
 
 func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String) -> Array[Vector3]:
