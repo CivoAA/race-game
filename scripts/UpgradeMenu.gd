@@ -8,7 +8,7 @@ signal closed
 # Kategorien (Reihenfolge = Tab-Reihenfolge). Pro-Auto-Tabs sind aktuell entfernt;
 # Tempo/End-Mult/Tile-Bonus liegen global unter "Allgemeines". Streckengröße: später per Prestige.
 const GENERAL_CATEGORIES = [
-	{"name": "Allgemeines", "ids": ["speed", "drive_time", "endmult", "tilebonus", "car_count"]},
+	{"name": "Allgemeines", "ids": ["tilebonus", "speed", "drive_time", "endmult", "car_count"]},
 	{"name": "Bonusfelder", "ids": ["bonus_plus5", "bonus_plus10", "bonus_mult15"]},
 ]
 const VIEW_W = 960

@@ -1112,7 +1112,7 @@ func _apply_ws_config() -> void:
 
 func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 	_upgrade_buttons.clear()
-	var ids = ["speed", "drive_time", "car_count", "endmult", "tilebonus",
+	var ids = ["tilebonus", "speed", "drive_time", "car_count", "endmult",
 			   "bonus_plus5", "bonus_plus10", "bonus_mult15"]
 	for id in ids:
 		if Economy.UPGRADES[id].get("category", "") == "hidden":
