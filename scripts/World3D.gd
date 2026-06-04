@@ -377,6 +377,7 @@ func _start_cars(grid_state: Array) -> void:
 	for i in range(count):
 		var ctrl = Node3D.new()
 		ctrl.set_script(script)
+		ctrl.track_idx   = _active_track_idx
 		ctrl.speed       = Economy.get_car_speed(i)
 		ctrl.end_mult    = Economy.get_car_end_mult(i)
 		ctrl.tile_bonus  = Economy.get_car_tile_bonus(i)
@@ -394,19 +395,16 @@ func _start_cars(grid_state: Array) -> void:
 	# Auto-Parameter für die runden-basierte Abrechnung an Economy übergeben:
 	# lap_time (geschlossene Rundenlänge ÷ Tempo), Ertrag je Runde und Startversatz.
 	# Damit kann Economy die Startlinien-Überquerungen exakt – auch im 2D-Hintergrund – abrechnen.
+	# lap_time kommt jetzt DIREKT aus dem Auto (gleiche Segment-Zeittabelle, die auch die
+	# visuelle Position bestimmt) → Geld-Runde fällt exakt mit der sichtbaren Start-Überfahrt
+	# zusammen, bei jedem Tempo und (künftig) mit Booster-Tiles.
 	var cars: Array = []
 	for ctrl in car_controllers:
-		var n: int = ctrl.waypoints.size()
-		if n < 2 or float(ctrl.speed) <= 0.0:
-			continue
-		var loop_len: float = 0.0
-		for j in range(n):
-			loop_len += ctrl.waypoints[j].distance_to(ctrl.waypoints[(j + 1) % n])
-		if loop_len <= 0.0:
+		if ctrl.waypoints.size() < 2 or float(ctrl.lap_time) <= 0.0:
 			continue
 		var reward: int = int(round((float(ctrl.lap_base) + float(ctrl.tile_bonus) * float(ctrl.tile_count)) * float(ctrl.end_mult)))
 		cars.append({
-			"lap_time":    loop_len / float(ctrl.speed),
+			"lap_time":    float(ctrl.lap_time),
 			"reward":      reward,
 			"start_delay": float(ctrl.start_delay),
 		})
