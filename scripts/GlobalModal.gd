@@ -44,6 +44,7 @@ var _tiles_grid:          GridContainer = null
 var _tiles_dirty:         bool          = false
 # Freischalt-/Kauf-Buttons (nur noch nicht erworbene) für günstiges Nachfärben bei Geldänderung.
 var _tile_buttons:        Array         = []   # je {btn, key}
+var _tile_upgrade_buttons: Array        = []   # je {btn, id} – Upgrade-Buttons freigeschalteter Tiles
 var _upgrade_buttons:     Array         = []   # je {btn, id}
 var _last_currency_seen:  int           = -1
 
@@ -289,10 +290,10 @@ func _show_shop_cat(idx: int) -> void:
 #   coming true  → noch nicht verfügbar (Button deaktiviert)
 func _tile_entries() -> Array:
 	return [
-		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+5 Ertrag · frei"},
-		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+5 Ertrag · frei", "film": true},
-		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+50 Ertrag · ×1.2"},
-		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+50 Ertrag · ×1.2"},
+		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+1 Ertrag · frei", "upgrade": "dirtstraightbonus", "field_earn_base": 1},
+		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+1 Ertrag · frei", "film": true, "upgrade": "dirtcurvebonus", "field_earn_base": 1},
+		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+50 Ertrag · ×1.2", "upgrade": "straightbonus", "field_earn_base": 50},
+		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+50 Ertrag · ×1.2", "upgrade": "curvebonus", "field_earn_base": 50},
 		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung"},
 		{"name": "Schikane",     "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 		{"name": "Steilkurve",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
@@ -351,6 +352,7 @@ func _populate_tiles_grid() -> void:
 		return
 	_tile_preview_pivots.clear()
 	_tile_buttons.clear()
+	_tile_upgrade_buttons.clear()
 	for c in _tiles_grid.get_children():
 		c.queue_free()
 	for entry in _tile_entries():
@@ -401,6 +403,9 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	var key:    String = entry.get("key", "")
 	var coming: bool   = entry.get("coming", false)
 	var owned:  bool   = (not coming) and Economy.is_tile_unlocked(key)
+	# Freigeschaltete Tiles mit zugehörigem Upgrade lassen sich hier direkt steigern.
+	var upg_id: String = entry.get("upgrade", "")
+	var has_upg: bool  = owned and upg_id != ""
 
 	var card := Panel.new()
 	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
@@ -428,7 +433,18 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	desc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc_lbl.add_theme_font_size_override("font_size", 11)
 	desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	desc_lbl.text = entry.get("desc", "")
+	if has_upg:
+		# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
+		var base_e := int(entry.get("field_earn_base", 0))
+		var lv     := Economy.get_upgrade_level(upg_id)
+		var cur    := base_e + int(round(Economy.get_effect(upg_id, lv)))
+		if Economy.is_maxed(upg_id):
+			desc_lbl.text = "Ertrag/Feld: +%d (MAX)" % cur
+		else:
+			var nxt := base_e + int(round(Economy.get_effect(upg_id, lv + 1)))
+			desc_lbl.text = "Ertrag/Feld: +%d → +%d" % [cur, nxt]
+	else:
+		desc_lbl.text = entry.get("desc", "")
 	card.add_child(desc_lbl)
 
 	# Aktions-/Freischalt-Button
@@ -437,7 +453,9 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	btn.size     = Vector2(CARD_W - 20, 36)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.add_theme_font_size_override("font_size", 12)
-	if owned:
+	if has_upg:
+		_setup_tile_upgrade_btn(btn, upg_id)
+	elif owned:
 		btn.text     = "✓ Freigeschaltet"
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
@@ -482,6 +500,15 @@ func _refresh_tile_buttons() -> void:
 		if Economy.is_tile_unlocked(key):
 			continue
 		_style_unlock_btn(btn, Economy.get_currency() >= Economy.get_tile_unlock_cost(key))
+	# Upgrade-Buttons freigeschalteter Tiles ebenfalls nach Geldstand nachfärben.
+	for e in _tile_upgrade_buttons:
+		var ub = e["btn"]
+		if not is_instance_valid(ub):
+			continue
+		var uid: String = e["id"]
+		if Economy.is_maxed(uid):
+			continue
+		_style_upgrade_btn(ub, Economy.can_buy(uid))
 
 
 func _on_tile_unlock(key: String) -> void:
@@ -491,6 +518,26 @@ func _on_tile_unlock(key: String) -> void:
 	if Economy.spend(cost):
 		Economy.unlock_tile(key)   # → Signal tile_unlocked: Bau-Leiste in Main aktualisiert sich
 		_populate_tiles_grid()     # Karte auf "✓ Freigeschaltet" umstellen
+
+
+# Macht den Karten-Button einer freigeschalteten Tile zum Upgrade-Button (Kosten/Stufe).
+func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
+	if Economy.is_maxed(id):
+		btn.text     = "✓ MAX (Stufe %d)" % Economy.get_upgrade_level(id)
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
+		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
+		return
+	btn.text = "⬆ Stufe %d  ·  %s 💰" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id))]
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_style_upgrade_btn(btn, Economy.can_buy(id))
+	btn.pressed.connect(_on_buy_tile_upgrade.bind(id))
+	_tile_upgrade_buttons.append({"btn": btn, "id": id})
+
+
+func _on_buy_tile_upgrade(id: String) -> void:
+	if Economy.buy_upgrade(id):
+		_populate_tiles_grid()   # Stufe/Kosten/„von→zu" der Karte aktualisieren
 
 
 # Baut eine kleine 3D-Vorschau (eigene SubViewport-Welt) auf und merkt sich den
@@ -1099,7 +1146,12 @@ func _make_upgrade_row(id: String, row_w: float) -> Control:
 	var lv  = Economy.get_upgrade_level(id)
 	var mx  = Economy.get_max_level(id)
 	var l_lbl := Label.new()
-	l_lbl.text = "Stufe %d / %d   →  %s" % [lv, mx, Economy.effect_text(id, lv)]
+	# "von → zu"-Wert anzeigen, wo es Sinn ergibt (Anzahl/Multiplikator/Zeit/Tile-Werte).
+	# Bei Tempo bringt die Zahl nichts → nur die aktuelle Stufe.
+	if id != "speed" and not Economy.is_maxed(id):
+		l_lbl.text = "Stufe %d / %d   ·  %s → %s" % [lv, mx, Economy.effect_text(id, lv), Economy.effect_text(id, lv + 1)]
+	else:
+		l_lbl.text = "Stufe %d / %d   →  %s" % [lv, mx, Economy.effect_text(id, lv)]
 	l_lbl.add_theme_font_size_override("font_size", 11)
 	l_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	info.add_child(l_lbl)

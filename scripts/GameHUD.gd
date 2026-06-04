@@ -46,6 +46,10 @@ const TAB_X0  = 8
 var _active_tab:   int  = 0
 var _build_active: bool = false
 var _is_3d_view:   bool = false
+# Ansicht je Strecke: true = 3D-Fahrt, false = 2D-Bauplan. Bleibt über Szenenwechsel
+# erhalten (GameHUD ist Autoload), damit Strecken gleichzeitig in verschiedenen Ansichten
+# sein können. _is_3d_view spiegelt immer den Modus der gerade gezeigten Strecke (_active_tab).
+var _track_view_3d: Array = []
 
 var _tab_btns:     Array[Button]    = []
 var _run_dots:     Array[ColorRect] = []
@@ -64,6 +68,8 @@ signal shop_requested()
 
 func _ready() -> void:
 	layer = 20
+	_track_view_3d.resize(TRACK_COUNT)
+	_track_view_3d.fill(false)
 	_build_bar()
 	# Runden-Gutschrift (Auto über die Startlinie) – auch im 2D-Hintergrund den "+X"-Effekt zeigen.
 	Economy.lap_credited.connect(_on_lap_credited)
@@ -234,7 +240,8 @@ func _refresh_tabs() -> void:
 	for i in TRACK_COUNT:
 		_tab_btns[i].text     = "Strecke %d" % (i + 1)
 		_style_tab_btn(_tab_btns[i], i == _active_tab)
-		_tab_btns[i].disabled = _is_3d_view
+		# Tabs bleiben auch in der 3D-Ansicht aktiv – Streckenwechsel ist immer erlaubt.
+		_tab_btns[i].disabled = false
 		_run_dots[i].color    = C_RUN_ON if Economy.is_run_active(i) else C_RUN_OFF
 
 
@@ -284,9 +291,13 @@ func _on_tab_pressed(idx: int) -> void:
 		return
 	_active_tab   = idx
 	_build_active = false
+	# Die gezeigte Ansicht richtet sich nach dem gemerkten Modus der Zielstrecke.
+	_is_3d_view   = is_track_3d(idx)
 	Economy.set_active_track(idx)
 	_refresh_tabs()
 	_refresh_view_buttons()
+	# Die jeweils geladene Szene (Main bzw. World3D) reagiert auf tab_changed und lädt
+	# die zur Ansicht der Zielstrecke passende Szene.
 	emit_signal("tab_changed", idx)
 
 
@@ -334,6 +345,35 @@ func set_view_3d(is3d: bool) -> void:
 		_build_active = false
 	_refresh_view_buttons()
 	_refresh_tabs()
+
+
+# ── Ansicht je Strecke ───────────────────────────────────────────────────────
+
+func is_track_3d(idx: int) -> bool:
+	return idx >= 0 and idx < _track_view_3d.size() and _track_view_3d[idx]
+
+
+func set_track_3d(idx: int, val: bool) -> void:
+	if idx >= 0 and idx < _track_view_3d.size():
+		_track_view_3d[idx] = val
+	if idx == _active_tab:
+		_is_3d_view = val
+	_refresh_view_buttons()
+	_refresh_tabs()
+
+
+# Lädt die 3D-Ansicht (World3D) der Strecke idx; die laufende Runde wird fortgesetzt.
+# Einzige Stelle, die für einen Strecken-/Ansichtswechsel World3D lädt (von Main UND World3D
+# beim Tab-Wechsel genutzt).
+func goto_world3d(idx: int) -> void:
+	set_track_3d(idx, true)
+	var grid: Array = Economy.get_track_grid(idx)
+	Engine.set_meta("active_track_idx",   idx)
+	Engine.set_meta("resuming_run",       true)
+	Engine.set_meta("pending_grid_state", grid)
+	var world_scene = load(Paths.SCENE_WORLD3D)
+	if world_scene:
+		get_tree().change_scene_to_packed(world_scene)
 
 
 func set_build_active(val: bool) -> void:

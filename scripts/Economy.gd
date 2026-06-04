@@ -5,21 +5,27 @@ extends Node
 const TRACK_COUNT = 3
 
 const START_CURRENCY  = 0
-const BASE_SPEED      = 4.0    # Grund-Tempo – bei 4 m/s läuft ein kleiner 16-Tile-Kurs (~19m) in ~5s
+# Umrechnung "Tempo"-Zahl (Shop, 25→150) → tatsächliche Auto-Geschwindigkeit (m/s).
+# Basis-Tempo 25 · 0.1 = 2.5 m/s (bewusst langsam); Max-Tempo 150 · 0.1 = 15 m/s.
+const SPEED_SCALE     = 0.1
 
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
 # Kosten pro Level = round(base_cost * growth^level)
 # Effektwert pro Level = base + per_level * level
 const UPGRADES = {
+	# Tempo-ZAHL 25→150 (Anzeige). Tatsächliche Auto-Geschwindigkeit = Tempo · SPEED_SCALE
+	# (get_car_speed), Basis also bewusst langsam. EINE Quelle für alle Strecken.
 	"speed": {
 		"category": "general", "name": "Tempo (alle Autos)",
-		"base_cost": 50, "growth": 2.2, "max_level": 12,
-		"base": 0.0, "per_level": 0.5, "unit": " Tempo",
+		"base_cost": 50, "growth": 3.0, "max_level": 5,
+		"base": 25.0, "per_level": 25.0, "unit": " Tempo",
 	},
+	# Fahrzeit: eigene Sequenz (_drive_time_value, special-case in _effect_at): 10,15,20,25,30,
+	# 40,50,60,90,120,150,… (base/per_level dort ignoriert). Bei 30 s ~1 Mio Kosten.
 	"drive_time": {
 		"category": "general", "name": "Fahrzeit",
-		"base_cost": 250, "growth": 2.6, "max_level": 10,
+		"base_cost": 1000, "growth": 5.6, "max_level": 12,
 		"base": 30.0, "per_level": 15.0, "unit": "s",
 	},
 	# grid_size: aktuell NICHT im Shop (kommt später per Prestige) – Definition bleibt für die Getter.
@@ -36,29 +42,53 @@ const UPGRADES = {
 	# End-Multiplikator & Tile-Bonus jetzt global (alle Autos), unter "Allgemeines".
 	"endmult": {
 		"category": "general", "name": "End-Multiplikator (alle Autos)",
-		"base_cost": 60, "growth": 3.0, "max_level": 10,
+		"base_cost": 500, "growth": 3.5, "max_level": 10,
 		"base": 1.0, "per_level": 0.5, "unit": "×",
 	},
 	"tilebonus": {
 		"category": "general", "name": "Tile-Bonus (+ je Feld, alle Autos)",
-		"base_cost": 30, "growth": 2.3, "max_level": 14,
+		"base_cost": 10, "growth": 3.0, "max_level": 14,
 		"base": 0.0, "per_level": 0.5, "unit": " /Feld",
+	},
+	# Tile-Upgrades: zusätzlicher Reward je überfahrenem Feld dieses Typs (additiv, vor endmult).
+	# Werden im Streckenteile-Shop an der jeweiligen Tile geupgradet (nicht in der allg. Liste).
+	# Die Dreck-Upgrades nutzen eine eigene Wertereihe (_dirt_field_earn, special-case in
+	# _effect_at); base/per_level werden dort ignoriert. Dreck-Gerade & -Kurve getrennt.
+	"dirtstraightbonus": {
+		"category": "tile", "name": "Dreck-Geraden-Ertrag (+ je Feld)",
+		"base_cost": 40, "growth": 3.0, "max_level": 20,
+		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
+	},
+	"dirtcurvebonus": {
+		"category": "tile", "name": "Dreck-Kurven-Ertrag (+ je Feld)",
+		"base_cost": 40, "growth": 3.0, "max_level": 20,
+		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
+	},
+	"straightbonus": {
+		"category": "tile", "name": "Geraden-Ertrag (+ je Gerade)",
+		"base_cost": 200, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 25.0, "unit": " /Gerade",
+	},
+	"curvebonus": {
+		"category": "tile", "name": "Kurven-Ertrag (+ je Kurve)",
+		"base_cost": 200, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 25.0, "unit": " /Kurve",
 	},
 	# Bonusfelder: je Typ max. 3 – das Upgrade-Level = Anzahl dieser Felder (Lv1 schaltet frei,
 	# Lv2 = zweites Feld, Lv3 = drittes). Kosten steigen idle-typisch steil.
 	"bonus_plus5": {
 		"category": "bonus", "name": "+5-Felder",
-		"base_cost": 50, "growth": 6.0, "max_level": 3,
+		"base_cost": 1000, "growth": 6.0, "max_level": 3,
 		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
 	"bonus_plus10": {
 		"category": "bonus", "name": "+10-Felder",
-		"base_cost": 250, "growth": 8.0, "max_level": 3,
+		"base_cost": 1000, "growth": 8.0, "max_level": 3,
 		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
 	"bonus_mult15": {
 		"category": "bonus", "name": "×1.5-Felder",
-		"base_cost": 1000, "growth": 10.0, "max_level": 3,
+		"base_cost": 20000, "growth": 10.0, "max_level": 3,
 		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
 }
@@ -91,6 +121,9 @@ signal tile_unlocked(key: String)
 # Ein anderer Speicherstand wurde geladen/zurückgesetzt – Slot-abhängige UI (z. B. der
 # Streckenteile-Shop im GlobalModal-Autoload) muss sich daraufhin neu aufbauen.
 signal slot_changed(slot: int)
+# Ein Upgrade wurde gekauft – die angeschaute 3D-Strecke setzt ihre Autos daraufhin neu auf
+# (Tempo/Anzahl/Reward live). Hintergrund-Strecken übernehmen es beim nächsten Ansehen.
+signal upgrade_purchased(id: String)
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -135,6 +168,7 @@ func _init_tracks() -> void:
 			"run_cars":        [],    # je Auto {lap_time, reward, start_delay} – aus 3D gesetzt
 			"run_earned":      0,     # bisher in diesem Run gutgeschriebener Gesamtbetrag
 			"run_credited":    0,     # davon bereits der Währung gutgeschrieben
+			"run_credited_laps": 0,   # Anzahl bereits gutgeschriebener Runden (über alle Autos)
 			"pending_summary": false,
 			"last_earned":     0,
 		})
@@ -163,28 +197,79 @@ func _process(delta: float) -> void:
 			emit_signal("run_ended", i, earned)
 
 
-# Schreibt fällige Runden gut: aus der verstrichenen Fahrzeit und den Auto-Parametern
-# (lap_time/reward/start_delay) ergibt sich, wie oft jedes Auto die Startlinie schon
-# überquert hat. Der Gesamtbetrag ist deterministisch → keine Doppelzählung bei 2D↔3D.
+# Schreibt fällige Runden gut. Aus der verstrichenen Fahrzeit + Auto-Parametern (lap_time/
+# start_delay) ergibt sich die Gesamtzahl überfahrener Startlinien. Bereits abgerechnete Runden
+# zählt run_credited_laps (monoton) → robust gegen run_cars-Neuaufbau bei 2D↔3D-Wechsel und
+# keine Doppelzählung. Der Reward je Runde wird NICHT eingefroren, sondern bei jeder Gutschrift
+# aus den AKTUELLEN Upgrade-Werten (tilebonus/endmult) berechnet → Geld-Upgrades wirken ab der
+# nächsten gutgeschriebenen Runde auch auf laufende Läufe (kein rückwirkendes Geld für schon
+# gezählte Runden). lap_base/tile_count je Auto sind streckenfix und kommen aus World3D.
 func _credit_laps(i: int) -> void:
 	var cars: Array = _tracks[i].get("run_cars", [])
 	if cars.is_empty():
 		return
+	var laps_total := _laps_total(i)
+	var credited_laps := int(_tracks[i].get("run_credited_laps", 0))
+	var new_laps := laps_total - credited_laps
+	if new_laps <= 0:
+		return
+	var gain := new_laps * _current_lap_reward(cars)
+	_currency += gain
+	_tracks[i]["run_credited_laps"] = laps_total
+	_tracks[i]["run_credited"] = int(_tracks[i]["run_credited"]) + gain
+	_tracks[i]["run_earned"]   = int(_tracks[i]["run_credited"])
+	emit_signal("lap_credited", i, gain)
+
+
+# Wendet ein Tempo-Upgrade auf alle LAUFENDEN Runden an (auch im Hintergrund), ohne dass man
+# zuschauen muss: lap_time = lap_k / aktuelles_Tempo neu berechnen und den Runden-Zähler
+# snappen → kein rückwirkendes Geld, das neue Tempo zählt ab der nächsten Runde. lap_k ist
+# tempo-unabhängig (lap_time·speed). Geld-Upgrades (endmult/tilebonus/tile) wirken ohnehin live
+# über _current_lap_reward; hier geht es nur um die geänderte Rundenzeit durch das Tempo.
+func _apply_speed_to_active_runs() -> void:
+	var sp := get_car_speed(0)
+	if sp <= 0.0:
+		return
+	for i in TRACK_COUNT:
+		if not _tracks[i]["run_active"]:
+			continue
+		for car in _tracks[i].get("run_cars", []):
+			var lk := float(car.get("lap_k", 0.0))
+			if lk > 0.0:
+				car["lap_time"] = lk / sp
+		_tracks[i]["run_credited_laps"] = _laps_total(i)
+
+
+# Gesamtzahl überfahrener Startlinien (über alle Autos) bei der aktuellen Fahrzeit.
+func _laps_total(i: int) -> int:
+	var cars: Array = _tracks[i].get("run_cars", [])
 	var elapsed := float(_tracks[i]["run_elapsed"])
-	var target := 0
+	var total := 0
 	for car in cars:
 		var lt := float(car.get("lap_time", 0.0))
 		if lt <= 0.0:
 			continue
-		var laps := int(floor(maxf(0.0, elapsed - float(car.get("start_delay", 0.0))) / lt))
-		target += laps * int(car.get("reward", 0))
-	var credited := int(_tracks[i]["run_credited"])
-	if target > credited:
-		var gain := target - credited
-		_currency += gain
-		_tracks[i]["run_credited"] = target
-		_tracks[i]["run_earned"]   = target
-		emit_signal("lap_credited", i, gain)
+		total += int(floor(maxf(0.0, elapsed - float(car.get("start_delay", 0.0))) / lt))
+	return total
+
+
+# Reward einer Runde aus den aktuellen Upgrade-Werten (live):
+# (lap_base + tilebonus·tile_count + Σ tile-Upgrade·zugehörige Feldzahl)·endmult.
+# Alle Autos einer Strecke teilen Layout → einheitlicher Reward; erstes gültiges Auto genügt.
+func _current_lap_reward(cars: Array) -> int:
+	for car in cars:
+		if float(car.get("lap_time", 0.0)) <= 0.0:
+			continue
+		var lap_base   := float(car.get("lap_base", 0.0))
+		var tile_count := int(car.get("tile_count", 0))
+		var add := lap_base + get_car_tile_bonus(0) * tile_count
+		# Tile-spezifische Upgrades (live aus den aktuellen Stufen, additiv je Feld dieses Typs):
+		add += get_effect("dirtstraightbonus") * int(car.get("dirt_straight_count", 0))
+		add += get_effect("dirtcurvebonus")    * int(car.get("dirt_curve_count", 0))
+		add += get_effect("straightbonus")     * int(car.get("straight_count", 0))
+		add += get_effect("curvebonus")        * int(car.get("curve_count", 0))
+		return int(round(add * get_car_end_mult(0)))
+	return 0
 
 
 # ── Multi-Track API ─────────────────────────────────────────────────────────────
@@ -234,6 +319,7 @@ func start_run(track_idx: int) -> void:
 	_tracks[track_idx]["run_cars"]     = []
 	_tracks[track_idx]["run_earned"]   = 0
 	_tracks[track_idx]["run_credited"] = 0
+	_tracks[track_idx]["run_credited_laps"] = 0
 
 
 # Bisher verstrichene Fahrzeit dieses Runs (für die Rückrechnung der Auto-Position).
@@ -243,13 +329,18 @@ func get_run_elapsed(track_idx: int) -> float:
 	return float(_tracks[track_idx].get("run_elapsed", 0.0))
 
 
-# Auto-Parameter für die Hintergrund-Simulation setzen (von World3D beim Start der Autos).
-# cars: Array von {lap_time: float, reward: int, start_delay: float}.
+# Auto-Parameter für die Hintergrund-Simulation setzen (von World3D beim Start/Respawn der Autos).
+# cars: Array von {lap_time, lap_k, lap_base, tile_count, dirt_straight_count, dirt_curve_count,
+#                  straight_count, curve_count, start_delay}.
 func set_run_cars(track_idx: int, cars: Array) -> void:
 	if track_idx < 0 or track_idx >= _tracks.size():
 		return
 	_tracks[track_idx]["run_cars"] = cars
-	_credit_laps(track_idx)   # ggf. bereits fällige Runden sofort abrechnen
+	# lap_time/Autozahl können sich geändert haben (Tempo-/Auto-Upgrade beim Live-Respawn oder
+	# beim Wieder-Betreten der 3D-Ansicht). Bereits gezählte Runden NICHT rückwirkend neu
+	# bewerten: Zähler auf den aktuellen Stand snappen → nur künftige Runden zählen (mit neuem
+	# lap_time/Reward). Im Normalfall (gleiches lap_time) ist das ein No-Op.
+	_tracks[track_idx]["run_credited_laps"] = _laps_total(track_idx)
 
 
 func stop_run(track_idx: int) -> void:
@@ -356,10 +447,46 @@ func _def_for(id: String) -> Dictionary:
 
 # Effektwert (base + per_level * level) eines Upgrades bei gegebenem Level.
 func _effect_at(id: String, level: int) -> float:
+	# Dreck-Ertrag folgt einer eigenen, beschleunigenden Wertereihe (Bonus = Feldertrag − 1,
+	# da Dreck-Grundertrag = 1). Per-Feld-Ertrag: 1,2,3,5,7,9,12,15,…
+	if id == "dirtstraightbonus" or id == "dirtcurvebonus":
+		return float(_dirt_field_earn(level) - 1)
+	# Fahrzeit: eigene Stufen-Sequenz (10,15,…,30,40,…,60,90,…).
+	if id == "drive_time":
+		return float(_drive_time_value(level))
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0.0
 	return float(d["base"]) + float(d["per_level"]) * level
+
+
+# Fahrzeit (s) bei Upgrade-Stufe `level`: 10,15,20,25,30,40,50,60,90,120,150,…
+# Bis 30 s in 5er-Schritten, bis 60 s in 10er-Schritten, danach in 30er-Schritten.
+func _drive_time_value(level: int) -> int:
+	var t := 10
+	for _l in range(maxi(0, level)):
+		if t < 30:
+			t += 5
+		elif t < 60:
+			t += 10
+		else:
+			t += 30
+	return t
+
+
+# Ertrag eines Dreck-Felds bei Upgrade-Stufe `level`: 1,2,3,5,7,9,12,15,18,21,25,…
+# Regel: Inkrement k wird (k+1)-mal angewandt (zwei +1, drei +2, vier +3, …).
+func _dirt_field_earn(level: int) -> int:
+	var total := 1
+	var inc   := 1
+	var steps := 0
+	for _l in range(maxi(0, level)):
+		total += inc
+		steps += 1
+		if steps >= inc + 1:
+			steps = 0
+			inc  += 1
+	return total
 
 
 func get_upgrade_cost(id: String) -> int:
@@ -387,6 +514,10 @@ func buy_upgrade(id: String) -> bool:
 	_currency -= get_upgrade_cost(id)
 	upgrade_levels[id] = get_upgrade_level(id) + 1
 	save_game()
+	# Tempo-Upgrade sofort auf alle laufenden Runden anwenden (auch Hintergrund), future-only.
+	if id == "speed":
+		_apply_speed_to_active_runs()
+	emit_signal("upgrade_purchased", id)
 	return true
 
 
@@ -482,8 +613,10 @@ func get_car_count() -> int:
 
 
 # Tempo/End-Mult/Tile-Bonus sind jetzt global (gelten für alle Autos gleich).
+# Tatsächliche Geschwindigkeit = Tempo-Zahl · SPEED_SCALE. EINZIGE Geschwindigkeitsquelle für
+# alle Strecken (lap_time/lap_k/Position leiten sich daraus ab → keine Multi-Strecken-Probleme).
 func get_car_speed(_i: int) -> float:
-	return BASE_SPEED + _effect_at("speed", get_upgrade_level("speed"))
+	return _effect_at("speed", get_upgrade_level("speed")) * SPEED_SCALE
 
 
 func get_car_end_mult(_i: int) -> float:

@@ -33,11 +33,12 @@ var _track_cz: float = 3.0
 var _run_time_left:   float = 0.0
 var _run_active:      bool  = false
 var _active_track_idx: int  = 0
+var _grid_state:      Array = []   # für Auto-Respawn bei Live-Upgrade gemerkt
 
 var _timer_label:  Label = null
 var _earned_label: Label = null
 var _round_label:  Label = null
-var _back_btn:     Button = null
+var _finish_btn:   Button = null
 var _lap_running:  Array = []     # laufender Rundenertrag je Auto
 
 
@@ -54,6 +55,7 @@ func _ready() -> void:
 		Engine.remove_meta("resuming_run")
 
 	var grid_state = _resolve_grid_state()
+	_grid_state = grid_state
 	var grid_rows = grid_state.size()
 	var grid_cols = grid_state[0].size() if grid_rows > 0 else 0
 	_track_cx = grid_cols * TILE_SIZE_3D / 2.0
@@ -72,19 +74,22 @@ func _ready() -> void:
 	_run_time_left = Economy.get_run_time_left(_active_track_idx)
 	_run_active    = Economy.is_run_active(_active_track_idx)
 
+	# Strecken-Tabs bleiben auch in 3D aktiv → auf Wechsel reagieren. run_ended liefert das
+	# Popup, wenn die Runde endet. Beide auch im bereits-beendet-Fall verbinden, damit man
+	# vom wartenden Popup aus die Strecke wechseln kann.
+	GameHUD.tab_changed.connect(_on_tab_changed)
+	Economy.run_ended.connect(_on_economy_run_ended)
+	# Upgrade-Kauf → Autos der angeschauten Strecke neu aufsetzen (Tempo/Anzahl/Reward live).
+	Economy.upgrade_purchased.connect(_on_upgrade_purchased)
+
 	if not _run_active:
-		# Runde ist bereits beendet (während Ansichtswechsel abgelaufen)
+		# Runde ist bereits beendet (z.B. während man eine andere Strecke ansah) → Popup
 		_show_summary()
 		return
 
 	_start_cars(grid_state)
 	_update_run_hud()
 	_update_round_hud()
-
-	# 2D-Ansichts-Button im GameHUD reagieren lassen
-	GameHUD.view_changed_to_2d.connect(_on_back_pressed)
-	# Economy-Signal: Runde endet im Hintergrund (z.B. während 2D-Ansicht offen war)
-	Economy.run_ended.connect(_on_economy_run_ended)
 
 
 # ── Grid-Zustand ────────────────────────────────────────────────────────────────
@@ -130,6 +135,19 @@ func _on_economy_run_ended(track_idx: int, _earned: int) -> void:
 		_end_run()
 
 
+# "Fahrt beenden": Lauf vorzeitig beenden (ohne den Timer abzuwarten) → Zusammenfassung.
+func _on_finish_run_pressed() -> void:
+	_end_run()
+
+
+# Upgrade gekauft, während diese Strecke gezeigt wird: Autos neu aufsetzen, damit Tempo,
+# Anzahl und der Runden-HUD-Reward sofort die neuen Werte zeigen. Das Geld bleibt rück-
+# wirkungsfrei (Economy snappt den Runden-Zähler beim Neusetzen der run_cars).
+func _on_upgrade_purchased(_id: String) -> void:
+	if _run_active:
+		_respawn_cars()
+
+
 func _on_lap_completed(_reward: int, idx: int) -> void:
 	# Gutschrift + "+X"-Effekt laufen zentral über Economy (Signal lap_credited), damit
 	# 2D-Hintergrund und 3D dieselbe runden-basierte Abrechnung nutzen. Hier nur die
@@ -168,34 +186,35 @@ func _setup_hud() -> void:
 	layer.layer = 21
 	add_child(layer)
 
-	# 2D-Toggle – unter der Navbar (Bar = y 0–50), oben links. Einziger Weg zurück
-	# in die 2D-Bauansicht; der Run läuft dabei im Hintergrund weiter.
+	# Kein freier "2D-Ansicht"-Button mehr. Stattdessen "Fahrt beenden": beendet den Lauf
+	# vorzeitig (ohne den Timer abzuwarten) und zeigt die Zusammenfassung, von der aus es per
+	# "Zurück zum Bauplan" in die 2D-Ansicht geht. Streckenwechsel weiterhin über die Tabs.
 	const NAV_H = 50
-	_back_btn = Button.new()
-	_back_btn.text     = "⬅  2D-Ansicht"
-	_back_btn.position = Vector2(8, NAV_H + 8)
-	_back_btn.size     = Vector2(136, 34)
-	_back_btn.focus_mode = Control.FOCUS_NONE
-	_back_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	_back_btn.tooltip_text = "Zurück zur 2D-Bauansicht"
-	var bsb := StyleBoxFlat.new()
-	bsb.bg_color          = Color(0.10, 0.11, 0.16, 0.92)
-	bsb.border_width_left = 3
-	bsb.border_color      = Color(1.00, 0.52, 0.05)
-	bsb.set_corner_radius_all(4)
-	bsb.content_margin_left = 10; bsb.content_margin_right  = 10
-	bsb.content_margin_top  = 5;  bsb.content_margin_bottom = 5
-	var bsb_h := bsb.duplicate() as StyleBoxFlat
-	bsb_h.bg_color = Color(0.17, 0.19, 0.26, 0.96)
-	_back_btn.add_theme_stylebox_override("normal",  bsb)
-	_back_btn.add_theme_stylebox_override("hover",   bsb_h)
-	_back_btn.add_theme_stylebox_override("pressed", bsb)
-	_back_btn.add_theme_stylebox_override("focus",   bsb)
-	_back_btn.add_theme_color_override("font_color",       Color(1.00, 0.52, 0.05))
-	_back_btn.add_theme_color_override("font_hover_color", Color(1.00, 0.66, 0.25))
-	_back_btn.add_theme_font_size_override("font_size", 13)
-	_back_btn.pressed.connect(_on_back_pressed)
-	layer.add_child(_back_btn)
+	_finish_btn = Button.new()
+	_finish_btn.text     = "⏹  Fahrt beenden"
+	_finish_btn.position = Vector2(8, NAV_H + 8)
+	_finish_btn.size     = Vector2(150, 34)
+	_finish_btn.focus_mode = Control.FOCUS_NONE
+	_finish_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_finish_btn.tooltip_text = "Lauf jetzt beenden und zur Zusammenfassung"
+	var fsb := StyleBoxFlat.new()
+	fsb.bg_color          = Color(0.16, 0.09, 0.10, 0.94)
+	fsb.border_width_left = 3
+	fsb.border_color      = Color(0.85, 0.28, 0.22)
+	fsb.set_corner_radius_all(4)
+	fsb.content_margin_left = 10; fsb.content_margin_right  = 10
+	fsb.content_margin_top  = 5;  fsb.content_margin_bottom = 5
+	var fsb_h := fsb.duplicate() as StyleBoxFlat
+	fsb_h.bg_color = Color(0.24, 0.13, 0.14, 0.97)
+	_finish_btn.add_theme_stylebox_override("normal",  fsb)
+	_finish_btn.add_theme_stylebox_override("hover",   fsb_h)
+	_finish_btn.add_theme_stylebox_override("pressed", fsb)
+	_finish_btn.add_theme_stylebox_override("focus",   fsb)
+	_finish_btn.add_theme_color_override("font_color",       Color(1.00, 0.55, 0.48))
+	_finish_btn.add_theme_color_override("font_hover_color", Color(1.00, 0.70, 0.64))
+	_finish_btn.add_theme_font_size_override("font_size", 13)
+	_finish_btn.pressed.connect(_on_finish_run_pressed)
+	layer.add_child(_finish_btn)
 
 	# Timer – zwischen Währung (endet ~x580) und Run-Anzeige (x820)
 	_timer_label = Label.new()
@@ -266,9 +285,12 @@ func _update_round_hud() -> void:
 
 
 func _show_summary() -> void:
-	# Der 2D-Toggle würde sonst über dem Zusammenfassungs-Dialog schweben
-	if _back_btn != null:
-		_back_btn.visible = false
+	# Das Popup wird ausschließlich hier (3D-Ansicht) gezeigt. Der pending_summary-Flag
+	# in Economy gilt als "quittiert", sobald das Popup in der 3D-Ansicht erscheint.
+	Economy.clear_pending_summary(_active_track_idx)
+	# Der "Fahrt beenden"-Button gehört zum laufenden Lauf – über dem Popup ausblenden.
+	if _finish_btn != null:
+		_finish_btn.visible = false
 
 	var layer = CanvasLayer.new()
 	layer.layer = 8
@@ -362,11 +384,25 @@ func _show_summary() -> void:
 	btn.add_theme_stylebox_override("focus",   btn_sb)
 	btn.add_theme_color_override("font_color", Color(0.82, 0.85, 0.90))
 	btn.add_theme_font_size_override("font_size", 14)
-	btn.pressed.connect(_on_back_pressed_end)
+	btn.pressed.connect(_on_back_to_builder)
 	panel.add_child(btn)
 
 
 # ── Auto(s) ─────────────────────────────────────────────────────────────────────
+
+# Setzt die Autos der laufenden Runde neu auf (z.B. nach Upgrade-Kauf). Positionen ergeben
+# sich wieder aus der Fahrzeit, der Lauf läuft also nahtlos mit neuem Tempo/Anzahl weiter.
+func _respawn_cars() -> void:
+	for ctrl in car_controllers:
+		if is_instance_valid(ctrl):
+			ctrl.stop()
+			$CarRoot.remove_child(ctrl)
+			ctrl.queue_free()
+	car_controllers.clear()
+	_start_cars(_grid_state)
+	_update_run_hud()
+	_update_round_hud()
+
 
 func _start_cars(grid_state: Array) -> void:
 	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
@@ -398,46 +434,63 @@ func _start_cars(grid_state: Array) -> void:
 	# lap_time kommt jetzt DIREKT aus dem Auto (gleiche Segment-Zeittabelle, die auch die
 	# visuelle Position bestimmt) → Geld-Runde fällt exakt mit der sichtbaren Start-Überfahrt
 	# zusammen, bei jedem Tempo und (künftig) mit Booster-Tiles.
+	# lap_base/tile_count sind streckenfix (upgrade-unabhängig). Economy berechnet den Reward je
+	# Runde daraus live mit den aktuellen tilebonus/endmult → Geld-Upgrades wirken auf laufende Läufe.
 	var cars: Array = []
 	for ctrl in car_controllers:
 		if ctrl.waypoints.size() < 2 or float(ctrl.lap_time) <= 0.0:
 			continue
-		var reward: int = int(round((float(ctrl.lap_base) + float(ctrl.tile_bonus) * float(ctrl.tile_count)) * float(ctrl.end_mult)))
 		cars.append({
-			"lap_time":    float(ctrl.lap_time),
-			"reward":      reward,
-			"start_delay": float(ctrl.start_delay),
+			"lap_time":       float(ctrl.lap_time),
+			# lap_k = lap_time·speed ist tempo-unabhängig → Economy rechnet lap_time bei Tempo-
+			# Upgrades live neu (auch für Hintergrund-Strecken), ohne Neu-Spawn.
+			"lap_k":          float(ctrl.lap_time) * float(ctrl.speed),
+			"lap_base":          float(ctrl.lap_base),
+			"tile_count":        int(ctrl.tile_count),
+			"dirt_straight_count": int(ctrl.dirt_straight_count),
+			"dirt_curve_count":    int(ctrl.dirt_curve_count),
+			"straight_count":    int(ctrl.straight_count),
+			"curve_count":       int(ctrl.curve_count),
+			"start_delay":       float(ctrl.start_delay),
 		})
 	Economy.set_run_cars(_active_track_idx, cars)
 
 
-# ── Zurück zum Bauplan ────────────────────────────────────────────────────────
+# ── Zurück zum Bauplan / Streckenwechsel ──────────────────────────────────────
 
-func _on_back_pressed() -> void:
-	# Verbindungen trennen bevor Scene gewechselt wird
-	if GameHUD.view_changed_to_2d.is_connected(_on_back_pressed):
-		GameHUD.view_changed_to_2d.disconnect(_on_back_pressed)
+func _disconnect_hud_signals() -> void:
+	if GameHUD.tab_changed.is_connected(_on_tab_changed):
+		GameHUD.tab_changed.disconnect(_on_tab_changed)
 	if Economy.run_ended.is_connected(_on_economy_run_ended):
 		Economy.run_ended.disconnect(_on_economy_run_ended)
-	# Run läuft im Hintergrund weiter: Economy rechnet die Runden weiter aus der Fahrzeit
-	# (run_cars bleiben gesetzt) – jede gedachte Startlinien-Überquerung schreibt gut.
-	GameHUD.set_view_3d(false)
+	if Economy.upgrade_purchased.is_connected(_on_upgrade_purchased):
+		Economy.upgrade_purchased.disconnect(_on_upgrade_purchased)
+
+
+# Einziger Weg zurück in den 2D-Bauplan dieser Strecke: das Run-Ende-Popup
+# ("Zurück zum Bauplan"). Während ein Lauf läuft, gibt es keinen freien 2D-Wechsel –
+# nur Streckenwechsel über die Tabs (Req: in 3D nicht nach 2D, nur zwischen Strecken).
+func _on_back_to_builder() -> void:
+	_disconnect_hud_signals()
+	GameHUD.set_track_3d(_active_track_idx, false)
 	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
 
-func _on_back_pressed_end() -> void:
-	# Nur nach Run-Ende aufgerufen: Run bereits gestoppt
-	if GameHUD.view_changed_to_2d.is_connected(_on_back_pressed):
-		GameHUD.view_changed_to_2d.disconnect(_on_back_pressed)
-	if Economy.run_ended.is_connected(_on_economy_run_ended):
-		Economy.run_ended.disconnect(_on_economy_run_ended)
-	GameHUD.set_view_3d(false)
-	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
+# Strecken-Tab gewechselt: Zielstrecke in ihrer gemerkten Ansicht laden. Die Runde der
+# aktuellen Strecke läuft im Hintergrund (Economy) weiter.
+func _on_tab_changed(idx: int) -> void:
+	if idx == _active_track_idx:
+		return
+	_disconnect_hud_signals()
+	if GameHUD.is_track_3d(idx):
+		GameHUD.goto_world3d(idx)
+	else:
+		get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
 
-func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		_on_back_pressed()
+# ESC öffnet in der 3D-Ansicht das Pausemenü (PauseMenu-Autoload), nicht den Wechsel
+# zurück in die 2D-Ansicht. Deshalb KEIN eigener ESC-Handler hier – PauseMenu fängt
+# "ui_cancel" global ab.
 
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
