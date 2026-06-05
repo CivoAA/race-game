@@ -40,9 +40,9 @@ const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
 const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 1500,  "base_price": 300,   "growth": 4.0, "upgrade": "straightbonus"},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 3000,  "base_price": 600,   "growth": 4.0, "upgrade": "curvebonus"},
-	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 50000, "base_price": 10000, "growth": 5.0},
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 15000,  "base_price": 3000,   "growth": 4.0, "upgrade": "straightbonus"},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 6000,   "growth": 4.0, "upgrade": "curvebonus"},
+	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 500000, "base_price": 100000, "growth": 5.0},
 ]
 
 const SHOP_SLOT_COUNT = 5   # = SHOP_ITEMS.size()
@@ -855,6 +855,9 @@ func _on_upgrade_purchased(id: String) -> void:
 	_update_build_ui()
 	if id.begins_with("bonus_"):
 		_roll_bonus_fields()
+	# Prestige-Knoten „Streckengröße" meldet sich als grid_size → Grid live nachwachsen lassen.
+	elif id == "grid_size":
+		_rebuild_grid_for_size()
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
