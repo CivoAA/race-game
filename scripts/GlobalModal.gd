@@ -7,15 +7,15 @@ const VW = 960
 const VH = 540
 const TAB_BAR_H = 48
 
-const C_BG        := Color(0.10, 0.11, 0.16)
-const C_SURFACE   := Color(0.17, 0.19, 0.26)
-const C_SURFACE2  := Color(0.22, 0.25, 0.34)
-const C_ACCENT    := Color(1.00, 0.52, 0.05)
-const C_ACCENT_MU := Color(0.22, 0.30, 0.50)
-const C_ACCENT_RD := Color(0.80, 0.18, 0.12)
-const C_TEXT      := Color(0.93, 0.95, 1.00)
-const C_TEXT_DIM  := Color(0.50, 0.56, 0.70)
-const C_LINE      := Color(0.21, 0.24, 0.34)
+const C_BG        := Color(0.07, 0.13, 0.15)
+const C_SURFACE   := Color(0.11, 0.20, 0.23)
+const C_SURFACE2  := Color(0.17, 0.29, 0.33)
+const C_ACCENT    := Color(0.16, 0.80, 0.78)
+const C_ACCENT_MU := Color(0.16, 0.42, 0.46)
+const C_ACCENT_RD := Color(0.96, 0.45, 0.40)
+const C_TEXT      := Color(0.90, 0.97, 0.96)
+const C_TEXT_DIM  := Color(0.48, 0.64, 0.65)
+const C_LINE      := Color(0.17, 0.29, 0.32)
 
 # Reifen/Autos/Lackierung sind vorerst ausgeblendet (Platzhalter, noch nicht spielbar).
 const SHOP_CATS = [
@@ -30,6 +30,7 @@ var _active_shop_cat:  int = 0
 
 var _modal_tab_btns:    Array[Button] = []
 var _shop_sidebar_btns: Array[Button] = []
+var _modal_money_lbl:   Label         = null   # Geldstand oben rechts in der Tab-Leiste
 
 # Inhaltsbereiche (je ein Control, visible-Switching)
 var _tab_panels:  Array[Control] = []
@@ -84,7 +85,14 @@ func open() -> void:
 	_rebuild_shop_upgrades()
 	_refresh_affordability()
 	_rebuild_prestige()   # Punkte/Knoten könnten sich seit dem letzten Öffnen geändert haben
+	_refresh_modal_money()
 	visible = true
+
+
+# Aktuellen Geldstand in der Tab-Leiste (oben rechts) aktualisieren.
+func _refresh_modal_money() -> void:
+	if _modal_money_lbl != null:
+		_modal_money_lbl.text = "💰  %s" % Economy.format_currency(Economy.get_currency())
 
 
 # Färbt alle noch kaufbaren Buttons (Streckenteile + Upgrades) nach dem aktuellen Geldstand.
@@ -116,6 +124,7 @@ func _process(delta: float) -> void:
 	if cur != _last_currency_seen:
 		_last_currency_seen = cur
 		_refresh_affordability()
+		_refresh_modal_money()
 
 	# Prestige-Tab: Vorschau-Zahl („+N ⭐") live mitziehen, während im Hintergrund Geld reinkommt.
 	if _active_modal_tab == PRESTIGE_TAB:
@@ -215,6 +224,28 @@ func _build_tab_bar(parent: Control) -> void:
 	close_btn.add_theme_font_size_override("font_size", 14)
 	close_btn.pressed.connect(close)
 	parent.add_child(close_btn)
+
+	# Aktueller Geldstand – gerahmtes Kästchen links neben dem Schließen-✕ (live in _process).
+	const MONEY_W = 144
+	const MONEY_H = 30
+	var money_box := Panel.new()
+	money_box.position = Vector2(VW - 46 - 28 - MONEY_W, (TAB_BAR_H - MONEY_H) / 2.0)
+	money_box.size     = Vector2(MONEY_W, MONEY_H)
+	var money_sb := StyleBoxFlat.new()
+	money_sb.bg_color     = C_SURFACE
+	money_sb.set_border_width_all(1)
+	money_sb.border_color = C_ACCENT
+	money_sb.set_corner_radius_all(10)
+	money_box.add_theme_stylebox_override("panel", money_sb)
+	parent.add_child(money_box)
+
+	_modal_money_lbl = Label.new()
+	_modal_money_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_modal_money_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_modal_money_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_modal_money_lbl.add_theme_font_size_override("font_size", 16)
+	_modal_money_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
+	money_box.add_child(_modal_money_lbl)
 
 
 # ── Modal-Tab-Switching ────────────────────────────────────────────────────────
@@ -432,7 +463,7 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	csb.bg_color = C_SURFACE
 	csb.border_color = C_ACCENT if owned else C_LINE
 	csb.set_border_width_all(2 if owned else 1)
-	csb.set_corner_radius_all(6)
+	csb.set_corner_radius_all(10)
 	card.add_theme_stylebox_override("panel", csb)
 
 	# Name
@@ -867,7 +898,7 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	fsb.bg_color     = C_SURFACE
 	fsb.border_color = C_LINE
 	fsb.set_border_width_all(1)
-	fsb.set_corner_radius_all(6)
+	fsb.set_corner_radius_all(10)
 	frame.add_theme_stylebox_override("panel", fsb)
 	container.add_child(frame)
 
@@ -922,7 +953,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool) -> 
 	sb.bg_color = C_SURFACE2 if selected else C_SURFACE
 	sb.set_border_width_all(2 if selected else 1)
 	sb.border_color = C_ACCENT if selected else C_LINE
-	sb.set_corner_radius_all(5)
+	sb.set_corner_radius_all(8)
 	card.add_theme_stylebox_override("panel", sb)
 
 	if cat == "paint" and opt.has("color"):
@@ -980,7 +1011,7 @@ func _style_ws_tab(btn: Button, active: bool) -> void:
 	sb.bg_color            = C_SURFACE2 if active else C_SURFACE
 	sb.border_width_bottom = 3
 	sb.border_color        = C_ACCENT if active else C_LINE
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 8; sb.content_margin_right  = 8
 	sb.content_margin_top  = 4; sb.content_margin_bottom = 4
 	for state in ["normal", "hover", "pressed", "focus"]:
@@ -1389,7 +1420,7 @@ func _make_prestige_card(id: String) -> Panel:
 	csb.bg_color     = C_SURFACE
 	csb.border_color = C_ACCENT if has_level else (C_LINE if active else C_ACCENT_MU.darkened(0.4))
 	csb.set_border_width_all(2 if has_level else 1)
-	csb.set_corner_radius_all(6)
+	csb.set_corner_radius_all(10)
 	card.add_theme_stylebox_override("panel", csb)
 
 	# Icon
@@ -1635,7 +1666,7 @@ func _style_modal_tab(btn: Button, active: bool) -> void:
 	sb.bg_color            = C_SURFACE if active else C_BG
 	sb.border_width_bottom = 3
 	sb.border_color        = C_ACCENT if active else Color(0, 0, 0, 0)
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 10; sb.content_margin_right  = 10
 	sb.content_margin_top  = 4;  sb.content_margin_bottom = 4
 	for state in ["normal", "hover", "pressed", "focus"]:
@@ -1662,7 +1693,7 @@ func _sbf(bg: Color, border: Color) -> StyleBoxFlat:
 	sb.bg_color          = bg
 	sb.border_width_left = 3
 	sb.border_color      = border
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 8; sb.content_margin_right  = 8
 	sb.content_margin_top  = 5; sb.content_margin_bottom = 5
 	return sb

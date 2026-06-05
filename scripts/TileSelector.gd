@@ -1,13 +1,13 @@
 extends CanvasLayer
 
-const C_BG       := Color(0.09, 0.10, 0.14)
-const C_BORDER   := Color(0.20, 0.23, 0.32)
-const C_ACCENT   := Color(1.00, 0.45, 0.08)
-const C_BLUE     := Color(0.22, 0.27, 0.42)
-const C_SURFACE  := Color(0.13, 0.15, 0.21)
-const C_SURFACE2 := Color(0.09, 0.10, 0.14)
-const C_TEXT     := Color(0.82, 0.85, 0.90)
-const C_TEXT_DIM := Color(0.32, 0.37, 0.50)
+const C_BG       := Color(0.05, 0.11, 0.13)
+const C_BORDER   := Color(0.17, 0.29, 0.32)
+const C_ACCENT   := Color(0.16, 0.80, 0.78)
+const C_BLUE     := Color(0.16, 0.40, 0.46)
+const C_SURFACE  := Color(0.09, 0.18, 0.21)
+const C_SURFACE2 := Color(0.05, 0.11, 0.13)
+const C_TEXT     := Color(0.85, 0.94, 0.93)
+const C_TEXT_DIM := Color(0.40, 0.56, 0.58)
 
 @onready var main: Node2D          = get_parent()
 @onready var label_selected: Label = $Panel/VBox/LabelSelected
@@ -75,7 +75,7 @@ func _sb(bg: Color, border: Color) -> StyleBoxFlat:
 	sb.bg_color = bg
 	sb.border_width_left = 3
 	sb.border_color = border
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_top    = 9
 	sb.content_margin_bottom = 9
 	sb.content_margin_left   = 6

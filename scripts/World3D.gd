@@ -201,7 +201,7 @@ func _setup_hud() -> void:
 	fsb.bg_color          = Color(0.16, 0.09, 0.10, 0.94)
 	fsb.border_width_left = 3
 	fsb.border_color      = Color(0.85, 0.28, 0.22)
-	fsb.set_corner_radius_all(4)
+	fsb.set_corner_radius_all(8)
 	fsb.content_margin_left = 10; fsb.content_margin_right  = 10
 	fsb.content_margin_top  = 5;  fsb.content_margin_bottom = 5
 	var fsb_h := fsb.duplicate() as StyleBoxFlat
@@ -373,7 +373,7 @@ func _show_summary() -> void:
 	btn_sb.bg_color = Color(0.12, 0.14, 0.20)
 	btn_sb.border_width_left = 3
 	btn_sb.border_color = Color(1.0, 0.82, 0.18, 0.70)
-	btn_sb.set_corner_radius_all(4)
+	btn_sb.set_corner_radius_all(8)
 	btn_sb.content_margin_top = 8; btn_sb.content_margin_bottom = 8
 	var btn_hov := btn_sb.duplicate() as StyleBoxFlat
 	btn_hov.bg_color = Color(0.18, 0.20, 0.28)

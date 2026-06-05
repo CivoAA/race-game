@@ -6,20 +6,20 @@ var GRID_COLS: int = 6
 const TILE_SIZE = 100
 
 # Farben (neue Palette)
-const C_BG       := Color(0.13, 0.14, 0.20)
-const C_SURFACE  := Color(0.19, 0.21, 0.29)
-const C_SURFACE2 := Color(0.24, 0.26, 0.36)
-const C_ACCENT   := Color(1.00, 0.52, 0.05)
-const C_ACCENT_MU := Color(0.22, 0.30, 0.50)
-const C_ACCENT_RD := Color(0.80, 0.18, 0.12)
-const C_TEXT     := Color(0.93, 0.95, 1.00)
-const C_TEXT_DIM := Color(0.50, 0.56, 0.70)
-const C_LINE     := Color(0.21, 0.24, 0.34)
+const C_BG       := Color(0.09, 0.16, 0.18)
+const C_SURFACE  := Color(0.13, 0.23, 0.26)
+const C_SURFACE2 := Color(0.18, 0.31, 0.35)
+const C_ACCENT   := Color(0.16, 0.80, 0.78)
+const C_ACCENT_MU := Color(0.16, 0.42, 0.46)
+const C_ACCENT_RD := Color(0.96, 0.45, 0.40)
+const C_TEXT     := Color(0.90, 0.97, 0.96)
+const C_TEXT_DIM := Color(0.48, 0.64, 0.65)
+const C_LINE     := Color(0.17, 0.29, 0.32)
 
 # Build-Panel-Konstanten – vertikales, scrollbares Panel am LINKEN Rand
 const BUILD_PANEL_X   = 0
-const BUILD_PANEL_W   = 156
-const BUILD_PANEL_TOP = 54                       # unter der Top-Nav (0–50)
+const BUILD_PANEL_W   = 168
+const BUILD_PANEL_TOP = 50                       # bündig an der Top-Nav (0–50)
 # Untere Werkzeug-Buttons (Hammer = Baumenü öffnen, Papierkorb = löschen).
 # Gleiche Größe; sitzen über der 42px-Run-Bar.
 const BOTTOM_BTN_W    = 56
@@ -364,7 +364,7 @@ func _set_run_bar_btn_style(text: String, bg: Color, border: Color, fc: Color) -
 	sb.bg_color          = bg
 	sb.border_width_left = 3
 	sb.border_color      = border
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 8; sb.content_margin_right  = 8
 	sb.content_margin_top  = 4; sb.content_margin_bottom = 4
 	var sb_h := sb.duplicate() as StyleBoxFlat
@@ -399,47 +399,107 @@ func _setup_build_panel() -> void:
 	bg.add_theme_stylebox_override("panel", bg_sb)
 	_build_layer.add_child(bg)
 
-	# Kopfzeile
+	# ── Kopfzeile mit flachem, eckigem ✕ oben rechts ────────────────────────────
 	var mode_lbl := Label.new()
-	mode_lbl.text = "BAUMODUS"
-	mode_lbl.position = Vector2(12, BUILD_PANEL_TOP + 8)
-	mode_lbl.size = Vector2(BUILD_PANEL_W - 24, 20)
+	mode_lbl.text = "🔨  BAUMODUS"
+	mode_lbl.position = Vector2(12, BUILD_PANEL_TOP + 9)
+	mode_lbl.size = Vector2(BUILD_PANEL_W - 48, 22)
 	mode_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	mode_lbl.add_theme_font_size_override("font_size", 13)
 	mode_lbl.add_theme_color_override("font_color", C_ACCENT)
 	_build_layer.add_child(mode_lbl)
 
+	# Flacher, eckiger ✕-Button im Panel (ragt nicht heraus, kompakt)
+	const X_SZ = 24
+	var close_btn := Button.new()
+	close_btn.position = Vector2(BUILD_PANEL_W - X_SZ - 8, BUILD_PANEL_TOP + 8)
+	close_btn.size     = Vector2(X_SZ, X_SZ)
+	close_btn.text     = "✕"
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	close_btn.tooltip_text = "Baumenü schließen"
+	close_btn.add_theme_font_size_override("font_size", 13)
+	var x_n := StyleBoxFlat.new()
+	x_n.bg_color = C_SURFACE2
+	x_n.set_corner_radius_all(8)
+	var x_h := x_n.duplicate() as StyleBoxFlat
+	x_h.bg_color = C_ACCENT_RD
+	close_btn.add_theme_stylebox_override("normal",  x_n)
+	close_btn.add_theme_stylebox_override("hover",   x_h)
+	close_btn.add_theme_stylebox_override("pressed", x_h)
+	close_btn.add_theme_stylebox_override("focus",   x_n)
+	close_btn.add_theme_color_override("font_color",       C_TEXT_DIM)
+	close_btn.add_theme_color_override("font_hover_color", C_TEXT)
+	close_btn.pressed.connect(func(): GameHUD.request_build_toggle())
+	_build_layer.add_child(close_btn)
+
 	var hdr_line := ColorRect.new()
-	hdr_line.position = Vector2(8, BUILD_PANEL_TOP + 32)
+	hdr_line.position = Vector2(8, BUILD_PANEL_TOP + 36)
 	hdr_line.size     = Vector2(BUILD_PANEL_W - 16, 1)
 	hdr_line.color    = C_LINE
 	_build_layer.add_child(hdr_line)
-
-	_status_lbl = Label.new()
-	_status_lbl.position = Vector2(12, BUILD_PANEL_TOP + 38)
-	_status_lbl.size = Vector2(BUILD_PANEL_W - 24, 30)
-	_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_lbl.add_theme_font_size_override("font_size", 10)
-	_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	_build_layer.add_child(_status_lbl)
 
 	# _fahren_btn als Dummy damit der Shim nicht nullt (echter Button ist im Run-Bar)
 	_fahren_btn = Button.new()
 	_fahren_btn.visible = false
 	_build_layer.add_child(_fahren_btn)
 
-	# Vertikaler Scroll für Tile-Karten
-	const SCROLL_TOP = 70                       # relativ zu Panel-Oberkante
+	# ── Fußbereich (eigene Box): Auswahl-Status + dauerhafte Steuerungs-Hinweise ─
+	# Oben der aktuelle Status, darunter dauerhaft die Tastenkürzel (Drehen/Wenden).
+	# Damit es nicht doppelt steht, zeigt die Ziehen-Statuszeile selbst keine Kürzel.
+	const FOOTER_H  = 90
+	var footer_top := BUILD_PANEL_BOT - FOOTER_H
+	var footer := Panel.new()
+	footer.position = Vector2(6, footer_top)
+	footer.size     = Vector2(BUILD_PANEL_W - 12, FOOTER_H - 6)
+	var foot_sb := StyleBoxFlat.new()
+	foot_sb.bg_color     = C_SURFACE
+	foot_sb.border_color = C_LINE
+	foot_sb.set_border_width_all(1)
+	foot_sb.set_corner_radius_all(10)
+	footer.add_theme_stylebox_override("panel", foot_sb)
+	_build_layer.add_child(footer)
+
+	var foot_inner_w := BUILD_PANEL_W - 12 - 16
+
+	_status_lbl = Label.new()
+	_status_lbl.position = Vector2(8, 6)
+	_status_lbl.size     = Vector2(foot_inner_w, 32)
+	_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_status_lbl.add_theme_font_size_override("font_size", 11)
+	_status_lbl.add_theme_color_override("font_color", C_ACCENT)
+	footer.add_child(_status_lbl)
+
+	var foot_div := ColorRect.new()
+	foot_div.position = Vector2(8, 41)
+	foot_div.size     = Vector2(foot_inner_w, 1)
+	foot_div.color    = C_LINE
+	footer.add_child(foot_div)
+
+	_hint_lbl = Label.new()
+	_hint_lbl.position = Vector2(8, 45)
+	_hint_lbl.size     = Vector2(foot_inner_w, 38)
+	_hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_hint_lbl.add_theme_font_size_override("font_size", 9)
+	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	footer.add_child(_hint_lbl)
+
+	# ── Vertikaler Scroll für Tile-Karten (zwischen Kopf und Fußbox) ────────────
+	var scroll_top := BUILD_PANEL_TOP + 44
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(4, BUILD_PANEL_TOP + SCROLL_TOP)
-	scroll.size     = Vector2(BUILD_PANEL_W - 8, panel_h - SCROLL_TOP - 26)
+	scroll.position = Vector2(6, scroll_top)
+	scroll.size     = Vector2(BUILD_PANEL_W - 12, footer_top - 6 - scroll_top)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	_build_layer.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 6)
+	vbox.add_theme_constant_override("separation", 7)
 	scroll.add_child(vbox)
 
 	for i in range(SHOP_SLOT_COUNT):
@@ -447,47 +507,10 @@ func _setup_build_panel() -> void:
 		vbox.add_child(card)
 		_build_cards.append(card)
 
-	# Hinweis-Zeile unten im Panel
-	_hint_lbl = Label.new()
-	_hint_lbl.position = Vector2(8, BUILD_PANEL_BOT - 26)
-	_hint_lbl.size = Vector2(BUILD_PANEL_W - 16, 24)
-	_hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hint_lbl.add_theme_font_size_override("font_size", 9)
-	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	_build_layer.add_child(_hint_lbl)
-
 	# Papierkorb – unten rechts über der Run-Bar (nur Slow-Modus)
 	_trash_panel = _make_trash_card()
 	_build_layer.add_child(_trash_panel)
 	_update_trash_visibility()
-
-	# Kleines Schließen-✕ oben rechts, ragt leicht über den Panel-Rand hinaus
-	const CLOSE_SZ = 26
-	var close_btn := Button.new()
-	close_btn.position = Vector2(BUILD_PANEL_W - CLOSE_SZ + 12, BUILD_PANEL_TOP + 6)
-	close_btn.size     = Vector2(CLOSE_SZ, CLOSE_SZ)
-	close_btn.text     = "✕"
-	close_btn.focus_mode = Control.FOCUS_NONE
-	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	close_btn.tooltip_text = "Baumenü schließen"
-	close_btn.add_theme_font_size_override("font_size", 14)
-	var cb_n := StyleBoxFlat.new()
-	cb_n.bg_color = C_SURFACE
-	cb_n.set_corner_radius_all(13)
-	cb_n.set_border_width_all(1)
-	cb_n.border_color = C_ACCENT_RD.darkened(0.2)
-	var cb_h := cb_n.duplicate() as StyleBoxFlat
-	cb_h.bg_color     = C_ACCENT_RD
-	cb_h.border_color = C_ACCENT_RD
-	close_btn.add_theme_stylebox_override("normal",  cb_n)
-	close_btn.add_theme_stylebox_override("hover",   cb_h)
-	close_btn.add_theme_stylebox_override("pressed", cb_n)
-	close_btn.add_theme_stylebox_override("focus",   cb_n)
-	close_btn.add_theme_color_override("font_color",       C_TEXT_DIM)
-	close_btn.add_theme_color_override("font_hover_color", C_TEXT)
-	close_btn.pressed.connect(func(): GameHUD.request_build_toggle())
-	_build_layer.add_child(close_btn)
 
 
 # Persistenter Hammer-Button unten links (öffnet/schließt das Baumenü).
@@ -515,7 +538,7 @@ func _refresh_hammer_btn() -> void:
 	sb.bg_color = bg
 	sb.set_border_width_all(2)
 	sb.border_color = border
-	sb.set_corner_radius_all(5)
+	sb.set_corner_radius_all(8)
 	var sb_h := sb.duplicate() as StyleBoxFlat
 	sb_h.bg_color = bg.lightened(0.08)
 	for state in ["normal", "pressed", "focus"]:
@@ -535,7 +558,7 @@ func _make_header_action_btn(txt: String, pos: Vector2, w: float) -> Button:
 	sb.bg_color = C_SURFACE
 	sb.border_width_bottom = 2
 	sb.border_color = C_ACCENT_MU
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 8; sb.content_margin_right = 8
 	sb.content_margin_top = 4; sb.content_margin_bottom = 4
 	var sb_h := sb.duplicate() as StyleBoxFlat
@@ -559,7 +582,7 @@ func _apply_fahren_style(btn: Button, enabled: bool) -> void:
 		sb.bg_color = C_SURFACE
 		sb.border_width_bottom = 2
 		sb.border_color = C_ACCENT_MU.darkened(0.5)
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 8; sb.content_margin_right = 8
 	sb.content_margin_top = 4; sb.content_margin_bottom = 4
 	btn.add_theme_stylebox_override("normal",   sb)
@@ -572,21 +595,64 @@ func _apply_fahren_style(btn: Button, enabled: bool) -> void:
 	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 
 
+const CARD_H = 58
+
 func _make_build_card(idx: int) -> Panel:
-	const CARD_H = 72
 	var card := Panel.new()
 	card.custom_minimum_size = Vector2(0, CARD_H)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
-	var lbl := Label.new()
-	lbl.name = "TypeLabel"
-	lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
-	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 11)
-	card.add_child(lbl)
+	# Farbiger Icon-Chip links
+	var chip := Panel.new()
+	chip.name = "Chip"
+	chip.position = Vector2(8, 8)
+	chip.size     = Vector2(40, CARD_H - 16)
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(chip)
+
+	var icon := Label.new()
+	icon.name = "Icon"
+	icon.position = Vector2(8, 8)
+	icon.size     = Vector2(40, CARD_H - 16)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 20)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(icon)
+
+	# Name (oben), Wert (Mitte), Preis/Status (unten) – rechts neben dem Chip
+	var name_lbl := Label.new()
+	name_lbl.name = "Name"
+	name_lbl.anchor_right = 1.0
+	name_lbl.offset_left = 54; name_lbl.offset_right = -10
+	name_lbl.offset_top  = 6;  name_lbl.offset_bottom = 24
+	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_lbl.clip_text = true
+	name_lbl.add_theme_font_size_override("font_size", 12)
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(name_lbl)
+
+	var val_lbl := Label.new()
+	val_lbl.name = "Value"
+	val_lbl.anchor_right = 1.0
+	val_lbl.offset_left = 54; val_lbl.offset_right = -10
+	val_lbl.offset_top  = 24; val_lbl.offset_bottom = 39
+	val_lbl.clip_text = true
+	val_lbl.add_theme_font_size_override("font_size", 9)
+	val_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	val_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(val_lbl)
+
+	var price_lbl := Label.new()
+	price_lbl.name = "Price"
+	price_lbl.anchor_right = 1.0
+	price_lbl.offset_left = 54; price_lbl.offset_right = -10
+	price_lbl.offset_top  = 38; price_lbl.offset_bottom = 53
+	price_lbl.clip_text = true
+	price_lbl.add_theme_font_size_override("font_size", 10)
+	price_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(price_lbl)
 
 	card.gui_input.connect(func(e): _on_shop_slot_gui_input(e, idx))
 	return card
@@ -605,7 +671,7 @@ func _make_trash_card() -> Panel:
 	var sb_n := StyleBoxFlat.new()
 	sb_n.bg_color = Color(0.25, 0.08, 0.08)
 	sb_n.border_width_left = 2; sb_n.border_color = C_ACCENT_RD.darkened(0.3)
-	sb_n.set_corner_radius_all(4)
+	sb_n.set_corner_radius_all(8)
 	var sb_h := sb_n.duplicate() as StyleBoxFlat
 	sb_h.bg_color = Color(0.38, 0.10, 0.10)
 	sb_h.border_color = C_ACCENT_RD
@@ -617,6 +683,7 @@ func _make_trash_card() -> Panel:
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.32, 0.28))   # hellrot
 	card.add_child(lbl)
 	return card
 
@@ -637,7 +704,7 @@ func _is_over_trash(screen_pos: Vector2) -> bool:
 func _on_build_mode_toggled(active: bool) -> void:
 	if _build_layer != null:
 		_build_layer.visible = active
-	# Hammer-Button verschwindet, sobald das Baumenü offen ist (Schließen via ✕ oben rechts)
+	# Hammer-Button verschwindet, sobald das Baumenü offen ist (Schließen via Leiste oben)
 	if _hammer_btn != null:
 		_hammer_btn.visible = not active
 	_update_trash_visibility()
@@ -796,48 +863,82 @@ func _update_build_ui() -> void:
 	for i in range(SHOP_SLOT_COUNT):
 		var card  = _build_cards[i]
 		var item  = SHOP_ITEMS[i]
-		var lbl   = card.get_node("TypeLabel") as Label
-		var locked = not Economy.is_tile_unlocked(item["key"])
+		var locked   = not Economy.is_tile_unlocked(item["key"])
+		var selected = (i == selected_shop_slot)
 
 		# Gesperrte Tiles (Default-Strecken & Rampe) direkt in der Bau-Leiste anzeigen,
 		# damit sie dort per Klick einmalig freigeschaltet werden können.
 		card.visible = true
 
-		var icon = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━━")
+		var chip      = card.get_node("Chip")  as Panel
+		var icon_lbl  = card.get_node("Icon")  as Label
+		var name_lbl  = card.get_node("Name")  as Label
+		var val_lbl   = card.get_node("Value") as Label
+		var price_lbl = card.get_node("Price") as Label
+
+		icon_lbl.text = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━")
+		name_lbl.text = item["name"]
+
+		# Chip-Farbe je Tier (gesperrt = gedämpft)
+		var chip_bg: Color
+		var chip_fg: Color
+		match item["tier"]:
+			"dirt":
+				chip_bg = Color(0.26, 0.31, 0.19); chip_fg = Color(0.72, 0.90, 0.56)
+			"ramp":
+				chip_bg = Color(0.40, 0.25, 0.06); chip_fg = Color(1.00, 0.78, 0.36)
+			_:
+				chip_bg = C_ACCENT_MU.darkened(0.05); chip_fg = Color(0.74, 0.84, 1.00)
 		if locked:
-			lbl.text = "%s\n%s 🔒\nIm Shop freischalten" % [icon, item["name"]]
+			chip_bg = Color(0.20, 0.18, 0.16); chip_fg = Color(0.58, 0.47, 0.36)
+		var chip_sb := StyleBoxFlat.new()
+		chip_sb.bg_color = chip_bg
+		chip_sb.set_corner_radius_all(8)
+		chip.add_theme_stylebox_override("panel", chip_sb)
+		icon_lbl.add_theme_color_override("font_color", chip_fg)
+
+		# Wert- + Preiszeile je Zustand
+		if locked:
+			val_lbl.text   = "Im Shop freischalten"
+			price_lbl.text = "🔒 Gesperrt"
+			price_lbl.add_theme_color_override("font_color", Color(0.80, 0.64, 0.46))
 		elif item["tier"] == "dirt":
-			lbl.text = "%s\n%s\n+%d · frei" % [icon, item["name"], _tile_field_earn(item)]
+			val_lbl.text   = "+%d pro Feld" % _tile_field_earn(item)
+			price_lbl.text = "Kostenlos"
+			price_lbl.add_theme_color_override("font_color", Color(0.64, 0.84, 0.52))
 		elif item["tier"] == "ramp":
 			var dirs = ["→", "↓", "←", "↑"]
-			lbl.text = "%s\n%s %s\n%s 💰" % [icon, item["name"], dirs[ramp_preview_rot / 90], Economy.format_currency(_tile_price(item))]
+			val_lbl.text   = "Sprung %s  ·  ×2" % dirs[ramp_preview_rot / 90]
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		else:
-			lbl.text = "%s\n%s\n+%d ×1.2  %s 💰" % [icon, item["name"], _tile_field_earn(item), Economy.format_currency(_tile_price(item))]
+			val_lbl.text   = "+%d  ·  ×1.2 pro Feld" % _tile_field_earn(item)
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 
-		var style = StyleBoxFlat.new()
-		style.set_corner_radius_all(4)
-		if i == selected_shop_slot:
-			style.bg_color = Color(0.28, 0.20, 0.05)
+		# Karten-Rahmen je Zustand
+		var style := StyleBoxFlat.new()
+		style.set_corner_radius_all(10)
+		if selected:
+			style.bg_color     = Color(0.26, 0.19, 0.05)
 			style.border_color = C_ACCENT
 			style.set_border_width_all(2)
 		elif locked:
-			style.bg_color = C_SURFACE
-			style.border_color = Color(0.45, 0.30, 0.20)
+			style.bg_color     = C_SURFACE
+			style.border_color = Color(0.40, 0.28, 0.18)
 			style.set_border_width_all(1)
 		else:
-			style.bg_color = C_SURFACE2
-			style.border_color = C_ACCENT_MU
+			style.bg_color     = C_SURFACE2
+			style.border_color = C_LINE
 			style.set_border_width_all(1)
 		card.add_theme_stylebox_override("panel", style)
 
-		if i == selected_shop_slot:
-			lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.6))
+		var name_col := C_TEXT
+		if selected:
+			name_col = Color(1.00, 0.92, 0.60)
 		elif locked:
-			lbl.add_theme_color_override("font_color", Color(0.78, 0.62, 0.45))
-		elif item["tier"] == "dirt":
-			lbl.add_theme_color_override("font_color", Color(0.70, 0.85, 0.55))
-		else:
-			lbl.add_theme_color_override("font_color", C_TEXT)
+			name_col = Color(0.82, 0.66, 0.50)
+		name_lbl.add_theme_color_override("font_color", name_col)
 
 func _update_delete_panel_style() -> void:
 	pass  # Kein separater Delete-Panel mehr
@@ -1379,7 +1480,7 @@ func _begin_shop_drag(idx: int) -> void:
 	_drag_ghost    = _make_ghost(_drag_data)
 	grid_node.add_child(_drag_ghost)
 	_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
-	tile_selector.set_status("Ziehen…  [R] Drehen  [F] Wenden")
+	tile_selector.set_status("Ziehen…")
 
 
 func _begin_grid_drag() -> void:
