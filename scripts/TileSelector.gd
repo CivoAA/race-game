@@ -2,8 +2,8 @@ extends CanvasLayer
 
 const C_BG       := Color(0.05, 0.11, 0.13)
 const C_BORDER   := Color(0.17, 0.29, 0.32)
-const C_ACCENT   := Color(0.16, 0.80, 0.78)
-const C_BLUE     := Color(0.16, 0.40, 0.46)
+const C_ACCENT   := Color(0.16, 0.66, 0.87)
+const C_BLUE     := Color(0.16, 0.35, 0.54)
 const C_SURFACE  := Color(0.09, 0.18, 0.21)
 const C_SURFACE2 := Color(0.05, 0.11, 0.13)
 const C_TEXT     := Color(0.85, 0.94, 0.93)
