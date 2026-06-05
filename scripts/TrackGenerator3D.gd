@@ -185,9 +185,16 @@ func generate(grid_state: Array) -> void:
 				row * TILE_SIZE + TILE_SIZE / 2.0
 			)
 
-			# Gerade: GLB-Modell (Default = normal, Dirt = automatisch generiert)
-			if d["type"] == "straight":
-				var model_path = Paths.MODEL_TRACK_STRAIGHT_DIRT if d.get("is_dirt", false) else Paths.MODEL_TRACK_STRAIGHT_DEFAULT
+			# Gerade: GLB-Modell. Eisgerade nutzt dieselbe Geraden-Form/Skalierung, aber das
+			# eigene Ice-GLB (mit Eis-Textur); Dirt = eigenes Dreck-GLB, sonst Default.
+			if d["type"] == "straight" or d["type"] == "ice":
+				var model_path: String
+				if d["type"] == "ice":
+					model_path = Paths.MODEL_TRACK_STRAIGHT_ICE
+				elif d.get("is_dirt", false):
+					model_path = Paths.MODEL_TRACK_STRAIGHT_DIRT
+				else:
+					model_path = Paths.MODEL_TRACK_STRAIGHT_DEFAULT
 				var straight = _make_straight_model(model_path)
 				straight.position = tile_pos
 				straight.rotation_degrees.y = -d["rotation"] + STRAIGHT_MODEL_YAW_OFFSET

@@ -344,7 +344,8 @@ func _tile_entries() -> Array:
 		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+1 Ertrag · frei", "film": true, "upgrade": "dirtcurvebonus", "field_earn_base": 1},
 		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+50 Ertrag · ×1.2", "upgrade": "straightbonus", "field_earn_base": 50},
 		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+50 Ertrag · ×1.2", "upgrade": "curvebonus", "field_earn_base": 50},
-		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung"},
+		{"name": "Eisgerade",    "key": "ice",         "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
+		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		{"name": "Schikane",     "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 		{"name": "Steilkurve",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 		{"name": "Boost-Feld",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
@@ -483,7 +484,12 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	desc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc_lbl.add_theme_font_size_override("font_size", 11)
 	desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	if has_upg:
+	if has_upg and upg_id == "icebonus":
+		# Eisgerade: Speed-Boost (Tempo-Stufen) + Reichweite statt Geld-Ertrag.
+		var ice_lv := Economy.get_upgrade_level(upg_id)
+		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		desc_lbl.text = "❄ +%.1f Lvl · %d Felder%s" % [Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
+	elif has_upg:
 		# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
 		var base_e := int(entry.get("field_earn_base", 0))
 		var lv     := Economy.get_upgrade_level(upg_id)
@@ -493,6 +499,10 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		else:
 			var nxt := base_e + int(round(Economy.get_effect(upg_id, lv + 1)))
 			desc_lbl.text = "Ertrag/Feld: +%d → +%d" % [cur, nxt]
+		# Rampe: zusätzlich den Sprung-Multiplikator (steigt je 5 Stufen) statt "Feld" zeigen.
+		if upg_id == "rampbonus":
+			var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%d" % (base_e + int(round(Economy.get_effect(upg_id, lv + 1))))
+			desc_lbl.text = "+%d%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
 	else:
 		desc_lbl.text = entry.get("desc", "")
 	card.add_child(desc_lbl)
@@ -1631,8 +1641,11 @@ func _on_prestige_confirmed() -> void:
 	_tiles_dirty = true
 	# Alles ist zurückgesetzt → zurück auf Strecke 1 im 2D-Bauplan (frische, leere Strecken).
 	GameHUD.reset_after_prestige()
-	close()
 	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
+	# Modal NICHT schließen, sondern auf dem Prestige-Tab offen lassen: so sieht man direkt
+	# die frisch erhaltenen ⭐-Punkte und versteht, dass man sie jetzt im Tech-Baum ausgeben kann.
+	open()
+	_on_modal_tab(PRESTIGE_TAB)
 
 
 # ── UI-Hilfsfunktionen ────────────────────────────────────────────────────────

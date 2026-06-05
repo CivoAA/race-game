@@ -47,7 +47,9 @@ var _loading_settings := false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	layer = 10
+	# Über allem: GameHUD (20) und dem "Fahrt beenden"-Button im 3D (21) sollen
+	# hinter dem Pause-Overlay liegen, damit sie der Dimmer abdeckt.
+	layer = 100
 	visible = false
 
 	settings.load(Paths.SETTINGS_FILE)
