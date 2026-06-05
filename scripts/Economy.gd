@@ -77,6 +77,23 @@ const UPGRADES = {
 		"base_cost": 200, "growth": 3.0, "max_level": 12,
 		"base": 0.0, "per_level": 25.0, "unit": " /Kurve",
 	},
+	# Eisgerade: gibt KEIN Geld, sondern macht das Auto auf den nächsten Feldern schneller.
+	# base/per_level werden NICHT als Geld-Effekt genutzt – der Effekt ist special-cased über
+	# get_ice_boost_levels()/get_ice_range() (Speed-Boost + Reichweite). max_level=15, damit die
+	# Reichweiten-Stufen (5→4, 10→5, 15→6 Felder) sauber aufgehen.
+	"icebonus": {
+		"category": "tile", "name": "Eisgeraden-Boost (Speed je Feld)",
+		"base_cost": 8000, "growth": 2.6, "max_level": 15,
+		"base": 0.0, "per_level": 0.0, "unit": "",
+	},
+	# Rampen-Upgrade: additiver Ertrag je Rampe (RAMP_BASE_EARN ist der Grundwert obendrauf) UND
+	# alle 5 Stufen +0.2 auf den Sprung-Multiplikator (Stufe 5 → ×2.2, 10 → ×2.4 …) via
+	# get_ramp_jump_mult(). max_level bewusst durch 5 teilbar, damit die Mult-Stufen sauber aufgehen.
+	"rampbonus": {
+		"category": "tile", "name": "Rampen-Ertrag (+ je Rampe)",
+		"base_cost": 10000, "growth": 3.0, "max_level": 15,
+		"base": 0.0, "per_level": 200.0, "unit": " /Rampe",
+	},
 	# Bonusfelder: je Typ max. 3 – das Upgrade-Level = Anzahl dieser Felder (Lv1 schaltet frei,
 	# Lv2 = zweites Feld, Lv3 = drittes). Kosten steigen idle-typisch steil.
 	"bonus_plus5": {
@@ -96,6 +113,12 @@ const UPGRADES = {
 		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
 }
+
+# Rampe: Grundertrag am ramp_start-Feld (geht als base in dessen Tile-Eintrag) und Basis-Sprung-
+# Multiplikator (×2). Das Rampen-Upgrade (rampbonus) erhöht den additiven Ertrag pro Stufe und den
+# Sprung-Multiplikator je 5 Stufen (get_ramp_jump_mult).
+const RAMP_BASE_EARN = 450.0
+const RAMP_JUMP_BASE = 2.0
 
 # Grid-Dimensionen pro grid_size-Level: 4×4 → 4×5 → 4×6 → 5×6
 const GRID_STEPS = [
@@ -184,8 +207,17 @@ signal prestige_changed
 const TILE_UNLOCK_COST = {
 	"def_straight": 15000,
 	"def_curve":    30000,
+	"ice":          150000,
 	"ramp":         500000,
 }
+
+# ── Eisgerade ───────────────────────────────────────────────────────────────────
+# Gibt kein Geld, sondern legt auf die nächsten Felder einen ABSOLUTEN Tempo-Bonus (so viel
+# schneller wie N Tempo-Stufen, unabhängig vom aktuellen Tempo). Basis +1 Tempo-Stufe, je
+# Upgrade-Stufe +0.5; Reichweite 3 Folge-Felder, +1 je 5 Upgrade-Stufen (5→4, 10→5, 15→6).
+const ICE_BASE_BOOST_LEVELS = 1.0
+const ICE_PER_LEVEL_BOOST   = 0.5
+const ICE_BASE_RANGE        = 3
 
 
 func get_tile_unlock_cost(key: String) -> int:
@@ -255,7 +287,7 @@ func _process(delta: float) -> void:
 # keine Doppelzählung. Der Reward je Runde wird NICHT eingefroren, sondern bei jeder Gutschrift
 # aus den AKTUELLEN Upgrade-Werten (tilebonus/endmult) berechnet → Geld-Upgrades wirken ab der
 # nächsten gutgeschriebenen Runde auch auf laufende Läufe (kein rückwirkendes Geld für schon
-# gezählte Runden). lap_base/tile_count je Auto sind streckenfix und kommen aus World3D.
+# gezählte Runden). Die Tile-Reihenfolge je Auto (tiles) ist streckenfix und kommt aus World3D.
 func _credit_laps(i: int) -> void:
 	var cars: Array = _tracks[i].get("run_cars", [])
 	if cars.is_empty():
@@ -306,23 +338,62 @@ func _laps_total(i: int) -> int:
 	return total
 
 
-# Reward einer Runde aus den aktuellen Upgrade-Werten (live):
-# (lap_base + tilebonus·tile_count + Σ tile-Upgrade·zugehörige Feldzahl)·endmult.
-# Alle Autos einer Strecke teilen Layout → einheitlicher Reward; erstes gültiges Auto genügt.
+# ╔══════════════════════════════════════════════════════════════════════════════════════════╗
+# ║ VERBINDLICHE RECHEN-REGEL FÜR DEN RUNDEN-ERTRAG (gilt für ALLE zukünftigen Änderungen!)    ║
+# ║                                                                                            ║
+# ║ Der Ertrag einer Runde ist ein fortlaufender "Schneeball" über die Felder in FAHRREIHEN-   ║
+# ║ FOLGE. Pro Feld gilt strikt diese Reihenfolge:                                             ║
+# ║   1. ERST ALLE +Werte dieses Feldes addieren (Grundertrag + Tile-Bonus + +5/+10-Feld +     ║
+# ║      tile-spezifische Upgrades …).                                                         ║
+# ║   2. DANN ALLE ×Werte dieses Feldes anwenden (Premium ×1.2, ×1.5-Feld, Rampen-/Sprung ×2 …)║
+# ║      auf die GESAMTE bisher angesammelte Summe.                                            ║
+# ║   → running = (running + Σ aller +Werte) · (Produkt aller ×Werte)                          ║
+# ║ Ganz zum Schluss EINMAL auf die ganze Runde: × End-Multiplikator × Prestige.               ║
+# ║ Die Reihenfolge der Felder zählt also (frühe +Werte werden von späteren ×Werten mitgezo-   ║
+# ║ gen; späte ×Werte multiplizieren eine größere Summe).                                       ║
+# ║                                                                                            ║
+# ║ Jeder NEUE Bonus/jedes neue Upgrade muss in genau dieses Schema eingeordnet werden:        ║
+# ║ ist es ein "+" (Schritt 1) oder ein "×" (Schritt 2), und auf WELCHE Felder wirkt es?       ║
+# ║ → Wenn das nicht eindeutig klar ist, NICHT raten – beim Nutzer rückfragen, BEVOR es        ║
+# ║   eingebaut wird (ob +/×, auf welchen Feldern, und an welcher Stelle im Schneeball).        ║
+# ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+#
+# Quelle der Felder: car["tiles"] (streckenfixe Tile-Reihenfolge aus CarController). Konkrete
+# Zuordnung in diesem Code: base = Grundertrag, tile-Bonus/tile-spezifische Upgrades + bonus_points
+# = Schritt 1; fixed_mult (Premium ×1.2), bonus_mult (×1.5-Feld), jump_mult (kind=="ramp"/is_jump)
+# = Schritt 2. Alles aus den AKTUELLEN Upgrade-Werten → wirkt live, auch auf Hintergrund-Strecken.
+# Alle Autos einer Strecke teilen das Layout → einheitlicher Reward; erstes gültiges Auto genügt.
 func _current_lap_reward(cars: Array) -> int:
 	for car in cars:
 		if float(car.get("lap_time", 0.0)) <= 0.0:
 			continue
-		var lap_base   := float(car.get("lap_base", 0.0))
-		var tile_count := int(car.get("tile_count", 0))
-		var add := lap_base + get_car_tile_bonus(0) * tile_count
-		# Tile-spezifische Upgrades (live aus den aktuellen Stufen, additiv je Feld dieses Typs):
-		add += get_effect("dirtstraightbonus") * int(car.get("dirt_straight_count", 0))
-		add += get_effect("dirtcurvebonus")    * int(car.get("dirt_curve_count", 0))
-		add += get_effect("straightbonus")     * int(car.get("straight_count", 0))
-		add += get_effect("curvebonus")        * int(car.get("curve_count", 0))
-		# Globaler Prestige-Multiplikator als letzter Faktor (wirkt live auf alle Strecken).
-		return int(round(add * get_car_end_mult(0) * get_prestige_mult()))
+		var tiles: Array = car.get("tiles", [])
+		if tiles.is_empty():
+			continue
+		var tilebonus   := get_car_tile_bonus(0)
+		var jump_mult   := get_ramp_jump_mult()
+		var straight_b  := get_effect("straightbonus")
+		var curve_b     := get_effect("curvebonus")
+		var dstraight_b := get_effect("dirtstraightbonus")
+		var dcurve_b    := get_effect("dirtcurvebonus")
+		var ramp_b      := get_effect("rampbonus")
+		var running := 0.0
+		for tile in tiles:
+			# 1. Alle +Werte dieses Feldes.
+			var add: float = float(tile.get("base", 0.0)) + tilebonus + float(tile.get("bonus_points", 0.0))
+			match String(tile.get("kind", "plain")):
+				"pstraight": add += straight_b
+				"pcurve":    add += curve_b
+				"dstraight": add += dstraight_b
+				"dcurve":    add += dcurve_b
+				"ramp":      add += ramp_b
+			# 2. Alle ×Werte dieses Feldes.
+			var m: float = float(tile.get("fixed_mult", 1.0)) * float(tile.get("bonus_mult", 1.0))
+			if String(tile.get("kind", "")) == "ramp" or bool(tile.get("is_jump", false)):
+				m *= jump_mult
+			running = (running + add) * m
+		# End-Multiplikator und globaler Prestige-Multiplikator zum Schluss (live auf allen Strecken).
+		return int(round(running * get_car_end_mult(0) * get_prestige_mult()))
 	return 0
 
 
@@ -384,8 +455,8 @@ func get_run_elapsed(track_idx: int) -> float:
 
 
 # Auto-Parameter für die Hintergrund-Simulation setzen (von World3D beim Start/Respawn der Autos).
-# cars: Array von {lap_time, lap_k, lap_base, tile_count, dirt_straight_count, dirt_curve_count,
-#                  straight_count, curve_count, start_delay}.
+# cars: Array von {lap_time, lap_k, tiles, start_delay} – tiles = streckenfixe Tile-Reihenfolge,
+# aus der _current_lap_reward den Runden-Ertrag live faltet.
 func set_run_cars(track_idx: int, cars: Array) -> void:
 	if track_idx < 0 or track_idx >= _tracks.size():
 		return
@@ -607,6 +678,9 @@ func effect_text(id: String, level: int) -> String:
 		return "%d×%d" % [GRID_STEPS[lv].x, GRID_STEPS[lv].y]
 	if id == "car_count":
 		return "%d Autos" % (1 + level)
+	# Eisgerade: kein Geld-Effekt → Speed-Boost (Tempo-Stufen) + Reichweite zeigen.
+	if id == "icebonus":
+		return "+%.1f Lvl · %d Felder" % [get_ice_boost_levels(level), get_ice_range(level)]
 	var v = _effect_at(id, level)
 	var unit = get_upgrade_unit(id)
 	if id == "endmult":
@@ -686,6 +760,39 @@ func get_car_end_mult(_i: int) -> float:
 
 func get_car_tile_bonus(_i: int) -> float:
 	return _effect_at("tilebonus", get_upgrade_level("tilebonus"))
+
+
+# Gesamter Ertrag pro Rampe (Grundwert + additiver Anteil des Rampen-Upgrades). Für Anzeige.
+func get_ramp_earn() -> float:
+	return RAMP_BASE_EARN + get_effect("rampbonus")
+
+
+# Sprung-Multiplikator für das übersprungene Kreuzungs-Feld: Basis ×2, je 5 Stufen des
+# Rampen-Upgrades +0.2 (Stufe 5 → ×2.2, 10 → ×2.4 …).
+func get_ramp_jump_mult() -> float:
+	return RAMP_JUMP_BASE + 0.2 * float(get_upgrade_level("rampbonus") / 5)
+
+
+# Speed-Boost einer Eisgerade in „Tempo-Stufen": Basis 1.0 + 0.5 je Upgrade-Stufe.
+func get_ice_boost_levels(level: int = -1) -> float:
+	if level < 0:
+		level = get_upgrade_level("icebonus")
+	return ICE_BASE_BOOST_LEVELS + ICE_PER_LEVEL_BOOST * level
+
+
+# Absoluter Geschwindigkeits-Bonus (m/s), den eine Eisgerade auf jedes betroffene Folge-Feld
+# legt: so viel schneller wie N Tempo-Stufen (1 Stufe = speed.per_level · SPEED_SCALE m/s),
+# bewusst UNABHÄNGIG vom aktuellen Tempo. CarController addiert das auf die Segment-Tempi der
+# nächsten get_ice_range() Felder → kürzere lap_time → mehr Runden (indirekt mehr Geld).
+func get_ice_speed_bonus(level: int = -1) -> float:
+	return get_ice_boost_levels(level) * float(UPGRADES["speed"]["per_level"]) * SPEED_SCALE
+
+
+# Reichweite einer Eisgerade: 3 Folge-Felder, +1 je 5 Upgrade-Stufen (5→4, 10→5, 15→6).
+func get_ice_range(level: int = -1) -> int:
+	if level < 0:
+		level = get_upgrade_level("icebonus")
+	return ICE_BASE_RANGE + int(level / 5)
 
 
 # ── Prestige ────────────────────────────────────────────────────────────────────

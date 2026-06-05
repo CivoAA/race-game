@@ -36,10 +36,7 @@ var _active_track_idx: int  = 0
 var _grid_state:      Array = []   # für Auto-Respawn bei Live-Upgrade gemerkt
 
 var _timer_label:  Label = null
-var _earned_label: Label = null
-var _round_label:  Label = null
 var _finish_btn:   Button = null
-var _lap_running:  Array = []     # laufender Rundenertrag je Auto
 
 
 func _ready() -> void:
@@ -89,7 +86,6 @@ func _ready() -> void:
 
 	_start_cars(grid_state)
 	_update_run_hud()
-	_update_round_hud()
 
 
 # ── Grid-Zustand ────────────────────────────────────────────────────────────────
@@ -146,22 +142,6 @@ func _on_finish_run_pressed() -> void:
 func _on_upgrade_purchased(_id: String) -> void:
 	if _run_active:
 		_respawn_cars()
-
-
-func _on_lap_completed(_reward: int, idx: int) -> void:
-	# Gutschrift + "+X"-Effekt laufen zentral über Economy (Signal lap_credited), damit
-	# 2D-Hintergrund und 3D dieselbe runden-basierte Abrechnung nutzen. Hier nur die
-	# laufende Runden-Anzeige für dieses Auto zurücksetzen.
-	if idx >= 0 and idx < _lap_running.size():
-		_lap_running[idx] = 0
-	_update_round_hud()
-	_update_run_hud()
-
-
-func _on_lap_progress(running: int, idx: int) -> void:
-	if idx >= 0 and idx < _lap_running.size():
-		_lap_running[idx] = running
-	_update_round_hud()
 
 
 func _end_run() -> void:
@@ -228,32 +208,6 @@ func _setup_hud() -> void:
 	_timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	layer.add_child(_timer_label)
 
-	# Laufende Runde – Build-Button-Bereich (x820–902, in 3D frei)
-	_round_label = Label.new()
-	_round_label.position  = Vector2(820, 4)
-	_round_label.size      = Vector2(82, 20)
-	_round_label.clip_text = true
-	_round_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_round_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_round_label.add_theme_font_size_override("font_size", 11)
-	_round_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.35))
-	_round_label.add_theme_constant_override("outline_size", 2)
-	_round_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	layer.add_child(_round_label)
-
-	# Lauf gesamt – Build-Button-Bereich, untere Zeile
-	_earned_label = Label.new()
-	_earned_label.position  = Vector2(820, 26)
-	_earned_label.size      = Vector2(82, 18)
-	_earned_label.clip_text = true
-	_earned_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_earned_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_earned_label.add_theme_font_size_override("font_size", 11)
-	_earned_label.add_theme_color_override("font_color", Color(0.50, 0.95, 0.58))
-	_earned_label.add_theme_constant_override("outline_size", 2)
-	_earned_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	layer.add_child(_earned_label)
-
 
 func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 	var lbl = Label.new()
@@ -271,17 +225,6 @@ func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 func _update_run_hud() -> void:
 	if _timer_label != null:
 		_timer_label.text = "⏱  ∞" if Economy.endless_mode else "⏱  %.1f s" % _run_time_left
-	if _earned_label != null:
-		_earned_label.text = "Ges +%s 💰" % Economy.format_currency(Economy.get_run_earned(_active_track_idx))
-
-
-func _update_round_hud() -> void:
-	if _round_label == null:
-		return
-	var sum := 0
-	for v in _lap_running:
-		sum += int(v)
-	_round_label.text = "Rnd +%s 💰" % Economy.format_currency(sum)
 
 
 func _show_summary() -> void:
@@ -401,15 +344,11 @@ func _respawn_cars() -> void:
 	car_controllers.clear()
 	_start_cars(_grid_state)
 	_update_run_hud()
-	_update_round_hud()
 
 
 func _start_cars(grid_state: Array) -> void:
 	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
 	var count  = Economy.get_car_count()
-	_lap_running.clear()
-	_lap_running.resize(count)
-	_lap_running.fill(0)
 	for i in range(count):
 		var ctrl = Node3D.new()
 		ctrl.set_script(script)
@@ -417,10 +356,11 @@ func _start_cars(grid_state: Array) -> void:
 		ctrl.speed       = Economy.get_car_speed(i)
 		ctrl.end_mult    = Economy.get_car_end_mult(i)
 		ctrl.tile_bonus  = Economy.get_car_tile_bonus(i)
-		ctrl.start_delay = CAR_STAGGER * i
+		# Startabstand skaliert invers mit der Auto-Anzahl: je mehr Autos, desto dichter starten
+		# sie hintereinander. Abstand zwischen zwei Autos = CAR_STAGGER/count
+		# (2 Autos → 0.25 s, 3 → 0.17 s, 4 → 0.125 s …).
+		ctrl.start_delay = CAR_STAGGER / float(count) * i
 		$CarRoot.add_child(ctrl)
-		ctrl.lap_completed.connect(_on_lap_completed.bind(i))
-		ctrl.lap_progress.connect(_on_lap_progress.bind(i))
 		car_controllers.append(ctrl)
 	await get_tree().process_frame
 	# Bereits verstrichene Fahrzeit → Autos an die passende Stelle der Strecke setzen
@@ -434,8 +374,9 @@ func _start_cars(grid_state: Array) -> void:
 	# lap_time kommt jetzt DIREKT aus dem Auto (gleiche Segment-Zeittabelle, die auch die
 	# visuelle Position bestimmt) → Geld-Runde fällt exakt mit der sichtbaren Start-Überfahrt
 	# zusammen, bei jedem Tempo und (künftig) mit Booster-Tiles.
-	# lap_base/tile_count sind streckenfix (upgrade-unabhängig). Economy berechnet den Reward je
-	# Runde daraus live mit den aktuellen tilebonus/endmult → Geld-Upgrades wirken auf laufende Läufe.
+	# tile_rewards (Tile-Reihenfolge) ist streckenfix (upgrade-unabhängig). Economy faltet daraus
+	# den Reward je Runde live mit den aktuellen Upgrade-Werten → Geld-Upgrades wirken auf laufende
+	# Läufe, auch auf Hintergrund-Strecken (3D-Ansicht nicht offen).
 	var cars: Array = []
 	for ctrl in car_controllers:
 		if ctrl.waypoints.size() < 2 or float(ctrl.lap_time) <= 0.0:
@@ -445,13 +386,8 @@ func _start_cars(grid_state: Array) -> void:
 			# lap_k = lap_time·speed ist tempo-unabhängig → Economy rechnet lap_time bei Tempo-
 			# Upgrades live neu (auch für Hintergrund-Strecken), ohne Neu-Spawn.
 			"lap_k":          float(ctrl.lap_time) * float(ctrl.speed),
-			"lap_base":          float(ctrl.lap_base),
-			"tile_count":        int(ctrl.tile_count),
-			"dirt_straight_count": int(ctrl.dirt_straight_count),
-			"dirt_curve_count":    int(ctrl.dirt_curve_count),
-			"straight_count":    int(ctrl.straight_count),
-			"curve_count":       int(ctrl.curve_count),
-			"start_delay":       float(ctrl.start_delay),
+			"tiles":          ctrl.tile_rewards.duplicate(true),
+			"start_delay":    float(ctrl.start_delay),
 		})
 	Economy.set_run_cars(_active_track_idx, cars)
 

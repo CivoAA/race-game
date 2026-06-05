@@ -41,12 +41,13 @@ const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
 	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 15000,  "base_price": 3000,   "growth": 4.0, "upgrade": "straightbonus"},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 6000,   "growth": 4.0, "upgrade": "curvebonus"},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
+	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 150000, "base_price": 25000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 500000, "base_price": 100000, "growth": 5.0},
 ]
 
-const SHOP_SLOT_COUNT = 5   # = SHOP_ITEMS.size()
-const JUMP_MULT       = 2.0 # Ertrags-Faktor für ein Tile im übersprungenen Feld einer Rampe
+const SHOP_SLOT_COUNT = 6   # = SHOP_ITEMS.size()
+const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
 
 # Upgrade-Tabellen: points/multiplier pro combine_level (0–4)
 const POINT_UPGRADE_DATA = {
@@ -842,7 +843,7 @@ func _tile_refund_for(data) -> int:
 	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
 		return 0
 	var t = data.get("type", "")
-	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end"]):
+	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end", "ice"]):
 		return 0
 	var item = _shop_item_for_type(t)
 	if item.is_empty():
@@ -876,7 +877,14 @@ func _update_build_ui() -> void:
 		var val_lbl   = card.get_node("Value") as Label
 		var price_lbl = card.get_node("Price") as Label
 
-		icon_lbl.text = "╰" if item["type"] == "curve" else ("⛰" if item["tier"] == "ramp" else "━")
+		var icon_txt := "━"
+		if item["type"] == "curve":
+			icon_txt = "╰"
+		elif item["tier"] == "ramp":
+			icon_txt = "⛰"
+		elif item["tier"] == "ice":
+			icon_txt = "❄"
+		icon_lbl.text = icon_txt
 		name_lbl.text = item["name"]
 
 		# Chip-Farbe je Tier (gesperrt = gedämpft)
@@ -887,6 +895,8 @@ func _update_build_ui() -> void:
 				chip_bg = Color(0.26, 0.31, 0.19); chip_fg = Color(0.72, 0.90, 0.56)
 			"ramp":
 				chip_bg = Color(0.40, 0.25, 0.06); chip_fg = Color(1.00, 0.78, 0.36)
+			"ice":
+				chip_bg = Color(0.12, 0.30, 0.42); chip_fg = Color(0.62, 0.90, 1.00)
 			_:
 				chip_bg = C_ACCENT_MU.darkened(0.05); chip_fg = Color(0.74, 0.84, 1.00)
 		if locked:
@@ -908,7 +918,11 @@ func _update_build_ui() -> void:
 			price_lbl.add_theme_color_override("font_color", Color(0.64, 0.84, 0.52))
 		elif item["tier"] == "ramp":
 			var dirs = ["→", "↓", "←", "↑"]
-			val_lbl.text   = "Sprung %s  ·  ×2" % dirs[ramp_preview_rot / 90]
+			val_lbl.text   = "Sprung %s  ·  +%d ×%.1f" % [dirs[ramp_preview_rot / 90], int(round(Economy.get_ramp_earn())), Economy.get_ramp_jump_mult()]
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
+		elif item["tier"] == "ice":
+			val_lbl.text   = "❄ +%.1f Lvl Speed · %d Felder" % [Economy.get_ice_boost_levels(), Economy.get_ice_range()]
 			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		else:
@@ -959,6 +973,9 @@ func _on_upgrade_purchased(id: String) -> void:
 	# Prestige-Knoten „Streckengröße" meldet sich als grid_size → Grid live nachwachsen lassen.
 	elif id == "grid_size":
 		_rebuild_grid_for_size()
+	# Rampen-Upgrade kann den Sprung-Multiplikator erhöhen → ×N-Marker im 2D live aktualisieren.
+	elif id == "rampbonus":
+		_refresh_jump_markers()
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
@@ -1028,6 +1045,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	var scene_path: String
 	match data["type"]:
 		"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+		"ice":       scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 		"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
 		_:           scene_path = Paths.SCENE_TILE_CURVE_2D
 	var scene = load(scene_path)
@@ -1069,6 +1087,19 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		dlbl.add_theme_constant_override("outline_size", 2)
 		dlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 		node.add_child(dlbl)
+	elif data.get("type", "") == "ice":
+		# Eisgerade: kühle, bläulich-weiße Tönung + ❄-Marke (gibt kein Geld, macht schneller).
+		node.modulate = Color(0.62, 0.85, 1.0)
+		var rot_rad = deg_to_rad(data.get("rotation", 0))
+		var ilbl = Label.new()
+		ilbl.text = "❄"
+		ilbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-rot_rad)
+		ilbl.rotation_degrees = -data.get("rotation", 0)
+		ilbl.add_theme_color_override("font_color", Color(0.85, 0.96, 1.0))
+		ilbl.add_theme_font_size_override("font_size", 14)
+		ilbl.add_theme_constant_override("outline_size", 3)
+		ilbl.add_theme_color_override("font_outline_color", Color(0, 0.18, 0.30, 0.85))
+		node.add_child(ilbl)
 	elif data.get("variant_label", "") != "":
 		var rot_rad = deg_to_rad(data.get("rotation", 0))
 		var vlbl = Label.new()
@@ -1163,8 +1194,6 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 	var half      = TILE_SIZE / 2.0
 	var pw        = 42.0
 	var is_start  = data["type"] == "ramp_start"
-	var rot       = data.get("rotation", 0)
-	var rot_rad   = deg_to_rad(rot)
 
 	var road_col  = Color(0.25, 0.25, 0.28)
 	var asph_col  = Color(0.55, 0.55, 0.58)
@@ -1218,18 +1247,6 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 		tri.color = Color(1, 1, 1, 0.95)
 		node.add_child(tri)
 
-	# Etikett (gegen Rotation kompensiert)
-	var lbl = Label.new()
-	lbl.name             = "VarLabel"
-	lbl.text             = "⛰↑" if is_start else "⛰↓"
-	lbl.position         = Vector2(-half + 2, -half + 2).rotated(-rot_rad)
-	lbl.rotation_degrees = -rot
-	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
-	lbl.add_theme_font_size_override("font_size", 10)
-	lbl.add_theme_constant_override("outline_size", 2)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	node.add_child(lbl)
-
 	return node
 
 
@@ -1264,8 +1281,11 @@ func _input(event: InputEvent) -> void:
 	if Economy.is_run_active(Economy.get_active_track()):
 		return
 
-	# Build-Modus nicht aktiv: nur Kamera-Pan erlaubt
+	# Build-Modus nicht aktiv: nur Kamera-Pan erlaubt – Ausnahme: im Slow-Modus darf das
+	# Ziehen eines platzierten Strecken-Tiles das Baumenü automatisch öffnen (kein Hammer-Klick nötig).
 	if _build_layer != null and not _build_layer.visible:
+		if placement_mode == "slow":
+			_input_slow_mouse_closed(event)
 		return
 
 	# Maus-Eingaben je nach Platzierungs-Modus
@@ -1324,6 +1344,31 @@ func _input(event: InputEvent) -> void:
 # Maus-Handling im "slow"-Modus: Ziehen aus dem Shop und Verschieben platzierter Tiles.
 # Der Shop-Press wird in _on_shop_slot_gui_input begonnen (kennt den Slot-Index);
 # hier laufen Bewegung und Loslassen für beide Quellen zusammen.
+# Slow-Modus bei GESCHLOSSENEM Baumenü: nur das Aufgreifen eines bereits platzierten
+# Strecken-Tiles zulassen. _slow_left_press setzt _grid_drag_pending ausschließlich für
+# bewegbare Tiles (nicht leer, nicht Start) – wird die Drag-Schwelle überschritten, öffnet
+# _begin_grid_drag das Baumenü automatisch. Ein reiner Klick (ohne Ziehen) lässt das Menü zu.
+func _input_slow_mouse_closed(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		if _grid_drag_pending and not _drag_active:
+			if get_global_mouse_position().distance_to(_grid_press_pos) > DRAG_THRESHOLD:
+				_begin_grid_drag()   # öffnet das Baumenü und startet den Drag
+		if _drag_active and _drag_ghost != null:
+			_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
+		return
+
+	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	if event.pressed:
+		_slow_left_press(get_global_mouse_position())
+	elif _drag_active:
+		_slow_left_release(get_global_mouse_position())
+	else:
+		# Reiner Klick ohne Ziehen → nichts auswählen, Baumenü bleibt geschlossen.
+		_reset_drag()
+
+
 func _input_slow_mouse(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if _grid_drag_pending and not _drag_active:
@@ -1488,6 +1533,10 @@ func _begin_grid_drag() -> void:
 	if d == null:
 		_grid_drag_pending = false
 		return
+	# Wird ein platziertes Tile bei geschlossenem Baumenü gegriffen und gezogen, das Menü
+	# automatisch öffnen – so sind Bau-Leiste & Papierkorb sichtbar und der Drag läuft normal weiter.
+	if not GameHUD.is_build_active():
+		GameHUD.request_build_toggle()
 	_drag_active = true
 	_drag_source = "grid"
 	selected_shop_slot = -1
@@ -1690,6 +1739,7 @@ func _make_tile_visual(data: Dictionary) -> Node2D:
 		var scene_path: String
 		match data.get("type", ""):
 			"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+			"ice":       scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 			"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
 			_:           scene_path = Paths.SCENE_TILE_CURVE_2D
 		var scene = load(scene_path)
@@ -1972,16 +2022,17 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	if item["tier"] == "ramp":
 		_place_ramp(row, col)
 		return
-	# Preis NUR für Default-Tiles; Dreck ist kostenlos. Preis vor dem Setzen prüfen.
+	# Preis für alle bezahlten Tiles (Default & Eis); Dreck ist kostenlos. Vor dem Setzen prüfen.
 	var price = _tile_price(item)
-	if item["tier"] == "default":
+	var is_paid: bool = item["tier"] != "dirt"
+	if is_paid:
 		if not Economy.spend(price):
 			_flash_currency()
 			return
 	# Vorhandenes Tile (außer Start) überschreiben → zählt als Löschvorgang (mit Rückerstattung)
 	if grid[row][col] != null:
 		if grid[row][col].get("is_start", false):
-			if item["tier"] == "default":
+			if is_paid:
 				Economy.add(price)   # Ausgabe rückgängig: auf Start kann nicht gebaut werden
 			return
 		var refund = _tile_refund_for(grid[row][col])
@@ -2299,6 +2350,7 @@ func _flip_active() -> void:
 func _type_display_name(typ: String) -> String:
 	match typ:
 		"straight":   return "Gerade"
+		"ice":        return "Eisgerade"
 		"curve":      return "Kurve"
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
@@ -2456,10 +2508,10 @@ func _build_drive_state() -> Array:
 			if bonus_grid[r][c] != null and typeof(state[r][c]) == TYPE_DICTIONARY:
 				state[r][c]["bonus_points"] = bonus_grid[r][c]["points"]
 				state[r][c]["bonus_mult"]   = bonus_grid[r][c]["mult"]
-	# Kreuzungs-Tiles unter einer Rampe: doppelter Ertrag
+	# Kreuzungs-Tiles unter einer Rampe: erhöhter Ertrag (Basis ×2, je 5 Rampen-Upgrade-Stufen +0.2)
 	for cell in _ramp_jump_cells():
 		if typeof(state[cell.x][cell.y]) == TYPE_DICTIONARY:
-			state[cell.x][cell.y]["jump_mult"] = JUMP_MULT
+			state[cell.x][cell.y]["jump_mult"] = Economy.get_ramp_jump_mult()
 	return state
 
 
@@ -2561,8 +2613,9 @@ func _is_track_valid() -> bool:
 			return (row == 1 and col == 1)
 		visited[key] = true
 		var nxt = _ac_step(row, col, exit_dir)
-		# ramp_start: Mittelfeld überspringen → direkt zur ramp_end
-		if grid[row][col] != null and grid[row][col].get("type", "") == "ramp_start":
+		# Rampe: Mittelfeld überspringen, sobald der Ausgang zur Partner-Kachel zeigt – egal ob die
+		# Strecke von der ramp_start- ODER ramp_end-Seite kommt (Fahrtrichtung wird so automatisch erkannt).
+		if _ramp_jumps_toward(grid[row][col], row, col, exit_dir):
 			if _ac_in_bounds(nxt): nxt = _ac_step(nxt.x, nxt.y, exit_dir)
 		if not _ac_in_bounds(nxt): return false
 		var nxt_data = grid[nxt.x][nxt.y]
@@ -2622,10 +2675,12 @@ func _refresh_jump_markers() -> void:
 
 
 func _make_jump_marker() -> Node2D:
-	# Nur ein "×2"-Hinweis im Sprung-Mittelfeld – kein Rahmen (überlagert keine Tiles).
+	# Nur ein "×N"-Hinweis im Sprung-Mittelfeld – kein Rahmen (überlagert keine Tiles).
+	# Zeigt den aktuellen Sprung-Multiplikator (×2 → ×2.2 … je Rampen-Upgrade), damit man sieht,
+	# wie viel eine kreuzende Strecke unter der Rampe hier bekommt.
 	var node = Node2D.new()
 	var lbl = Label.new()
-	lbl.text = "×2"
+	lbl.text = "×%s" % String.num(Economy.get_ramp_jump_mult(), 1).trim_suffix(".0")
 	lbl.position = Vector2(0, 0)
 	lbl.size = Vector2(TILE_SIZE, TILE_SIZE)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -2649,7 +2704,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 	var t   = data.get("type", "")
 	var rot = int(data.get("rotation", 0)) % 360
 	var conns: Dictionary
-	if t == "straight" or t == "ramp_start" or t == "ramp_end":
+	if t == "straight" or t == "ramp_start" or t == "ramp_end" or t == "ice":
 		var bn = false; var be = true; var bs = false; var bw = true
 		var steps = (rot / 90) % 4
 		for _i in range(steps):
@@ -2682,6 +2737,30 @@ func _ac_step(row: int, col: int, dir: String) -> Vector2i:
 		"E": return Vector2i(row, col + 1)
 		"W": return Vector2i(row, col - 1)
 	return Vector2i(-1, -1)
+
+
+# Richtung von (row,col) zur Zielzelle (trow,tcol) als Himmelsrichtung ("" wenn identisch).
+func _ac_dir_to(row: int, col: int, trow: int, tcol: int) -> String:
+	if tcol > col: return "E"
+	if tcol < col: return "W"
+	if trow > row: return "S"
+	if trow < row: return "N"
+	return ""
+
+
+# True, wenn das Tile eine Rampe ist und exit_dir zur Partner-Kachel zeigt (= Sprung über das
+# Mittelfeld). Gilt für ramp_start UND ramp_end, damit die Rampe in beide Richtungen befahrbar ist.
+func _ramp_jumps_toward(data, row: int, col: int, exit_dir: String) -> bool:
+	if data == null:
+		return false
+	var t = data.get("type", "")
+	if t != "ramp_start" and t != "ramp_end":
+		return false
+	var pr = int(data.get("ramp_partner_row", -1))
+	var pc = int(data.get("ramp_partner_col", -1))
+	if pr < 0 or pc < 0:
+		return false
+	return _ac_dir_to(row, col, pr, pc) == exit_dir
 
 
 func _ac_opp(dir: String) -> String:

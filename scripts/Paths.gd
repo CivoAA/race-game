@@ -29,6 +29,7 @@ const MODEL_DEFAULT_CAR = "res://assets/3D-models/cars/default_car/car.glb"
 # 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben)
 const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/Default/Default_Street.glb"
 const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/Dirt/Dirt_straight.glb"
+const MODEL_TRACK_STRAIGHT_ICE     = "res://assets/3D-models/tracks/staight/ice/Ice_straight.glb"
 const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/Default/c.default.glb"
 
 # ── Speicherung & Einstellungen ───────────────────────────────────────────────
