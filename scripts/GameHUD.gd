@@ -73,6 +73,9 @@ func _ready() -> void:
 	_build_bar()
 	# Runden-Gutschrift (Auto über die Startlinie) – auch im 2D-Hintergrund den "+X"-Effekt zeigen.
 	Economy.lap_credited.connect(_on_lap_credited)
+	# Prestige kann Strecken freischalten → Tabs neu bewerten (Sperre/Beschriftung).
+	Economy.prestige_changed.connect(_refresh_tabs)
+	Economy.slot_changed.connect(func(_s): _refresh_tabs())
 
 
 func _on_lap_credited(_track_idx: int, amount: int) -> void:
@@ -237,11 +240,15 @@ func _style_tab_btn(btn: Button, active: bool) -> void:
 
 
 func _refresh_tabs() -> void:
+	var unlocked := Economy.get_unlocked_tracks()
 	for i in TRACK_COUNT:
-		_tab_btns[i].text     = "Strecke %d" % (i + 1)
+		var is_locked := i >= unlocked
+		# Gesperrte Strecken (per Prestige „Extra-Strecke" freischaltbar) zeigen ein Schloss.
+		_tab_btns[i].text     = "🔒 Strecke %d" % (i + 1) if is_locked else "Strecke %d" % (i + 1)
 		_style_tab_btn(_tab_btns[i], i == _active_tab)
-		# Tabs bleiben auch in der 3D-Ansicht aktiv – Streckenwechsel ist immer erlaubt.
-		_tab_btns[i].disabled = false
+		# Tabs bleiben auch in der 3D-Ansicht aktiv – nur gesperrte Strecken sind nicht wählbar.
+		_tab_btns[i].disabled = is_locked
+		_run_dots[i].visible  = not is_locked
 		_run_dots[i].color    = C_RUN_ON if Economy.is_run_active(i) else C_RUN_OFF
 
 
@@ -288,6 +295,9 @@ func _process(_delta: float) -> void:
 
 func _on_tab_pressed(idx: int) -> void:
 	if idx == _active_tab:
+		return
+	# Gesperrte Strecke (noch nicht per Prestige freigeschaltet) → ignorieren.
+	if idx >= Economy.get_unlocked_tracks():
 		return
 	_active_tab   = idx
 	# Baumodus über 2D→2D-Streckenwechsel hinweg beibehalten; nur beim Wechsel in eine
@@ -383,6 +393,18 @@ func goto_world3d(idx: int) -> void:
 
 func set_build_active(val: bool) -> void:
 	_build_active = val
+	_refresh_view_buttons()
+
+
+# Nach einem Prestige: zurück auf Strecke 1 in 2D (Strecke 2/3 sind wieder gesperrt). Wird von
+# GlobalModal vor dem Szenenwechsel in den Bauplan aufgerufen.
+func reset_after_prestige() -> void:
+	_active_tab   = 0
+	_is_3d_view   = false
+	_build_active = false
+	for i in _track_view_3d.size():
+		_track_view_3d[i] = false
+	_refresh_tabs()
 	_refresh_view_buttons()
 
 

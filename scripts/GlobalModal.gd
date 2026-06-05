@@ -17,14 +17,13 @@ const C_TEXT      := Color(0.93, 0.95, 1.00)
 const C_TEXT_DIM  := Color(0.50, 0.56, 0.70)
 const C_LINE      := Color(0.21, 0.24, 0.34)
 
+# Reifen/Autos/Lackierung sind vorerst ausgeblendet (Platzhalter, noch nicht spielbar).
 const SHOP_CATS = [
 	{"id": "tiles",    "name": "Streckenteile", "icon": "🏎"},
-	{"id": "tires",    "name": "Reifen",        "icon": "⚙"},
-	{"id": "cars",     "name": "Autos",         "icon": "🚗"},
-	{"id": "paint",    "name": "Lackierung",    "icon": "🎨"},
 	{"id": "upgrades", "name": "Upgrades",      "icon": "⬆"},
 ]
-const MODAL_TABS = ["Shop", "Archivments", "Werkstatt"]
+const MODAL_TABS = ["Shop", "Archivments", "Werkstatt", "Prestige"]
+const PRESTIGE_TAB = 3
 
 var _active_modal_tab: int = 0
 var _active_shop_cat:  int = 0
@@ -48,6 +47,14 @@ var _tile_upgrade_buttons: Array        = []   # je {btn, id} – Upgrade-Button
 var _upgrade_buttons:     Array         = []   # je {btn, id}
 var _last_currency_seen:  int           = -1
 
+# ── Prestige-Tab ────────────────────────────────────────────────────────────────
+var _prestige_tree_box:   HBoxContainer = null   # Knoten-Karten (links → rechts), für Neuaufbau
+var _prestige_points_lbl: Label         = null
+var _prestige_earned_lbl: Label         = null
+var _prestige_btn:        Button        = null   # „PRESTIGE → +N ⭐"
+var _prestige_confirm:    Control       = null   # Bestätigungs-Overlay
+var _prestige_confirm_lbl: Label        = null
+
 
 func _ready() -> void:
 	layer        = 25
@@ -57,6 +64,8 @@ func _ready() -> void:
 	GameHUD.shop_requested.connect(open)
 	# Beim Wechsel des Speicherstands gelten andere Freischaltungen → Raster neu aufbauen.
 	Economy.slot_changed.connect(_on_slot_changed)
+	# Prestige-Punkte/Knoten geändert → Prestige-Tab aktualisieren.
+	Economy.prestige_changed.connect(_rebuild_prestige)
 
 
 func _on_slot_changed(_slot: int) -> void:
@@ -70,7 +79,11 @@ func open() -> void:
 		_tiles_dirty = false
 	# Button-Optik (Streckenteile + Upgrades) an den aktuellen Geldstand anpassen.
 	_last_currency_seen = Economy.get_currency()
+	# Upgrade-Zeilen immer neu aufbauen → nach einem Prestige stimmen Stufen & Preise sofort
+	# (sonst stünden bis zur ersten Interaktion die alten Werte da). Billig (kein 3D).
+	_rebuild_shop_upgrades()
 	_refresh_affordability()
+	_rebuild_prestige()   # Punkte/Knoten könnten sich seit dem letzten Öffnen geändert haben
 	visible = true
 
 
@@ -103,6 +116,10 @@ func _process(delta: float) -> void:
 	if cur != _last_currency_seen:
 		_last_currency_seen = cur
 		_refresh_affordability()
+
+	# Prestige-Tab: Vorschau-Zahl („+N ⭐") live mitziehen, während im Hintergrund Geld reinkommt.
+	if _active_modal_tab == PRESTIGE_TAB:
+		_refresh_prestige_action()
 
 
 func _input(event: InputEvent) -> void:
@@ -148,6 +165,9 @@ func _build_modal() -> void:
 	_build_shop_panel(panel,           CONTENT_Y, CONTENT_H)
 	_build_achievements_panel(panel,   CONTENT_Y, CONTENT_H)
 	_build_werkstatt_panel(panel,      CONTENT_Y, CONTENT_H)
+	_build_prestige_panel(panel,       CONTENT_Y, CONTENT_H)
+
+	_build_prestige_confirm(panel)
 
 	_show_modal_tab(0)
 
@@ -163,14 +183,16 @@ func _build_tab_bar(parent: Control) -> void:
 	title.text = "MENÜ"
 	parent.add_child(title)
 
-	# Tab-Buttons (zentriert)
-	const TOTAL_TABS_W = 3 * 120 + 2 * 4  # 360+8=368
-	var tabs_x = (VW - TOTAL_TABS_W) / 2.0
+	# Tab-Buttons (zentriert) – Breite dynamisch aus der Tab-Anzahl.
+	const TAB_W = 120
+	const TAB_GAP = 4
+	var total_tabs_w = MODAL_TABS.size() * TAB_W + (MODAL_TABS.size() - 1) * TAB_GAP
+	var tabs_x = (VW - total_tabs_w) / 2.0
 	for i in MODAL_TABS.size():
 		var btn := Button.new()
 		btn.text     = MODAL_TABS[i]
-		btn.position = Vector2(tabs_x + i * 124, 6)
-		btn.size     = Vector2(120, TAB_BAR_H - 12)
+		btn.position = Vector2(tabs_x + i * (TAB_W + TAB_GAP), 6)
+		btn.size     = Vector2(TAB_W, TAB_BAR_H - 12)
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		_style_modal_tab(btn, i == 0)
@@ -203,6 +225,8 @@ func _on_modal_tab(idx: int) -> void:
 		_style_modal_tab(_modal_tab_btns[i], i == idx)
 	_show_modal_tab(idx)
 	_refresh_affordability()
+	if idx == PRESTIGE_TAB:
+		_rebuild_prestige()
 
 
 func _show_modal_tab(idx: int) -> void:
@@ -254,13 +278,8 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 	const CAT_X = SIDEBAR_W + 1
 	const CAT_W = VW - CAT_X
 
+	# Nur Streckenteile (0) + Upgrades (1). Reifen/Autos/Lackierung sind ausgeblendet.
 	_build_cat_tiles(container, CAT_X, ch, CAT_W)
-	_build_cat_placeholder(container, CAT_X, ch, CAT_W,
-		"Reifen", "Verschiedene Reifen für unterschiedliche\nFahrstile. Kommt bald!")
-	_build_cat_placeholder(container, CAT_X, ch, CAT_W,
-		"Autos", "Schalte neue Fahrzeuge frei.\nKommt bald!")
-	_build_cat_placeholder(container, CAT_X, ch, CAT_W,
-		"Lackierung", "Individualisiere dein Auto.\nKommt bald!")
 	_build_cat_upgrades(container, CAT_X, ch, CAT_W)
 
 	_show_shop_cat(0)
@@ -1112,8 +1131,11 @@ func _apply_ws_config() -> void:
 
 func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 	_upgrade_buttons.clear()
-	var ids = ["tilebonus", "speed", "drive_time", "car_count", "endmult",
-			   "bonus_plus5", "bonus_plus10", "bonus_mult15"]
+	# Feste Reihenfolge nach STARTPREIS aufsteigend (niedrigster oben). Hartkodiert – sortiert
+	# sich NICHT bei jeder Preisänderung neu. base_cost: tilebonus 10, speed 50, endmult 500,
+	# drive_time 1000, bonus_plus5 2000, bonus_plus10 4000, bonus_mult15 200k, car_count 1M.
+	var ids = ["tilebonus", "speed", "endmult", "drive_time",
+			   "bonus_plus5", "bonus_plus10", "bonus_mult15", "car_count"]
 	for id in ids:
 		if Economy.UPGRADES[id].get("category", "") == "hidden":
 			continue
@@ -1181,8 +1203,8 @@ func _make_upgrade_row(id: String, row_w: float) -> Control:
 
 func _on_buy_upgrade(id: String) -> void:
 	if Economy.buy_upgrade(id):
-		# Upgrades leben jetzt nur noch im Shop-Tab
-		if _active_modal_tab == 0 and _active_shop_cat == 4:
+		# Upgrades leben jetzt nur noch im Shop-Tab (Kategorie-Index 1)
+		if _active_modal_tab == 0 and _active_shop_cat == 1:
 			_rebuild_shop_upgrades()
 
 
@@ -1214,9 +1236,9 @@ func _refresh_upgrade_buttons() -> void:
 
 
 func _rebuild_shop_upgrades() -> void:
-	if _shop_cats.size() <= 4:
+	if _shop_cats.size() <= 1:
 		return
-	var scroll = _shop_cats[4]
+	var scroll = _shop_cats[1]
 	if not scroll is ScrollContainer:
 		return
 	var vbox = scroll.get_child(0) as VBoxContainer
@@ -1225,6 +1247,361 @@ func _rebuild_shop_upgrades() -> void:
 	for c in vbox.get_children():
 		c.queue_free()
 	_add_upgrade_rows(vbox, scroll.size.x - 20)
+
+
+# ── Prestige ────────────────────────────────────────────────────────────────────
+# Eigener Top-Level-Tab: oben ein Kopfbereich (⭐-Punkte + großer „PRESTIGE → +N"-Knopf),
+# darunter der horizontal scrollbare Tech-Baum (Knoten links → rechts, Pfeile dazwischen).
+
+const C_STAR := Color(1.00, 0.82, 0.20)   # Gold für Prestige-Punkte
+
+func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
+	var container := Control.new()
+	container.position = Vector2(0, cy)
+	container.size     = Vector2(VW, ch)
+	parent.add_child(container)
+	_tab_panels.append(container)
+
+	# ── Kopfbereich ──────────────────────────────────────────────────────────
+	_prestige_points_lbl = Label.new()
+	_prestige_points_lbl.position = Vector2(24, 14)
+	_prestige_points_lbl.size     = Vector2(420, 30)
+	_prestige_points_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_prestige_points_lbl.add_theme_font_size_override("font_size", 22)
+	_prestige_points_lbl.add_theme_color_override("font_color", C_STAR)
+	container.add_child(_prestige_points_lbl)
+
+	_prestige_earned_lbl = Label.new()
+	_prestige_earned_lbl.position = Vector2(24, 46)
+	_prestige_earned_lbl.size     = Vector2(560, 22)
+	_prestige_earned_lbl.add_theme_font_size_override("font_size", 12)
+	_prestige_earned_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	container.add_child(_prestige_earned_lbl)
+
+	# Großer Prestige-Auslöser rechts oben.
+	_prestige_btn = Button.new()
+	_prestige_btn.position = Vector2(VW - 24 - 360, 12)
+	_prestige_btn.size     = Vector2(360, 56)
+	_prestige_btn.focus_mode = Control.FOCUS_NONE
+	_prestige_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_prestige_btn.add_theme_font_size_override("font_size", 16)
+	_prestige_btn.pressed.connect(_on_prestige_pressed)
+	container.add_child(_prestige_btn)
+
+	# Trennlinie
+	var line := ColorRect.new()
+	line.position = Vector2(0, 80)
+	line.size     = Vector2(VW, 1)
+	line.color    = C_LINE
+	container.add_child(line)
+
+	# ── Tech-Baum (horizontal scrollbar) ─────────────────────────────────────
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(0, 88)
+	scroll.size     = Vector2(VW, ch - 88)
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	container.add_child(scroll)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_top", 20)
+	margin.add_theme_constant_override("margin_bottom", 20)
+	scroll.add_child(margin)
+
+	_prestige_tree_box = HBoxContainer.new()
+	_prestige_tree_box.add_theme_constant_override("separation", 0)
+	_prestige_tree_box.alignment = BoxContainer.ALIGNMENT_BEGIN
+	margin.add_child(_prestige_tree_box)
+
+	_rebuild_prestige()
+
+
+# Kopf-Labels + Knopf + Knoten-Karten neu aufbauen (nach Kauf / Prestige / Tab-Öffnen).
+func _rebuild_prestige() -> void:
+	_refresh_prestige_action()
+	_populate_prestige_tree()
+
+
+# Nur Kopfbereich (Punkte, verdient, Prestige-Knopf) aktualisieren – günstig, läuft im _process.
+func _refresh_prestige_action() -> void:
+	if _prestige_points_lbl == null:
+		return
+	_prestige_points_lbl.text = "⭐ %d Prestige-Punkte" % Economy.get_prestige_points()
+	var pending := Economy.prestige_pending_points()
+	_prestige_earned_lbl.text = "Seit letztem Prestige verdient: %s 💰   ·   ×-Bonus aktiv: ×%d" % [
+		Economy.format_currency(Economy.get_prestige_earned()), int(Economy.get_prestige_mult())]
+
+	if pending >= 1:
+		_prestige_btn.text     = "♻  PRESTIGE  →  +%d ⭐" % pending
+		_prestige_btn.disabled = false
+		_prestige_btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
+		_prestige_btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+		_prestige_btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
+		_prestige_btn.add_theme_color_override("font_color", C_STAR)
+	else:
+		_prestige_btn.text     = "♻  Noch zu früh für Prestige"
+		_prestige_btn.disabled = true
+		var sb := _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5))
+		_prestige_btn.add_theme_stylebox_override("normal",   sb)
+		_prestige_btn.add_theme_stylebox_override("disabled", sb)
+		_prestige_btn.add_theme_color_override("font_color",          C_TEXT_DIM)
+		_prestige_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+
+
+func _populate_prestige_tree() -> void:
+	if _prestige_tree_box == null:
+		return
+	for c in _prestige_tree_box.get_children():
+		c.queue_free()
+	var order: Array = Economy.PRESTIGE_ORDER
+	for i in order.size():
+		var id: String = order[i]
+		_prestige_tree_box.add_child(_make_prestige_card(id))
+		if i < order.size() - 1:
+			# Pfeil-Verbinder: akzentuiert, wenn der nächste Knoten freigeschaltet ist.
+			var next_unlocked := Economy.is_prestige_node_unlocked(order[i + 1])
+			var arrow := Label.new()
+			arrow.custom_minimum_size = Vector2(44, 0)
+			arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			arrow.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+			arrow.add_theme_font_size_override("font_size", 26)
+			arrow.add_theme_color_override("font_color", C_ACCENT if next_unlocked else C_LINE)
+			arrow.text = "→"
+			_prestige_tree_box.add_child(arrow)
+
+
+func _make_prestige_card(id: String) -> Panel:
+	const CARD_W = 200
+	const CARD_H = 300
+
+	var defn:      Dictionary = Economy.PRESTIGE_NODES[id]
+	var level:     int  = Economy.get_prestige_node_level(id)
+	var maxed:     bool = Economy.is_prestige_node_maxed(id)
+	var coming:    bool = Economy.is_prestige_node_coming(id)
+	var unlocked:  bool = Economy.is_prestige_node_unlocked(id)
+	var active:    bool = unlocked and not coming
+	var has_level: bool = level > 0
+
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	var csb := StyleBoxFlat.new()
+	csb.bg_color     = C_SURFACE
+	csb.border_color = C_ACCENT if has_level else (C_LINE if active else C_ACCENT_MU.darkened(0.4))
+	csb.set_border_width_all(2 if has_level else 1)
+	csb.set_corner_radius_all(6)
+	card.add_theme_stylebox_override("panel", csb)
+
+	# Icon
+	var icon := Label.new()
+	icon.position = Vector2(0, 18)
+	icon.size     = Vector2(CARD_W, 46)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 38)
+	icon.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
+	icon.text = String(defn.get("icon", "◆"))
+	card.add_child(icon)
+
+	# Name
+	var name_lbl := Label.new()
+	name_lbl.position = Vector2(6, 74)
+	name_lbl.size     = Vector2(CARD_W - 12, 22)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 15)
+	name_lbl.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
+	name_lbl.text = String(defn.get("name", id))
+	card.add_child(name_lbl)
+
+	# Stufe
+	var lv_lbl := Label.new()
+	lv_lbl.position = Vector2(6, 98)
+	lv_lbl.size     = Vector2(CARD_W - 12, 18)
+	lv_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lv_lbl.add_theme_font_size_override("font_size", 11)
+	lv_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lv_lbl.text = "Stufe %d / %d" % [level, Economy.get_prestige_node_max(id)]
+	card.add_child(lv_lbl)
+
+	# Effekt (von → zu, bzw. nur aktuell wenn maxed)
+	var eff_lbl := Label.new()
+	eff_lbl.position = Vector2(6, 120)
+	eff_lbl.size     = Vector2(CARD_W - 12, 22)
+	eff_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	eff_lbl.add_theme_font_size_override("font_size", 14)
+	eff_lbl.add_theme_color_override("font_color", Color(0.70, 0.85, 1.0))
+	if maxed:
+		eff_lbl.text = Economy.prestige_node_effect_text(id, level)
+	else:
+		eff_lbl.text = "%s → %s" % [Economy.prestige_node_effect_text(id, level),
+			Economy.prestige_node_effect_text(id, level + 1)]
+	card.add_child(eff_lbl)
+
+	# Beschreibung
+	var desc_lbl := Label.new()
+	desc_lbl.position = Vector2(12, 150)
+	desc_lbl.size     = Vector2(CARD_W - 24, 80)
+	desc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc_lbl.add_theme_font_size_override("font_size", 11)
+	desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	desc_lbl.text = String(defn.get("desc", ""))
+	card.add_child(desc_lbl)
+
+	# Aktions-Knopf
+	var btn := Button.new()
+	btn.position = Vector2(12, CARD_H - 50)
+	btn.size     = Vector2(CARD_W - 24, 38)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", 12)
+	if coming:
+		btn.text     = "Bald verfügbar"
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
+		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+	elif not unlocked:
+		btn.text     = "🔒 " + _prestige_prereq_text(id)
+		btn.disabled = true
+		btn.add_theme_font_size_override("font_size", 10)
+		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
+		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+	elif maxed:
+		btn.text     = "✓ MAX (Stufe %d)" % level
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
+		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
+	else:
+		var cost := Economy.get_prestige_node_cost(id)
+		btn.text = "%d ⭐" % cost
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		_style_prestige_buy_btn(btn, Economy.can_buy_prestige_node(id))
+		btn.pressed.connect(_on_buy_prestige_node.bind(id))
+	card.add_child(btn)
+
+	return card
+
+
+# Voraussetzungs-Text eines Knotens ("benötigt ×-Einkommen Lv3").
+func _prestige_prereq_text(id: String) -> String:
+	var prereq: Dictionary = Economy.PRESTIGE_NODES[id].get("prereq", {})
+	for req_id in prereq:
+		var nm := String(Economy.PRESTIGE_NODES[req_id].get("name", req_id))
+		return "%s Lv%d" % [nm, int(prereq[req_id])]
+	return "gesperrt"
+
+
+# Stil eines Prestige-Kauf-Knopfs (leistbar = Gold, sonst gedämpft).
+func _style_prestige_buy_btn(btn: Button, can: bool) -> void:
+	if can:
+		btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
+		btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
+		btn.add_theme_color_override("font_color", C_STAR)
+	else:
+		var sb := _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5))
+		btn.add_theme_stylebox_override("normal",  sb)
+		btn.add_theme_stylebox_override("hover",   sb)
+		btn.add_theme_color_override("font_color", C_TEXT_DIM)
+
+
+func _on_buy_prestige_node(id: String) -> void:
+	if Economy.buy_prestige_node(id):
+		_rebuild_prestige()
+
+
+# ── Prestige ausführen (mit Bestätigung) ───────────────────────────────────────
+
+func _on_prestige_pressed() -> void:
+	if not Economy.can_prestige():
+		return
+	_prestige_confirm_lbl.text = "Du erhältst %d ⭐.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben." % Economy.prestige_pending_points()
+	_prestige_confirm.visible = true
+
+
+func _build_prestige_confirm(parent: Control) -> void:
+	_prestige_confirm = Control.new()
+	_prestige_confirm.position = Vector2(0, 0)
+	_prestige_confirm.size     = Vector2(VW, VH)
+	_prestige_confirm.visible  = false
+	parent.add_child(_prestige_confirm)
+
+	var dim := ColorRect.new()
+	dim.position     = Vector2(0, 0)
+	dim.size         = Vector2(VW, VH)
+	dim.color        = Color(0, 0, 0, 0.78)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_prestige_confirm.add_child(dim)
+
+	const PW = 460
+	const PH = 280
+	var panel := Panel.new()
+	panel.position = Vector2((VW - PW) / 2.0, (VH - PH) / 2.0)
+	panel.size     = Vector2(PW, PH)
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = C_BG
+	psb.border_color = C_STAR
+	psb.set_border_width_all(2)
+	psb.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", psb)
+	_prestige_confirm.add_child(panel)
+
+	var title := Label.new()
+	title.position = Vector2(0, 22)
+	title.size     = Vector2(PW, 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", C_STAR)
+	title.text = "PRESTIGE?"
+	panel.add_child(title)
+
+	_prestige_confirm_lbl = Label.new()
+	_prestige_confirm_lbl.position = Vector2(24, 66)
+	_prestige_confirm_lbl.size     = Vector2(PW - 48, 120)
+	_prestige_confirm_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prestige_confirm_lbl.add_theme_font_size_override("font_size", 13)
+	_prestige_confirm_lbl.add_theme_color_override("font_color", C_TEXT)
+	panel.add_child(_prestige_confirm_lbl)
+
+	var yes := Button.new()
+	yes.position = Vector2(24, PH - 58)
+	yes.size     = Vector2((PW - 60) / 2.0, 40)
+	yes.focus_mode = Control.FOCUS_NONE
+	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	yes.add_theme_font_size_override("font_size", 14)
+	yes.text = "♻  Prestige"
+	yes.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
+	yes.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
+	yes.add_theme_color_override("font_color", C_STAR)
+	yes.pressed.connect(_on_prestige_confirmed)
+	panel.add_child(yes)
+
+	var no := Button.new()
+	no.position = Vector2(36 + (PW - 60) / 2.0, PH - 58)
+	no.size     = Vector2((PW - 60) / 2.0, 40)
+	no.focus_mode = Control.FOCUS_NONE
+	no.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	no.add_theme_font_size_override("font_size", 14)
+	no.text = "Abbrechen"
+	no.add_theme_stylebox_override("normal",  _sbf(C_SURFACE, C_ACCENT_MU))
+	no.add_theme_stylebox_override("hover",   _sbf(C_SURFACE2, C_ACCENT))
+	no.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
+	no.add_theme_color_override("font_color", C_TEXT)
+	no.pressed.connect(func(): _prestige_confirm.visible = false)
+	panel.add_child(no)
+
+
+func _on_prestige_confirmed() -> void:
+	var gained := Economy.do_prestige()
+	_prestige_confirm.visible = false
+	if gained <= 0:
+		return
+	# Streckenteile-Raster beim nächsten Öffnen neu aufbauen (Freischaltungen wurden zurückgesetzt).
+	# Die Upgrade-Zeilen frischt open() ohnehin neu auf.
+	_tiles_dirty = true
+	# Alles ist zurückgesetzt → zurück auf Strecke 1 im 2D-Bauplan (frische, leere Strecken).
+	GameHUD.reset_after_prestige()
+	close()
+	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
 
 
 # ── UI-Hilfsfunktionen ────────────────────────────────────────────────────────
