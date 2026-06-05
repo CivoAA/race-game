@@ -9,9 +9,9 @@ const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
 const C_SURFACE   := Color(0.13, 0.23, 0.26)
 const C_SURFACE2  := Color(0.18, 0.31, 0.35)
-const C_ACCENT    := Color(0.16, 0.80, 0.78)
-const C_ACCENT_MU := Color(0.16, 0.42, 0.46)
-const C_ACCENT_RD := Color(0.96, 0.45, 0.40)
+const C_ACCENT    := Color(0.16, 0.66, 0.87)
+const C_ACCENT_MU := Color(0.16, 0.37, 0.54)
+const C_ACCENT_RD := Color(0.97, 0.41, 0.43)
 const C_TEXT      := Color(0.90, 0.97, 0.96)
 const C_TEXT_DIM  := Color(0.48, 0.64, 0.65)
 const C_LINE      := Color(0.17, 0.29, 0.32)
@@ -1054,9 +1054,12 @@ func _make_placement_switch() -> CheckButton:
 	sw.add_theme_color_override("icon_hover_color",   Color(0.95, 0.97, 1.00))
 	sw.add_theme_color_override("icon_pressed_color", C_ACCENT)
 	sw.add_theme_color_override("icon_focus_color",   Color(0.78, 0.82, 0.92))
+	# Umrahmtes Feld: Füllung bleibt konstant (C_SURFACE), nur der Toggle wechselt die Farbe.
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_SURFACE
 	sb.set_corner_radius_all(8)
+	sb.set_border_width_all(1)
+	sb.border_color = C_ACCENT_MU
 	sb.content_margin_left   = 8
 	sb.content_margin_right  = 8
 	sb.content_margin_top    = 4
