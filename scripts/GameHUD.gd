@@ -7,17 +7,17 @@ const BAR_H        = 50
 const VIEWPORT_W   = 960
 const VIEWPORT_H   = 540
 
-const C_BG         := Color(0.10, 0.11, 0.16)
-const C_SURFACE    := Color(0.17, 0.19, 0.26)
-const C_SURFACE_HI := Color(0.22, 0.25, 0.34)
-const C_ACCENT     := Color(1.00, 0.52, 0.05)
-const C_ACCENT_MU  := Color(0.22, 0.30, 0.50)
-const C_ACCENT_RD  := Color(0.80, 0.18, 0.12)
-const C_TEXT       := Color(0.93, 0.95, 1.00)
-const C_TEXT_DIM   := Color(0.50, 0.56, 0.70)
-const C_LINE       := Color(0.21, 0.24, 0.34)
-const C_RUN_ON     := Color(0.25, 0.90, 0.45)
-const C_RUN_OFF    := Color(0.32, 0.36, 0.50)
+const C_BG         := Color(0.07, 0.13, 0.15)
+const C_SURFACE    := Color(0.11, 0.20, 0.23)
+const C_SURFACE_HI := Color(0.17, 0.29, 0.33)
+const C_ACCENT     := Color(0.16, 0.80, 0.78)
+const C_ACCENT_MU  := Color(0.16, 0.42, 0.46)
+const C_ACCENT_RD  := Color(0.96, 0.45, 0.40)
+const C_TEXT       := Color(0.90, 0.97, 0.96)
+const C_TEXT_DIM   := Color(0.48, 0.64, 0.65)
+const C_LINE       := Color(0.17, 0.29, 0.32)
+const C_RUN_ON     := Color(0.30, 0.92, 0.62)
+const C_RUN_OFF    := Color(0.26, 0.42, 0.46)
 
 # Rechter Block – von rechts nach links:
 # Der Bauen-Button ist aus der Top-Nav entfernt (jetzt Hammer-Button unten links in Main.gd).
@@ -52,7 +52,8 @@ var _is_3d_view:   bool = false
 var _track_view_3d: Array = []
 
 var _tab_btns:     Array[Button]    = []
-var _run_dots:     Array[ColorRect] = []
+var _run_dots:     Array[Panel]         = []
+var _run_dot_sbs:  Array[StyleBoxFlat]  = []   # je Punkt eigene Stylebox (zum Umfärben)
 var _currency_lbl: Label            = null
 var _view_2d_btn:  Button           = null
 var _view_3d_btn:  Button           = null
@@ -108,35 +109,76 @@ func _build_bar() -> void:
 		add_child(btn)
 		_tab_btns.append(btn)
 
-		var dot := ColorRect.new()
-		dot.size     = Vector2(7, 7)
-		dot.position = btn.position + Vector2(TAB_W - 10, 6)
-		dot.color    = C_RUN_OFF
+		# Run-Indikator: Kreis mit dunklem Ring (Kontrast auf jedem Tab-BG),
+		# vertikal zentriert und vom rechten Rand eingerückt.
+		const DOT_SZ = 10
+		var dot := Panel.new()
+		dot.size     = Vector2(DOT_SZ, DOT_SZ)
+		dot.position = btn.position + Vector2(TAB_W - DOT_SZ - 10, (TAB_H - DOT_SZ) / 2.0)
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var dot_sb := StyleBoxFlat.new()
+		dot_sb.bg_color = C_RUN_OFF
+		dot_sb.set_corner_radius_all(DOT_SZ / 2)
+		dot_sb.set_border_width_all(2)
+		dot_sb.border_color = C_BG
+		dot.add_theme_stylebox_override("panel", dot_sb)
 		add_child(dot)
 		_run_dots.append(dot)
+		_run_dot_sbs.append(dot_sb)
 
-	# Währung (Mitte)
+	# Währung (Mitte) – abgerundete Pille + angehängtes „+1M"-Badge (Referenz-Look)
+	const MONEY_PILL_W = 116
+	const BADGE_W      = 46
+	const MONEY_GAP    = 4
+	var group_w = MONEY_PILL_W + MONEY_GAP + BADGE_W
+	var group_x = VIEWPORT_W / 2.0 - group_w / 2.0
+	var pill_y  = (BAR_H - 32) / 2.0
+
+	var cur_box := Panel.new()
+	cur_box.position = Vector2(group_x, pill_y)
+	cur_box.size     = Vector2(MONEY_PILL_W, 32)
+	var cur_sb := StyleBoxFlat.new()
+	cur_sb.bg_color     = C_SURFACE
+	cur_sb.set_border_width_all(1)
+	cur_sb.border_color = C_LINE
+	cur_sb.set_corner_radius_all(16)
+	cur_box.add_theme_stylebox_override("panel", cur_sb)
+	add_child(cur_box)
+
 	_currency_lbl = Label.new()
-	_currency_lbl.position = Vector2(VIEWPORT_W / 2.0 - 100, 0)
-	_currency_lbl.size     = Vector2(200, BAR_H)
+	_currency_lbl.position = Vector2(group_x, 0)
+	_currency_lbl.size     = Vector2(MONEY_PILL_W, BAR_H)
 	_currency_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_currency_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_currency_lbl.add_theme_font_size_override("font_size", 18)
+	_currency_lbl.add_theme_font_size_override("font_size", 16)
 	_currency_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
-	_currency_lbl.add_theme_constant_override("outline_size", 3)
-	_currency_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.88))
 	add_child(_currency_lbl)
 
-	# Rechter Block: Upgrade-Center (2D/3D-Umschaltung erfolgt jetzt über den
-	# "Fahren!/3D"-Button im Run-Bar bzw. den 2D-Toggle in der 3D-Ansicht).
-	_shop_btn = _make_uc_btn("UPGRADE-CENTER", Vector2(UC_X, UC_Y), UC_W, UC_H)
-	_shop_btn.pressed.connect(_on_shop_pressed)
-	add_child(_shop_btn)
-
-	# Debug-Button: +1.000.000 Gold (rechts neben Währungsanzeige)
-	var debug_btn := _make_btn("+1M", Vector2(582, BTN_Y), 34, BTN_H)
+	# „+1M"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Debug: +1 Mio)
+	var debug_btn := Button.new()
+	debug_btn.text     = "+1M"
+	debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
+	debug_btn.size     = Vector2(BADGE_W, 32)
+	debug_btn.focus_mode = Control.FOCUS_NONE
+	debug_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	debug_btn.add_theme_font_size_override("font_size", 12)
+	var badge_n := StyleBoxFlat.new()
+	badge_n.bg_color = Color(0.96, 0.62, 0.18)
+	badge_n.set_corner_radius_all(16)
+	var badge_h := badge_n.duplicate() as StyleBoxFlat
+	badge_h.bg_color = Color(1.0, 0.71, 0.30)
+	debug_btn.add_theme_stylebox_override("normal",  badge_n)
+	debug_btn.add_theme_stylebox_override("hover",   badge_h)
+	debug_btn.add_theme_stylebox_override("pressed", badge_n)
+	debug_btn.add_theme_stylebox_override("focus",   badge_n)
+	debug_btn.add_theme_color_override("font_color", Color(0.20, 0.12, 0.0))
 	debug_btn.pressed.connect(func(): Economy.add(1_000_000))
 	add_child(debug_btn)
+
+	# Rechter Block: Upgrade-Center (gefüllte Akzent-Pille)
+	_shop_btn = _make_uc_btn("Upgrade-Center", Vector2(UC_X, UC_Y), UC_W, UC_H)
+	_shop_btn.pressed.connect(_on_shop_pressed)
+	add_child(_shop_btn)
 
 	# Endlos-Modus-Toggle (links neben Währungsanzeige)
 	_endless_btn = _make_btn("∞", Vector2(344, BTN_Y), 34, BTN_H)
@@ -164,8 +206,7 @@ func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	return btn
 
 
-# Dezenter Upgrade-Center-Button: fügt sich in die Bar-Hintergrundfarbe ein,
-# nur orange Schrift und ein schmaler Akzentrahmen heben ihn hervor (kein Icon).
+# Upgrade-Center-Button: gefüllte Akzent-Pille (Cyan) mit dunklem Text – primäre Aktion.
 func _make_uc_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	var btn := Button.new()
 	btn.text     = txt
@@ -173,12 +214,13 @@ func _make_uc_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	btn.size     = Vector2(w, h)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.add_theme_stylebox_override("normal",  _uc_sb(C_BG,         C_ACCENT))
-	btn.add_theme_stylebox_override("hover",   _uc_sb(C_SURFACE,    C_ACCENT))
-	btn.add_theme_stylebox_override("pressed", _uc_sb(C_SURFACE_HI, C_ACCENT))
-	btn.add_theme_stylebox_override("focus",   _uc_sb(C_BG,         C_ACCENT))
-	btn.add_theme_color_override("font_color",       C_ACCENT)
-	btn.add_theme_color_override("font_hover_color", C_ACCENT.lightened(0.2))
+	var uc_blue := Color(0.48, 0.70, 1.00)   # hellblau (Rahmen + Schrift)
+	btn.add_theme_stylebox_override("normal",  _uc_sb(C_BG,         uc_blue))
+	btn.add_theme_stylebox_override("hover",   _uc_sb(C_SURFACE,    uc_blue))
+	btn.add_theme_stylebox_override("pressed", _uc_sb(C_SURFACE_HI, uc_blue))
+	btn.add_theme_stylebox_override("focus",   _uc_sb(C_BG,         uc_blue))
+	btn.add_theme_color_override("font_color",       uc_blue)
+	btn.add_theme_color_override("font_hover_color", uc_blue.lightened(0.15))
 	btn.add_theme_font_size_override("font_size", 14)
 	return btn
 
@@ -188,9 +230,9 @@ func _uc_sb(bg: Color, border: Color) -> StyleBoxFlat:
 	sb.bg_color = bg
 	sb.set_border_width_all(1)
 	sb.border_color = border
-	sb.set_corner_radius_all(5)
-	sb.content_margin_left   = 8
-	sb.content_margin_right  = 8
+	sb.set_corner_radius_all(20)   # Pille
+	sb.content_margin_left   = 14
+	sb.content_margin_right  = 14
 	sb.content_margin_top    = 4
 	sb.content_margin_bottom = 4
 	return sb
@@ -199,9 +241,9 @@ func _uc_sb(bg: Color, border: Color) -> StyleBoxFlat:
 func _sb(bg: Color, border: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.border_width_bottom = 2
+	sb.set_border_width_all(1)
 	sb.border_color = border
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(10)
 	sb.content_margin_left   = 5
 	sb.content_margin_right  = 5
 	sb.content_margin_top    = 3
@@ -210,33 +252,33 @@ func _sb(bg: Color, border: Color) -> StyleBoxFlat:
 
 
 func _style_tab_btn(btn: Button, active: bool) -> void:
-	var bg := C_SURFACE_HI if active else C_SURFACE
-	var bc := C_ACCENT     if active else C_ACCENT_MU
+	# Pillen-Form: aktiver Tab gefüllt mit Akzent (dunkler Text), inaktive dezent.
 	var sb := StyleBoxFlat.new()
-	sb.bg_color            = bg
-	sb.border_width_bottom = 3
-	sb.border_color        = bc
-	sb.set_corner_radius_all(3)
-	sb.content_margin_left   = 8
-	sb.content_margin_right  = 8
+	sb.bg_color = C_ACCENT if active else C_SURFACE
+	sb.set_corner_radius_all(18)
+	sb.content_margin_left   = 12
+	sb.content_margin_right  = 12
 	sb.content_margin_top    = 4
 	sb.content_margin_bottom = 4
-	for state in ["normal", "hover", "pressed", "focus"]:
-		btn.add_theme_stylebox_override(state, sb)
-	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
+	btn.add_theme_stylebox_override("normal",  sb)
+	btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_stylebox_override("focus",   sb)
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	if not active:
+		sb_h.bg_color = C_SURFACE_HI
+	btn.add_theme_stylebox_override("hover", sb_h)
+	btn.add_theme_color_override("font_color", C_BG if active else C_TEXT_DIM)
 	btn.add_theme_font_size_override("font_size", 12)
-	# Disabled-Stil (ausgegraut in 3D-Modus)
-	var sb_dis := StyleBoxFlat.new()
-	sb_dis.bg_color            = C_SURFACE.darkened(0.15)
-	sb_dis.border_width_bottom = 3
-	sb_dis.border_color        = C_LINE
-	sb_dis.set_corner_radius_all(3)
-	sb_dis.content_margin_left   = 8
-	sb_dis.content_margin_right  = 8
-	sb_dis.content_margin_top    = 4
-	sb_dis.content_margin_bottom = 4
+	# Disabled (gesperrte Strecke)
+	var sb_dis := sb.duplicate() as StyleBoxFlat
+	sb_dis.bg_color = C_SURFACE.darkened(0.2)
 	btn.add_theme_stylebox_override("disabled", sb_dis)
-	btn.add_theme_color_override("font_disabled_color", Color(0.28, 0.31, 0.43))
+	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM.darkened(0.15))
+
+
+func _set_run_dot(i: int, on: bool) -> void:
+	if i < _run_dot_sbs.size():
+		_run_dot_sbs[i].bg_color = C_RUN_ON if on else C_RUN_OFF
 
 
 func _refresh_tabs() -> void:
@@ -249,7 +291,7 @@ func _refresh_tabs() -> void:
 		# Tabs bleiben auch in der 3D-Ansicht aktiv – nur gesperrte Strecken sind nicht wählbar.
 		_tab_btns[i].disabled = is_locked
 		_run_dots[i].visible  = not is_locked
-		_run_dots[i].color    = C_RUN_ON if Economy.is_run_active(i) else C_RUN_OFF
+		_set_run_dot(i, Economy.is_run_active(i))
 
 
 func _refresh_view_buttons() -> void:
@@ -287,8 +329,8 @@ func _process(_delta: float) -> void:
 	if _currency_lbl != null:
 		_currency_lbl.text = "💰  %s" % Economy.format_currency(Economy.get_currency())
 	for i in TRACK_COUNT:
-		if i < _run_dots.size():
-			_run_dots[i].color = C_RUN_ON if Economy.is_run_active(i) else C_RUN_OFF
+		if i < _run_dot_sbs.size():
+			_set_run_dot(i, Economy.is_run_active(i))
 
 
 # ── Callbacks ──────────────────────────────────────────────────────────────────

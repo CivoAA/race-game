@@ -7,14 +7,14 @@ const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (12
 const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
 const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
-const C_SURFACE   := Color(0.19, 0.21, 0.29)
-const C_SURFACE2  := Color(0.24, 0.26, 0.36)
-const C_ACCENT    := Color(1.00, 0.52, 0.05)
-const C_ACCENT_MU := Color(0.22, 0.30, 0.50)
-const C_ACCENT_RD := Color(0.80, 0.18, 0.12)
-const C_TEXT      := Color(0.93, 0.95, 1.00)
-const C_TEXT_DIM  := Color(0.50, 0.56, 0.70)
-const C_LINE      := Color(0.21, 0.24, 0.34)
+const C_SURFACE   := Color(0.13, 0.23, 0.26)
+const C_SURFACE2  := Color(0.18, 0.31, 0.35)
+const C_ACCENT    := Color(0.16, 0.80, 0.78)
+const C_ACCENT_MU := Color(0.16, 0.42, 0.46)
+const C_ACCENT_RD := Color(0.96, 0.45, 0.40)
+const C_TEXT      := Color(0.90, 0.97, 0.96)
+const C_TEXT_DIM  := Color(0.48, 0.64, 0.65)
+const C_LINE      := Color(0.17, 0.29, 0.32)
 
 var settings := ConfigFile.new()
 
@@ -466,7 +466,7 @@ func _style_settings_nav(btn: Button, active: bool) -> void:
 	sb.bg_color          = C_SURFACE2 if active else Color(0, 0, 0, 0)
 	sb.border_width_left = 3
 	sb.border_color      = C_ACCENT if active else Color(0, 0, 0, 0)
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 12; sb.content_margin_right = 8
 	sb.content_margin_top  = 8;  sb.content_margin_bottom = 8
 	var sb_h := sb.duplicate() as StyleBoxFlat
@@ -1056,7 +1056,7 @@ func _make_placement_switch() -> CheckButton:
 	sw.add_theme_color_override("icon_focus_color",   Color(0.78, 0.82, 0.92))
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_SURFACE
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left   = 8
 	sb.content_margin_right  = 8
 	sb.content_margin_top    = 4
