@@ -45,9 +45,14 @@ const SHOP_ITEMS = [
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 150000, "base_price": 25000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 500000, "base_price": 100000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 2000000, "base_price": 400000, "growth": 5.0, "upgrade": "wallbonus"},
+	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 1000000, "base_price": 200000, "growth": 5.0, "upgrade": "loopbonus"},
+	{"tier": "portal",  "type": "portal",   "name": "Portal",        "key": "portal",     "unlock": 5000000, "base_price": 1000000, "growth": 5.0, "upgrade": "portalbonus"},
+	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 50000000, "base_price": 5000000, "growth": 9.0, "upgrade": "standbonus"},
 ]
 
-const SHOP_SLOT_COUNT = 7   # = SHOP_ITEMS.size()
+const SHOP_SLOT_COUNT = 10  # = SHOP_ITEMS.size()
+const PORTAL_MAX      = 2   # genau 2 Portale je Strecke baubar
+const STAND_MAX_STACK = 5   # Tribüne: max. 5× auf dasselbe Feld stapelbar
 const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
 
 # Upgrade-Tabellen: points/multiplier pro combine_level (0–4)
@@ -77,6 +82,9 @@ var _bonus_sig_on_open: String = ""
 
 # Sprung-Felder (Mittelfeld jeder Rampe) – dort gibt ein Tile × JUMP_MULT Ertrag
 var _jump_marker_nodes: Array = []
+
+# Tribünen-Marker (×N auf den geboosteten Nachbarfeldern)
+var _stand_marker_nodes: Array = []
 
 # Grid tile selection
 var selected_grid_row: int = -1
@@ -787,6 +795,9 @@ func _count_paid_tiles_in(g: Array, type: String) -> int:
 			if type == "ramp":
 				if t == "ramp_start":   # ein Paar = ein ramp_start
 					n += 1
+			elif type == "stand":
+				if t == "stand":   # jeder Stapel-Kauf zählt einzeln (Preis steigt je Kauf)
+					n += int(d.get("stack", 1))
 			elif type == "wall":
 				if t == "wall_start":   # ein Paar = ein wall_start
 					n += 1
@@ -858,11 +869,23 @@ func _tile_refund_for(data) -> int:
 	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
 		return 0
 	var t = data.get("type", "")
-	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end"]):
+	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
 		return 0
 	var item = _shop_item_for_type(t)
 	if item.is_empty():
 		return 0
+	# Tribüne: beim Löschen werden ALLE Stapel-Käufe entfernt → die marginalen Preise aller Stufen
+	# dieses Stapels erstatten (base·growth^(n-1) + … + base·growth^(n-stack)).
+	if t == "stand":
+		var n_total = _count_paid_tiles("stand")   # inkl. aller Stufen dieses Stapels
+		var stk = int(data.get("stack", 1))
+		var total := 0.0
+		for k in range(stk):
+			var idx = n_total - 1 - k
+			if idx < 0:
+				break
+			total += float(item["base_price"]) * pow(float(item["growth"]), idx)
+		return int(round(total))
 	var n = _count_paid_tiles(item["type"])   # inkl. dieses Tile (Rampe: zählt ramp_start)
 	# Gratis-Kontingent (free_roads) berücksichtigen: war dieses Tile noch im Gratis-Bereich
 	# (n <= free), wurde nichts bezahlt → keine Rückerstattung. Sonst marginaler Preis versetzt.
@@ -904,6 +927,12 @@ func _update_build_ui() -> void:
 			icon_txt = "❄"
 		elif item["tier"] == "wall":
 			icon_txt = "◗"
+		elif item["tier"] == "loop":
+			icon_txt = "◯"
+		elif item["tier"] == "portal":
+			icon_txt = "⬭"
+		elif item["tier"] == "stand":
+			icon_txt = "🏟"
 		icon_lbl.text = icon_txt
 		name_lbl.text = item["name"]
 
@@ -919,6 +948,12 @@ func _update_build_ui() -> void:
 				chip_bg = Color(0.12, 0.30, 0.42); chip_fg = Color(0.62, 0.90, 1.00)
 			"wall":
 				chip_bg = Color(0.34, 0.16, 0.40); chip_fg = Color(0.86, 0.62, 1.00)
+			"loop":
+				chip_bg = Color(0.14, 0.26, 0.44); chip_fg = Color(0.60, 0.80, 1.00)
+			"portal":
+				chip_bg = Color(0.30, 0.18, 0.06); chip_fg = Color(1.00, 0.66, 0.32)
+			"stand":
+				chip_bg = Color(0.22, 0.22, 0.24); chip_fg = Color(0.86, 0.86, 0.90)
 			_:
 				chip_bg = C_ACCENT_MU.darkened(0.05); chip_fg = Color(0.74, 0.84, 1.00)
 		if locked:
@@ -949,6 +984,18 @@ func _update_build_ui() -> void:
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "wall":
 			val_lbl.text   = "+%s 💰 · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Economy.get_wall_boost_levels(), Economy.get_wall_range()]
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
+		elif item["tier"] == "loop":
+			val_lbl.text   = "◯ ×%.1f  ·  andere ×%.1f" % [Economy.get_loop_factor(), Economy.get_loop_factor()]
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
+		elif item["tier"] == "portal":
+			val_lbl.text   = "+%s 💰  ·  %d/%d gesetzt" % [Economy.format_currency(Economy.get_portal_earn()), _count_portals(), PORTAL_MAX]
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
+		elif item["tier"] == "stand":
+			val_lbl.text   = "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
 			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		else:
@@ -1084,6 +1131,39 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	# Steilwandkurven-Tiles: programmatisch gezeichnet (Top-Down-Haarnadel mit Wand-Schraffur).
 	if data["type"] in ["wall_start", "wall_end"]:
 		var node = _create_wall_node(data)
+		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
+		node.rotation_degrees = data["rotation"]
+		node.name = "Tile_%d_%d" % [row, col]
+		grid_node.add_child(node)
+		data["node"] = node
+		grid[row][col] = data
+		return
+
+	# Looping-Tile: programmatisch gezeichnet (Gerade mit Looping-Symbol + ×2).
+	if data["type"] == "loop":
+		var node = _create_loop_node(data)
+		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
+		node.rotation_degrees = data["rotation"]
+		node.name = "Tile_%d_%d" % [row, col]
+		grid_node.add_child(node)
+		data["node"] = node
+		grid[row][col] = data
+		return
+
+	# Portal-Tile: programmatisch gezeichnet (Stutzen + leuchtender Portal-Ring).
+	if data["type"] == "portal":
+		var node = _create_portal_node(data)
+		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
+		node.rotation_degrees = data["rotation"]
+		node.name = "Tile_%d_%d" % [row, col]
+		grid_node.add_child(node)
+		data["node"] = node
+		grid[row][col] = data
+		return
+
+	# Tribünen-Tile: programmatisch gezeichnet (Boost-Pfeile je Stapel-Stufe + ×Wert).
+	if data["type"] == "stand":
+		var node = _create_stand_node(data)
 		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
 		node.rotation_degrees = data["rotation"]
 		node.name = "Tile_%d_%d" % [row, col]
@@ -1345,6 +1425,221 @@ func _arc_band(center: Vector2, a0: float, a1: float, r_in: float, r_out: float,
 	return poly
 
 
+# Looping-Tile-Node (programmatisch, Top-Down). rot=0 Basislage: vertikale Fahrbahn (Süd↔Nord)
+# mit einem Looping-Ring in der Mitte und einer ×2-Marke. Node-Rotation dreht in die Weltlage.
+func _create_loop_node(data: Dictionary) -> Node2D:
+	var node     = Node2D.new()
+	var half     = TILE_SIZE / 2.0
+	var pw       = 28.0
+	var bg_col   = Color(0.13, 0.12, 0.16)
+	var road_col = Color(0.30, 0.30, 0.36)
+	var loop_col = Color(0.36, 0.62, 0.95)
+	var rot      = data.get("rotation", 0)
+	var rot_rad  = deg_to_rad(rot)
+
+	var bg = ColorRect.new()
+	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+	bg.position = Vector2(-half + 1, -half + 1)
+	bg.color    = bg_col
+	node.add_child(bg)
+
+	# Vertikale Fahrbahn (Süd↔Nord)
+	var road = ColorRect.new()
+	road.size     = Vector2(pw, TILE_SIZE)
+	road.position = Vector2(-pw / 2.0, -half)
+	road.color    = road_col
+	node.add_child(road)
+
+	# Looping-Ring (Kreis-Band)
+	var r_out = 27.0
+	var r_in  = 17.0
+	var pts   = PackedVector2Array()
+	var steps = 26
+	for i in range(steps + 1):
+		var a = TAU * float(i) / steps
+		pts.append(Vector2(cos(a), sin(a)) * r_out)
+	for i in range(steps + 1):
+		var a = TAU * float(steps - i) / steps
+		pts.append(Vector2(cos(a), sin(a)) * r_in)
+	var ring = Polygon2D.new()
+	ring.polygon = pts
+	ring.color   = loop_col
+	node.add_child(ring)
+
+	# ×2-Marke (gegen die Tile-Rotation gedreht, damit lesbar)
+	var lbl = Label.new()
+	lbl.text = "×2"
+	lbl.size = Vector2(40, 20)
+	lbl.position = Vector2(-20, -10).rotated(-rot_rad)
+	lbl.rotation_degrees = -rot
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	lbl.add_theme_constant_override("outline_size", 3)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0.1, 0.25, 0.9))
+	node.add_child(lbl)
+	return node
+
+
+# Anzahl platzierter Portale in der AKTUELLEN Strecke (für das 2er-Limit).
+func _count_portals() -> int:
+	var n := 0
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d != null and d.get("type", "") == "portal":
+				n += 1
+	return n
+
+
+# Portal-Tile-Node (programmatisch, Top-Down). rot=0 Basislage: offene Seite = West (links);
+# Fahrbahn-Stutzen von links zur Mitte + leuchtender Portal-Ring. Node-Rotation dreht in die Weltlage.
+func _create_portal_node(data: Dictionary) -> Node2D:
+	var node     = Node2D.new()
+	var half     = TILE_SIZE / 2.0
+	var pw       = 30.0
+	var bg_col   = Color(0.12, 0.10, 0.14)
+	var road_col = Color(0.30, 0.30, 0.36)
+	var frame_col = Color(1.0, 0.55, 0.12)
+	var glow_col  = Color(1.0, 0.78, 0.40, 0.5)
+
+	var bg = ColorRect.new()
+	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+	bg.position = Vector2(-half + 1, -half + 1)
+	bg.color    = bg_col
+	node.add_child(bg)
+
+	# Fahrbahn-Stutzen von der offenen Seite (West) zur Mitte.
+	var road = ColorRect.new()
+	road.size     = Vector2(half, pw)
+	road.position = Vector2(-half, -pw / 2.0)
+	road.color    = road_col
+	node.add_child(road)
+
+	# Portal-Ring (Kreis-Band) + Glüh-Scheibe in der Mitte.
+	var glow = Polygon2D.new()
+	glow.polygon = _circle_pts(Vector2.ZERO, 24.0, 24)
+	glow.color   = glow_col
+	node.add_child(glow)
+	var ring = Polygon2D.new()
+	ring.polygon = _ring_pts(26.0, 19.0, 24)
+	ring.color   = frame_col
+	node.add_child(ring)
+	return node
+
+
+# Gefülltes Kreis-Polygon.
+func _circle_pts(center: Vector2, r: float, steps: int) -> PackedVector2Array:
+	var pts = PackedVector2Array()
+	for i in range(steps + 1):
+		var a = TAU * float(i) / steps
+		pts.append(center + Vector2(cos(a), sin(a)) * r)
+	return pts
+
+
+# Ring-Polygon (außen r_out, innen r_in).
+func _ring_pts(r_out: float, r_in: float, steps: int) -> PackedVector2Array:
+	var pts = PackedVector2Array()
+	for i in range(steps + 1):
+		var a = TAU * float(i) / steps
+		pts.append(Vector2(cos(a), sin(a)) * r_out)
+	for i in range(steps + 1):
+		var a = TAU * float(steps - i) / steps
+		pts.append(Vector2(cos(a), sin(a)) * r_in)
+	return pts
+
+
+# Himmelsrichtung CW um `rot` Grad drehen (N→E→S→W→N).
+func _rotate_dir_cw(dir: String, rot: int) -> String:
+	var order = ["N", "E", "S", "W"]
+	var idx = order.find(dir)
+	if idx < 0:
+		return dir
+	return order[(idx + (int(rot) / 90)) % 4]
+
+
+# Geboostete Nachbar-Richtungen einer Tribüne (Welt), abhängig von Rotation + Stapel-Stufe.
+# Basis-Reihenfolge (rot=0): S, dann N, dann E, dann W (1./2./3./4. Stapel). Stack 5 = 4 Richtungen.
+func _stand_dirs(rotation: int, stack: int) -> Array:
+	var base = ["S", "N", "E", "W"]
+	var count = mini(stack, 4)
+	var out: Array = []
+	for i in range(count):
+		out.append(_rotate_dir_cw(base[i], rotation))
+	return out
+
+
+# 2D-Einheitsvektor einer Himmelsrichtung (Screen: +y = Süden/unten).
+func _dir2d(dir: String) -> Vector2:
+	match dir:
+		"N": return Vector2(0, -1)
+		"S": return Vector2(0, 1)
+		"E": return Vector2(1, 0)
+		"W": return Vector2(-1, 0)
+	return Vector2.ZERO
+
+
+# Tribünen-Tile-Node (programmatisch, Top-Down). rot=0 Basislage: Boost-Pfeile zu den geboosteten
+# Nachbarfeldern (Stapel 1=S, 2=S+N, 3=S+N+E, 4=alle). Node-Rotation dreht alles in die Weltlage.
+func _create_stand_node(data: Dictionary) -> Node2D:
+	var node    = Node2D.new()
+	var half    = TILE_SIZE / 2.0
+	var stack   = int(data.get("stack", 1))
+	var rot     = int(data.get("rotation", 0))
+	var rot_rad = deg_to_rad(rot)
+	var bg_col    = Color(0.16, 0.16, 0.18)
+	var stand_col = Color(0.55, 0.55, 0.60)
+	var seat_col  = Color(0.55, 0.32, 0.14)
+	var arrow_col = Color(0.45, 0.85, 1.0)
+
+	var bg = ColorRect.new()
+	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+	bg.position = Vector2(-half + 1, -half + 1)
+	bg.color    = bg_col
+	node.add_child(bg)
+
+	# Zentraler Tribünen-Block (grau) mit brauner Sitz-Stufe.
+	var block = ColorRect.new()
+	block.size     = Vector2(40, 40)
+	block.position = Vector2(-20, -20)
+	block.color    = stand_col
+	node.add_child(block)
+	var seat = ColorRect.new()
+	seat.size     = Vector2(40, 9)
+	seat.position = Vector2(-20, -4)
+	seat.color    = seat_col
+	node.add_child(seat)
+
+	# Boost-Pfeile in den Basis-Richtungen (rotieren mit dem Node = mit der Tile-Rotation).
+	var dirs = ["S", "N", "E", "W"]
+	var count = mini(stack, 4)
+	for i in range(count):
+		var v = _dir2d(dirs[i])
+		var tip  = v * (half - 4.0)
+		var basep = v * (half - 20.0)
+		var perp = Vector2(-v.y, v.x) * 9.0
+		var tri = Polygon2D.new()
+		tri.polygon = PackedVector2Array([tip, basep + perp, basep - perp])
+		tri.color = arrow_col
+		node.add_child(tri)
+
+	# ×Wert + Stapel-Marke (gegen die Tile-Rotation gedreht, damit lesbar).
+	var lbl = Label.new()
+	lbl.text = "×%.1f" % Economy.get_stand_mult(stack)
+	lbl.size = Vector2(50, 18)
+	lbl.position = Vector2(-25, -9).rotated(-rot_rad)
+	lbl.rotation_degrees = -rot
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 12)
+	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+	lbl.add_theme_constant_override("outline_size", 3)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	node.add_child(lbl)
+	return node
+
+
 # ── Input ──────────────────────────────────────────────────────────────────────
 
 func _process(_delta: float) -> void:
@@ -1416,7 +1711,7 @@ func _input(event: InputEvent) -> void:
 			return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] in ["ramp", "wall"]:
+		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] in ["ramp", "wall", "stand"]:
 			ramp_preview_rot = (ramp_preview_rot + 90) % 360
 			_update_build_ui()
 		else:
@@ -1854,6 +2149,8 @@ func _shop_drag_data(item: Dictionary) -> Dictionary:
 		return {"type": "ramp_start", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false}
 	if item["tier"] == "wall":
 		return {"type": "wall_start", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false}
+	if item["tier"] == "stand":
+		return {"type": "stand", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false, "stack": 1}
 	return {
 		"type":      item["type"],
 		"rotation":  0,
@@ -1891,6 +2188,12 @@ func _make_tile_visual(data: Dictionary) -> Node2D:
 		node = _create_ramp_node(data)
 	elif data.get("type", "") in ["wall_start", "wall_end"]:
 		node = _create_wall_node(data)
+	elif data.get("type", "") == "loop":
+		node = _create_loop_node(data)
+	elif data.get("type", "") == "portal":
+		node = _create_portal_node(data)
+	elif data.get("type", "") == "stand":
+		node = _create_stand_node(data)
 	else:
 		var scene_path: String
 		match data.get("type", ""):
@@ -1967,7 +2270,7 @@ func _ghost_pos_for(global_pos: Vector2) -> Vector2:
 # [R] beim Ziehen (Shop oder Grid): gezogenes Teil „in der Hand" um 90° drehen.
 func _drag_rotate() -> void:
 	_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 90) % 360
-	if _drag_shop_idx >= 0 and SHOP_ITEMS[_drag_shop_idx]["tier"] in ["ramp", "wall"]:
+	if _drag_shop_idx >= 0 and SHOP_ITEMS[_drag_shop_idx]["tier"] in ["ramp", "wall", "stand"]:
 		ramp_preview_rot = _drag_data["rotation"]   # Rampe/Steilwand platzieren über ramp_preview_rot
 		_update_build_ui()
 	_rebuild_drag_ghost()
@@ -2213,6 +2516,18 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	if item["tier"] == "wall":
 		_place_wall(row, col)
 		return
+	# Portal: genau 2 je Strecke. Überschreiben eines bestehenden Portals zählt nicht als neues.
+	if item["tier"] == "portal":
+		var ex = grid[row][col]
+		var replace_portal = ex != null and ex.get("type", "") == "portal"
+		if _count_portals() >= PORTAL_MAX and not replace_portal:
+			tile_selector.set_status("Maximal %d Portale je Strecke" % PORTAL_MAX)
+			_flash_currency()
+			return
+	# Tribüne: eigenes Platzieren/Stapeln (mehrfacher Kauf aufs selbe Feld erhöht die Stapel-Stufe)
+	if item["tier"] == "stand":
+		_place_stand(row, col)
+		return
 	# Preis für alle bezahlten Tiles (Default & Eis); Dreck ist kostenlos. Vor dem Setzen prüfen.
 	var price = _tile_price(item)
 	var is_paid: bool = item["tier"] != "dirt"
@@ -2409,6 +2724,54 @@ func _place_wall(row: int, col: int) -> void:
 	tile_selector.set_status("Kein Platz für Steilwandkurve (2 freie Felder nebeneinander nötig)")
 
 
+# Platziert/stapelt eine Tribüne. Erneuter Kauf auf dasselbe Feld erhöht die Stapel-Stufe (max 5):
+# 1=ein Nachbarfeld geboostet, 2..4 = mehr Richtungen, 5 = alle Richtungen + Multiplikator verdoppelt.
+func _place_stand(row: int, col: int) -> void:
+	var item  = SHOP_ITEMS[selected_shop_slot]
+	var price = _tile_price(item)
+	var existing = grid[row][col]
+
+	# Stapeln auf bestehende Tribüne.
+	if existing != null and existing.get("type", "") == "stand":
+		var stk = int(existing.get("stack", 1))
+		if stk >= STAND_MAX_STACK:
+			tile_selector.set_status("Tribüne ist voll gestapelt (×%d)" % STAND_MAX_STACK)
+			return
+		if not Economy.spend(price):
+			_flash_currency()
+			return
+		var nd = existing.duplicate()
+		nd.erase("node")
+		nd["stack"] = stk + 1
+		_free_tile_node(row, col)
+		_spawn_tile(row, col, nd)
+		last_placed_row = row; last_placed_col = col
+		_update_currency_label(); _update_build_ui(); _update_grid_highlight(); _invalidate_track()
+		_after_quick_place(row, col)
+		return
+
+	# Neues Tribünen-Feld (nur auf leerem/Dreck-Feld; Start geschützt).
+	if existing != null and existing.get("is_start", false):
+		return
+	if not Economy.spend(price):
+		_flash_currency()
+		return
+	if existing != null:
+		var refund = _tile_refund_for(existing)
+		if refund > 0:
+			Economy.add(refund)
+		_free_tile_node(row, col)
+	_spawn_tile(row, col, {
+		"type": "stand", "rotation": ramp_preview_rot, "flipped": false,
+		"direction": 1, "points": 0.0, "multiplier": 1.0,
+		"variant_label": "", "series": "", "combine_level": 0,
+		"is_start": false, "is_dirt": false, "stack": 1,
+	})
+	last_placed_row = row; last_placed_col = col
+	_update_currency_label(); _update_build_ui(); _update_grid_highlight(); _invalidate_track()
+	_after_quick_place(row, col)
+
+
 # ── Rotation ───────────────────────────────────────────────────────────────────
 
 func _rotate_active(degrees: int) -> void:
@@ -2426,6 +2789,18 @@ func _rotate_active(degrees: int) -> void:
 	# Steilwandkurven-Rotation: Paar neu platzieren
 	if data.get("type", "") == "wall_start":
 		_rotate_wall(row, col, degrees)
+		return
+	# Tribüne: Node neu zeichnen, damit Pfeile/×-Marke sauber zur neuen Rotation passen.
+	if data.get("type", "") == "stand":
+		var nd = data.duplicate()
+		nd.erase("node")
+		nd["rotation"] = (int(data["rotation"]) + degrees) % 360
+		_free_tile_node(row, col)
+		_spawn_tile(row, col, nd)
+		selected_grid_row = row; selected_grid_col = col
+		_update_grid_highlight()
+		_invalidate_track()
+		tile_selector.set_status("Tribüne")
 		return
 	data["rotation"] = (data["rotation"] + degrees) % 360
 	data["node"].rotation_degrees = data["rotation"]
@@ -2546,6 +2921,9 @@ func _type_display_name(typ: String) -> String:
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
 		"ramp_end":   return "Rampe (Ende)"
+		"loop":       return "Looping"
+		"portal":     return "Portal"
+		"stand":      return "Tribüne"
 		"wall_start": return "Steilwandkurve"
 		"wall_end":   return "Steilwandkurve (Ende)"
 	return typ
@@ -2585,6 +2963,7 @@ func get_grid_state() -> Array:
 					"combine_level":    d.get("combine_level", 0),
 					"ramp_partner_row": d.get("ramp_partner_row", -1),
 					"ramp_partner_col": d.get("ramp_partner_col", -1),
+					"stack":            d.get("stack", 1),
 				})
 		state.append(row_data)
 	return state
@@ -2705,6 +3084,18 @@ func _build_drive_state() -> Array:
 	for cell in _ramp_jump_cells():
 		if typeof(state[cell.x][cell.y]) == TYPE_DICTIONARY:
 			state[cell.x][cell.y]["jump_mult"] = Economy.get_ramp_jump_mult()
+	# Tribüne: multipliziert das/die Nachbarfeld(er) VOR ihr (× in bonus_mult eingerechnet → wirkt im
+	# Schneeball am betroffenen Fahr-Feld, stapelt mit Bonusfeldern/anderen Tribünen).
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d == null or d.get("type", "") != "stand":
+				continue
+			var mult = Economy.get_stand_mult(int(d.get("stack", 1)))
+			for dir in _stand_dirs(int(d.get("rotation", 0)), int(d.get("stack", 1))):
+				var nb = _ac_step(r, c, dir)
+				if _ac_in_bounds(nb) and typeof(state[nb.x][nb.y]) == TYPE_DICTIONARY:
+					state[nb.x][nb.y]["bonus_mult"] = float(state[nb.x][nb.y].get("bonus_mult", 1.0)) * mult
 	return state
 
 
@@ -2805,6 +3196,22 @@ func _is_track_valid() -> bool:
 		if key in visited:
 			return (row == 1 and col == 1)
 		visited[key] = true
+		# Portal: teleportiert zum Partner-Portal; weiter über dessen offene Seite (Partner verbraucht).
+		var cur = grid[row][col]
+		if cur != null and cur.get("type", "") == "portal":
+			var part = _portal_partner_m(row, col)
+			if part.x < 0: return false
+			var pdata = grid[part.x][part.y]
+			var odir = _portal_open_dir_m(int(pdata.get("rotation", 0)))
+			var emerge = _ac_step(part.x, part.y, odir)
+			if not _ac_in_bounds(emerge): return false
+			var edata = grid[emerge.x][emerge.y]
+			if edata == null: return false
+			visited["%d_%d" % [part.x, part.y]] = true
+			var nx = _ac_through(edata, _ac_opp(odir))
+			if nx == "": return false
+			row = emerge.x; col = emerge.y; exit_dir = nx
+			continue
 		var nxt = _ac_step(row, col, exit_dir)
 		# Rampe: Mittelfeld überspringen, sobald der Ausgang zur Partner-Kachel zeigt – egal ob die
 		# Strecke von der ramp_start- ODER ramp_end-Seite kommt (Fahrtrichtung wird so automatisch erkannt).
@@ -2865,6 +3272,48 @@ func _refresh_jump_markers() -> void:
 		marker.z_index  = 5
 		grid_node.add_child(marker)
 		_jump_marker_nodes.append(marker)
+	_refresh_stand_markers()
+
+
+# Zeichnet „×N"-Marker auf die von Tribünen geboosteten Nachbarfelder neu.
+func _refresh_stand_markers() -> void:
+	for n in _stand_marker_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_stand_marker_nodes.clear()
+	var cell_mult: Dictionary = {}
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d == null or d.get("type", "") != "stand":
+				continue
+			var mult = Economy.get_stand_mult(int(d.get("stack", 1)))
+			for dir in _stand_dirs(int(d.get("rotation", 0)), int(d.get("stack", 1))):
+				var nb = _ac_step(r, c, dir)
+				if _ac_in_bounds(nb):
+					cell_mult[nb] = float(cell_mult.get(nb, 1.0)) * mult
+	for cell in cell_mult:
+		var marker = _make_stand_marker(float(cell_mult[cell]))
+		marker.position = _grid_to_world(cell.x, cell.y)
+		marker.z_index  = 5
+		grid_node.add_child(marker)
+		_stand_marker_nodes.append(marker)
+
+
+func _make_stand_marker(mult: float) -> Node2D:
+	var node = Node2D.new()
+	var lbl = Label.new()
+	lbl.text = "×%s" % String.num(mult, 1).trim_suffix(".0")
+	lbl.position = Vector2(0, 0)
+	lbl.size = Vector2(TILE_SIZE, TILE_SIZE)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 20)
+	lbl.add_theme_color_override("font_color", Color(0.80, 0.86, 1.0))
+	lbl.add_theme_constant_override("outline_size", 4)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	node.add_child(lbl)
+	return node
 
 
 func _make_jump_marker() -> Node2D:
@@ -2904,6 +3353,21 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 			var tn = bw; var te = bn; var ts = be; var tw = bs
 			bn = tn; be = te; bs = ts; bw = tw
 		conns = {"N": bn, "E": be, "S": bs, "W": bw}
+	elif t == "loop":
+		# Basislage (rot=0): vertikal N+S (rein Süden, raus Norden). CW-Rotation wie oben.
+		var bn = true; var be = false; var bs = true; var bw = false
+		var steps = (rot / 90) % 4
+		for _i in range(steps):
+			var tn = bw; var te = bn; var ts = be; var tw = bs
+			bn = tn; be = te; bs = ts; bw = tw
+		conns = {"N": bn, "E": be, "S": bs, "W": bw}
+	elif t == "portal":
+		# Portal: genau EINE offene Seite (zur andockenden Strecke). Eingang nur über diese Seite;
+		# der „Ausgang" ist der Teleport zum Partner-Portal (in _is_track_valid behandelt).
+		var od = _portal_open_dir_m(rot)
+		if entry == od:
+			return od
+		return ""
 	elif t == "wall_start" or t == "wall_end":
 		# Basislage (rot=0): wall_start = S+W, wall_end = N+W. CW-Rotation wie oben.
 		var bn = (t == "wall_end"); var be = false; var bs = (t == "wall_start"); var bw = true
@@ -2941,6 +3405,21 @@ func _ac_step(row: int, col: int, dir: String) -> Vector2i:
 
 
 # Richtung von (row,col) zur Zielzelle (trow,tcol) als Himmelsrichtung ("" wenn identisch).
+# Offene Seite eines Portals (rot=0 → West), für die Validierung.
+func _portal_open_dir_m(rot: int) -> String:
+	return ["W", "N", "E", "S"][(int(rot) / 90) % 4]
+
+
+# Das ANDERE Portal in der aktuellen Strecke (von max. 2). (-1,-1) falls keins.
+func _portal_partner_m(row: int, col: int) -> Vector2i:
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d != null and d.get("type", "") == "portal" and not (r == row and c == col):
+				return Vector2i(r, c)
+	return Vector2i(-1, -1)
+
+
 func _ac_dir_to(row: int, col: int, trow: int, tcol: int) -> String:
 	if tcol > col: return "E"
 	if tcol < col: return "W"

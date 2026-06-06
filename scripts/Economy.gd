@@ -103,6 +103,29 @@ const UPGRADES = {
 		"base_cost": 10000, "growth": 3.0, "max_level": 15,
 		"base": 0.0, "per_level": 200.0, "unit": " /Rampe",
 	},
+	# Looping-Upgrade: erhöht den Loop-Faktor um 0.2 je Stufe (base 2.0 → Stufe 10 = 4.0). Dieser
+	# Faktor ist BEIDE Loop-Multiplikatoren zugleich: der eigene ×F UND der Faktor, mit dem jeder
+	# andere Multiplikator des Feldes multipliziert wird (M·F). get_effect liefert direkt 2.0+0.2·Lvl.
+	"loopbonus": {
+		"category": "tile", "name": "Looping-Multiplikator (×)",
+		"base_cost": 50000, "growth": 2.5, "max_level": 10,
+		"base": 2.0, "per_level": 0.2, "unit": "",
+	},
+	# Portal-Upgrade: additiver Geld-Ertrag am Eingangs-Portal (kein Multiplikator). 25 Stufen.
+	# Geld skaliert bewusst etwas STÄRKER als übliche Tiles (per_level = 60 % der Basis je Stufe),
+	# die KOSTEN steigen normal (growth wie andere Tile-Upgrades). base = 25k Grundertrag.
+	"portalbonus": {
+		"category": "tile", "name": "Portal-Ertrag (+ je Durchgang)",
+		"base_cost": 80000, "growth": 2.6, "max_level": 25,
+		"base": 25000.0, "per_level": 15000.0, "unit": "",
+	},
+	# Tribünen-Upgrade: Multiplikator auf das/die Nachbarfeld(er) vor der Tribüne. base 2.5, +0.1/Stufe
+	# (Stufe 15 → 4.0). get_effect liefert direkt 2.5+0.1·Lvl. Stack 5 verdoppelt den Wert (in get_stand_mult).
+	"standbonus": {
+		"category": "tile", "name": "Tribünen-Multiplikator (×)",
+		"base_cost": 200000, "growth": 2.6, "max_level": 15,
+		"base": 2.5, "per_level": 0.1, "unit": "",
+	},
 	# Bonusfelder: je Typ max. 3 – das Upgrade-Level = Anzahl dieser Felder (Lv1 schaltet frei,
 	# Lv2 = zweites Feld, Lv3 = drittes). Kosten steigen idle-typisch steil.
 	"bonus_plus5": {
@@ -128,6 +151,11 @@ const UPGRADES = {
 # Sprung-Multiplikator je 5 Stufen (get_ramp_jump_mult).
 const RAMP_BASE_EARN = 450.0
 const RAMP_JUMP_BASE = 2.0
+
+# Looping: eigener Multiplikator ×F. Zusätzlich wird JEDER andere Multiplikator auf demselben Feld
+# mit F multipliziert (M → M·F). F = get_loop_factor() = 2.0 + 0.2·loopbonus-Level (Stufe 10 → 4.0).
+# Sofort am Feld verrechnet (Schritt 2 des Schneeballs), nicht am Lauf-Ende. LOOP_MULT = Basiswert.
+const LOOP_MULT = 2.0
 
 # Grid-Dimensionen pro grid_size-Level: 4×4 → 4×5 → 4×6 → 5×6
 const GRID_STEPS = [
@@ -192,9 +220,16 @@ const PRESTIGE_NODES = {
 		"desc": "Je Stufe 2 Geraden und 4 Kurven gratis platzierbar, bevor sie etwas kosten.",
 		"prereq": {"track": 1},
 	},
+	# End-Knoten: schaltet die Tribüne ÜBERHAUPT erst frei (15 ⭐, einmalig). Danach muss sie im
+	# Shop trotzdem noch für Geld freigeschaltet werden (is_tile_unlocked + Unlock-Gate auf stand_unlock).
+	"stand_unlock": {
+		"name": "Tribüne", "icon": "🏟", "base_cost": 15, "growth": 1.0, "max_level": 1,
+		"desc": "Schaltet die Tribüne frei (danach im Shop noch für Geld freischaltbar).",
+		"prereq": {"free_roads": 1},
+	},
 }
 # Reihenfolge im Tech-Baum (links → rechts).
-const PRESTIGE_ORDER = ["income", "grid", "keep_unlocks", "car", "track", "free_roads"]
+const PRESTIGE_ORDER = ["income", "grid", "keep_unlocks", "car", "track", "free_roads", "stand_unlock"]
 const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe eine weitere.
 
 # Gratis platzierbare Default-Tiles je Stufe des „free_roads"-Knotens (siehe get_free_tile_quota).
@@ -247,6 +282,9 @@ const TILE_UNLOCK_COST = {
 	"ice":          150000,
 	"ramp":         500000,
 	"wall":         2000000,
+	"loop":         1000000,
+	"portal":       5000000,
+	"stand":        50000000,
 }
 
 # ── Eisgerade ───────────────────────────────────────────────────────────────────
@@ -276,10 +314,19 @@ func is_tile_unlocked(key: String) -> bool:
 		return true
 	# Prestige-Perk „Unlocks behalten": ist er gekauft, gelten ALLE regulär freischaltbaren
 	# Streckenteile (def_straight/def_curve/ice/ramp) dauerhaft als frei – auch nach dem Reset,
-	# ohne dass sie in unlocked_tiles stehen (das wird beim Prestige geleert).
-	if get_prestige_node_level("keep_unlocks") >= 1 and TILE_UNLOCK_COST.has(key):
+	# ohne dass sie in unlocked_tiles stehen (das wird beim Prestige geleert). AUSNAHME: die Tribüne
+	# muss immer separat im Shop für Geld freigeschaltet werden (zusätzlich zum Prestige-Knoten).
+	if get_prestige_node_level("keep_unlocks") >= 1 and TILE_UNLOCK_COST.has(key) and key != "stand":
 		return true
 	return false
+
+
+# Die Tribüne darf im Shop NUR für Geld freigeschaltet werden, wenn der Prestige-End-Knoten
+# „stand_unlock" gekauft ist. Main/GlobalModal fragen das vor dem Freischalten ab.
+func can_unlock_tile(key: String) -> bool:
+	if key == "stand":
+		return get_prestige_node_level("stand_unlock") >= 1
+	return true
 
 
 # Anzahl gratis platzierbarer Default-Tiles dieses Typs (straight/curve) durch den Prestige-Knoten
@@ -440,6 +487,7 @@ func _current_lap_reward(cars: Array) -> int:
 		var dcurve_b    := get_effect("dirtcurvebonus")
 		var ramp_b      := get_effect("rampbonus")
 		var wall_b      := get_wall_earn()
+		var portal_b    := get_portal_earn()
 		var running := 0.0
 		for tile in tiles:
 			# 1. Alle +Werte dieses Feldes.
@@ -451,10 +499,25 @@ func _current_lap_reward(cars: Array) -> int:
 				"dcurve":    add += dcurve_b
 				"ramp":      add += ramp_b
 				"wall":      add += wall_b
+				"portal":    add += portal_b
 			# 2. Alle ×Werte dieses Feldes.
-			var m: float = float(tile.get("fixed_mult", 1.0)) * float(tile.get("bonus_mult", 1.0))
-			if String(tile.get("kind", "")) == "ramp" or bool(tile.get("is_jump", false)):
-				m *= jump_mult
+			var fm: float = float(tile.get("fixed_mult", 1.0))
+			var bm: float = float(tile.get("bonus_mult", 1.0))
+			var has_jump: bool = String(tile.get("kind", "")) == "ramp" or bool(tile.get("is_jump", false))
+			var m: float
+			if bool(tile.get("is_loop", false)):
+				# Looping: eigener ×F UND jeder ANDERE Multiplikator dieses Feldes mit F multipliziert
+				# (M·F). F = get_loop_factor() (Basis 2.0, +0.2 je loopbonus-Stufe). Beispiel auf
+				# Rampen-Sprungfeld bei F=2: ((X+0)·(2·2))·2. Auf ×1.5-Feld: (X·(1.5·2))·2.
+				var lf := get_loop_factor()
+				m = lf
+				if fm != 1.0: m *= fm * lf
+				if bm != 1.0: m *= bm * lf
+				if has_jump:  m *= jump_mult * lf
+			else:
+				m = fm * bm
+				if has_jump:
+					m *= jump_mult
 			running = (running + add) * m
 		# End-Multiplikator und globaler Prestige-Multiplikator zum Schluss (live auf allen Strecken).
 		return int(round(running * get_car_end_mult(0) * get_prestige_mult()))
@@ -748,6 +811,15 @@ func effect_text(id: String, level: int) -> String:
 	# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 	if id == "wallbonus":
 		return "+%s 💰 · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), get_wall_boost_levels(level), get_wall_range(level)]
+	# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
+	if id == "loopbonus":
+		return "×%.1f · andere ×%.1f" % [get_loop_factor(level), get_loop_factor(level)]
+	# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
+	if id == "portalbonus":
+		return "+%s 💰 /Durchgang" % format_currency(get_portal_earn(level))
+	# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
+	if id == "standbonus":
+		return "×%.1f /Nachbarfeld" % get_effect("standbonus", level)
 	var v = _effect_at(id, level)
 	var unit = get_upgrade_unit(id)
 	if id == "endmult":
@@ -890,6 +962,25 @@ func get_wall_range(level: int = -1) -> int:
 	return WALL_BASE_RANGE + int(level / 5)
 
 
+# Looping-Faktor F = 2.0 + 0.2·loopbonus-Level. Gilt für BEIDE Loop-Multiplikatoren (eigener ×F
+# und der Faktor, mit dem jeder andere Feld-Multiplikator multipliziert wird).
+func get_loop_factor(level: int = -1) -> float:
+	return get_effect("loopbonus", level)
+
+
+# Portal-Ertrag (additiv, kein Multiplikator) am Eingangs-Portal: base 25k + per_level je Stufe.
+func get_portal_earn(level: int = -1) -> float:
+	return get_effect("portalbonus", level)
+
+
+# Tribünen-Multiplikator für EIN Nachbarfeld: base 2.5 + 0.1·Level. Ab Stack 5 verdoppelt.
+func get_stand_mult(stack: int = 1, level: int = -1) -> float:
+	var m := get_effect("standbonus", level)
+	if stack >= 5:
+		m *= 2.0
+	return m
+
+
 # ── Prestige ────────────────────────────────────────────────────────────────────
 
 func get_prestige_points() -> int:
@@ -986,6 +1077,8 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 			return "%d Strecke" % n if n == 1 else "%d Strecken" % n
 		"keep_unlocks":
 			return "✓ aktiv" if level >= 1 else "aus"
+		"stand_unlock":
+			return "✓ freigeschaltet" if level >= 1 else "gesperrt"
 		"free_roads":
 			return "%d Geraden · %d Kurven" % [
 				FREE_ROADS_PER_LEVEL["straight"] * level, FREE_ROADS_PER_LEVEL["curve"] * level]

@@ -67,6 +67,24 @@ var _yaw_init: bool      = false
 var _wp_bank: PackedFloat32Array = PackedFloat32Array()
 var _cur_wp: int = 0
 
+# Looping: explizite Orientierung je Wegpunkt (Vector2(pitch, yaw)) oder null = normale Bewegungs-
+# Ausrichtung. Nötig, weil im Looping die HORIZONTALE Bewegung umkehrt (oben kopfüber) → die
+# bewegungsbasierte Yaw-Berechnung würde das Auto verdrehen.
+var _wp_orient: Array = []
+var _pending_orient: Array = []   # wird in _waypoints_for_tile je Kachel gefüllt (Länge = Wegpunkte)
+
+# Looping-Geometrie (muss zu TrackGenerator3D passen): Radius, Höhe, seitlicher Ein/Ausfahrt-Versatz.
+const LOOP_R    = 0.55   # Kreis-Radius (Höhe = 2·R ≈ 1.1, hoch genug für den Rampensprung darunter)
+const LOOP_FWD  = 0.45   # Vorwärts-Radius (Ellipse, damit der Looping in die Kachel passt)
+const LOOP_OFF  = 0.18   # seitlicher Versatz: rein rechts, raus links (kein Selbst-Überschneiden)
+const LOOP_SEGS = 22
+
+# Portal: Teleport-Segment (Eingangs-Portal → Ausgangs-Portal) bekommt eine feste, kurze Dauer und
+# wird beim Sampling „gesnappt" (Auto bleibt am Eingang, blinkt dann zum Ausgang) statt über die
+# ganze Karte zu streaken. _wp_teleport markiert das Segment, das bei Wegpunkt i beginnt.
+const TELEPORT_TIME = 0.15
+var _wp_teleport: PackedByteArray = PackedByteArray()
+
 
 func _ready() -> void:
 	var car_script = load(Paths.SCRIPT_CAR_3D)
@@ -108,12 +126,20 @@ func _sample_at_time(t: float) -> void:
 	var t_in_lap := fmod(t, lap_time)
 	if t_in_lap < 0.0:
 		t_in_lap += lap_time
+	if car != null and not car.visible:
+		car.visible = true   # Standard: sichtbar (Teleport-Segment unten blendet kurz aus)
 	for i in range(n):
 		var st := _seg_time[i]
 		if t_in_lap <= _cum_time[i] + st or i == n - 1:
+			_cur_wp = i
+			# Portal-Teleport: das Auto VERSCHWINDET sofort beim Reinfahren (rein visuell) und
+			# taucht am Ausgang wieder auf – statt sichtbar am Eingang zu „kleben".
+			if i < _wp_teleport.size() and _wp_teleport[i] == 1:
+				car.position = waypoints[i]
+				car.visible = false
+				return
 			var f := (t_in_lap - _cum_time[i]) / st if st > 0.0 else 0.0
 			car.position = waypoints[i].lerp(waypoints[(i + 1) % n], clampf(f, 0.0, 1.0))
-			_cur_wp = i
 			return
 
 
@@ -153,6 +179,16 @@ func _face_along_start() -> void:
 # Visuelle Ausrichtung (Yaw) + Kurvenneigung (Roll) + Rampenneigung (Pitch) aus der
 # tatsächlichen Positionsänderung – funktioniert unverändert mit dem Zeit-Sampling.
 func _update_orientation(prev_pos: Vector3, delta: float) -> void:
+	# Looping: explizite Orientierung (pitch um die lokale X, yaw konstant). Die bewegungsbasierte
+	# Yaw/Pitch-Berechnung versagt hier, weil sich die horizontale Fahrtrichtung oben umkehrt.
+	if _cur_wp < _wp_orient.size() and _wp_orient[_cur_wp] != null:
+		var o: Vector2 = _wp_orient[_cur_wp]
+		car.rotation = Vector3(o.x, o.y, 0.0)
+		_prev_yaw   = o.y - MODEL_ROTATION_OFFSET
+		_yaw_init   = true
+		_prev_car_y = car.position.y
+		return
+
 	var dir := car.position - prev_pos
 	var flat_dir := Vector3(dir.x, 0, dir.z)
 	if flat_dir.length() > 0.0001:
@@ -197,12 +233,19 @@ func _get_connections(data) -> Dictionary:
 	var bn: bool; var be: bool; var bs: bool; var bw: bool
 	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end" or data["type"] == "ice":
 		bn = false; be = true; bs = false; bw = true
+	elif data["type"] == "loop":
+		# Looping: bei rot=0 vertikal (rein Süden, raus Norden). Drehbar wie eine Gerade.
+		bn = true; be = false; bs = true; bw = false
 	elif data["type"] == "wall_start":
 		# Steilwandkurve – Einfahrt-Hälfte: bei rot=0 offen nach S (zur Partner-Kachel) und W (außen).
 		bn = false; be = false; bs = true; bw = true
 	elif data["type"] == "wall_end":
 		# Steilwandkurve – Ausfahrt-Hälfte: bei rot=0 offen nach N (zur Partner-Kachel) und W (außen).
 		bn = true; be = false; bs = false; bw = true
+	elif data["type"] == "portal":
+		# Portal: genau EINE offene Seite (zur andockenden Strecke), je nach Rotation.
+		var od := _portal_open_dir_d(data)
+		return {"N": od == "N", "E": od == "E", "S": od == "S", "W": od == "W"}
 	elif data["type"] == "curve" or data["type"] == "curve_alt":
 		# curve und curve_alt haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
 		# rot=0: S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
@@ -232,6 +275,11 @@ func _get_connections(data) -> Dictionary:
 
 
 func _through(data, entry_dir: String) -> String:
+	# Portal: nimmt das Auto nur über seine offene Seite an; der eigentliche „Ausgang" ist der
+	# Teleport zum Partner-Portal (in _build_waypoints behandelt). Hier nur die Einfahrt zulassen.
+	if _is_portal(data):
+		var od := _portal_open_dir_d(data)
+		return od if entry_dir == od else ""
 	var conns = _get_connections(data)
 	for dir in ["N", "E", "S", "W"]:
 		if conns.get(dir, false) and dir != entry_dir:
@@ -337,7 +385,35 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		if key in visited:
 			break
 		visited[key] = true
-		route.append({"row": row, "col": col, "data": grid_state[row][col], "exit": exit_dir})
+		var cur_data = grid_state[row][col]
+		var rec_entry := {"row": row, "col": col, "data": cur_data, "exit": exit_dir}
+
+		# Portal: teleportiert zum Partner-Portal; das Auto verlässt das Partner-Portal über dessen
+		# offene Seite (Richtung = durch die Fahrtrichtung bestimmt). Das Partner-Portal wird NICHT
+		# als eigenes Route-Feld gezählt (kein doppelter Ertrag) – seine Pose steckt in den Wegpunkten.
+		if _is_portal(cur_data):
+			var part = _portal_partner(grid_state, row, col)
+			if part.x < 0:
+				route.append(rec_entry)
+				break
+			rec_entry["portal_to_row"] = part.x
+			rec_entry["portal_to_col"] = part.y
+			route.append(rec_entry)
+			var odir = _portal_open_dir_d(grid_state[part.x][part.y])
+			var emerge = _step(part.x, part.y, odir)
+			if emerge.x < 0 or emerge.x >= grid_rows or emerge.y < 0 or emerge.y >= grid_cols:
+				break
+			var emerge_data = grid_state[emerge.x][emerge.y]
+			if typeof(emerge_data) != TYPE_DICTIONARY:
+				break
+			visited["%d_%d" % [part.x, part.y]] = true   # Partner-Portal verbraucht
+			var nx = _through(emerge_data, _opposite(odir))
+			if nx == "":
+				break
+			row = emerge.x; col = emerge.y; exit_dir = nx
+			continue
+
+		route.append(rec_entry)
 
 		var next = _step(row, col, exit_dir)
 		# Rampe: Mittelfeld (der Sprung) überspringen, sobald der Ausgang zur Partner-Kachel zeigt –
@@ -381,7 +457,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		step_speed.append(_tile_speed_factor(d))
 		var rec := {
 			"base": 0.0, "kind": "plain", "fixed_mult": 1.0,
-			"bonus_points": 0.0, "bonus_mult": 1.0, "is_jump": false,
+			"bonus_points": 0.0, "bonus_mult": 1.0, "is_jump": false, "is_loop": false,
 		}
 		if typeof(d) == TYPE_DICTIONARY:
 			var t = d.get("type", "")
@@ -402,6 +478,14 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				# Upgrade) legt Economy live als kind "wall" drauf (get_wall_earn). wall_end bleibt 0.
 				rec["base"] = 0.0
 				rec["kind"] = "wall"
+			elif t == "loop":
+				# Looping: kein eigener Additiv-Ertrag, aber ×2 + Verdopplung aller anderen Mult.
+				# (Economy._current_lap_reward über is_loop). base/kind bleiben neutral.
+				rec["is_loop"] = true
+			elif t == "portal":
+				# Portal: additiver Geld-Ertrag am Eingangs-Portal (Economy get_portal_earn als kind
+				# "portal"). Nur das betretene Portal steht in der Route → kein doppelter Ertrag.
+				rec["kind"] = "portal"
 			elif d.get("is_dirt", false):
 				rec["base"] = DIRT_TILE_EARN
 				rec["kind"] = "dstraight" if t == "straight" else "dcurve"
@@ -440,6 +524,9 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	var wps: Array[Vector3] = []
 	_wp_to_step = PackedInt32Array()
 	_wp_bank = PackedFloat32Array()
+	_wp_orient = []
+	_wp_teleport = PackedByteArray()
+	var half_t: float = TILE_SIZE / 2.0
 	for si in range(n):
 		var step = route[si]
 		var center = Vector3(
@@ -447,15 +534,47 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			0.05,
 			step["row"] * TILE_SIZE + TILE_SIZE / 2.0
 		)
-		var tile_wps = _waypoints_for_tile(center, step["data"], step["exit"], step["row"], step["col"])
 		var sdata = step["data"]
-		var is_wall : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["wall_start", "wall_end"]
+		var tile_wps: Array[Vector3] = []
+		var tile_orient: Array = []
+		var tile_tele: PackedByteArray = PackedByteArray()
+		var tile_bank: PackedFloat32Array = PackedFloat32Array()
+
+		if _is_portal(sdata) and step.has("portal_to_row"):
+			# Portal: Eingangskante → Eingang-Mitte → [Teleport] → Ausgang-Mitte → Ausgangskante.
+			# Orientierung explizit (Eingang/Ausgang-Yaw), damit der Snap keinen Dreh-Glitch erzeugt.
+			var oa := _portal_open_dir_d(sdata)
+			var bdata = grid_state[int(step["portal_to_row"])][int(step["portal_to_col"])]
+			var ob := _portal_open_dir_d(bdata)
+			var b_center := Vector3(
+				int(step["portal_to_col"]) * TILE_SIZE + TILE_SIZE / 2.0,
+				0.05,
+				int(step["portal_to_row"]) * TILE_SIZE + TILE_SIZE / 2.0
+			)
+			var vin := _dir_to_vec(_opposite(oa))
+			var vout := _dir_to_vec(ob)
+			var yaw_in := atan2(vin.x, vin.z) + MODEL_ROTATION_OFFSET
+			var yaw_out := atan2(vout.x, vout.z) + MODEL_ROTATION_OFFSET
+			tile_wps.append(center + _dir_to_vec(oa) * half_t)
+			tile_wps.append(center)
+			tile_wps.append(b_center)
+			tile_wps.append(b_center + _dir_to_vec(ob) * half_t)
+			tile_orient = [Vector2(0.0, yaw_in), Vector2(0.0, yaw_in), Vector2(0.0, yaw_out), Vector2(0.0, yaw_out)]
+			tile_tele = PackedByteArray([0, 1, 0, 0])   # Segment ab Wegpunkt[1] = Teleport (Mitte→Mitte)
+			tile_bank = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
+		else:
+			tile_wps = _waypoints_for_tile(center, sdata, step["exit"], step["row"], step["col"])
+			tile_orient = _pending_orient.duplicate()
+			var is_wall : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["wall_start", "wall_end"]
+			for w in range(tile_wps.size()):
+				tile_tele.append(0)
+				tile_bank.append(clampf((tile_wps[w].y - 0.05) / WALL_PEAK_H, 0.0, 1.0) if is_wall else 0.0)
+
 		for _w in range(tile_wps.size()):
 			_wp_to_step.append(si)
-			if is_wall:
-				_wp_bank.append(clampf((tile_wps[_w].y - 0.05) / WALL_PEAK_H, 0.0, 1.0))
-			else:
-				_wp_bank.append(0.0)
+		_wp_bank.append_array(tile_bank)
+		_wp_orient.append_array(tile_orient)
+		_wp_teleport.append_array(tile_tele)
 		wps.append_array(tile_wps)
 
 	# Segment-Zeittabelle bauen: Position UND Geld leiten sich ab jetzt nur noch hieraus ab.
@@ -481,6 +600,11 @@ func _build_time_table(wps: Array[Vector3], step_speed: PackedFloat32Array, step
 	var acc := 0.0
 	for i in range(n):
 		_cum_time.append(acc)
+		# Portal-Teleport: feste, kurze Dauer (kein Streak über die ganze Karte) statt Länge/Tempo.
+		if i < _wp_teleport.size() and _wp_teleport[i] == 1:
+			_seg_time.append(TELEPORT_TIME)
+			acc += TELEPORT_TIME
+			continue
 		var seg_len := wps[i].distance_to(wps[(i + 1) % n])
 		var stp := _wp_to_step[i] if i < _wp_to_step.size() else 0
 		var factor : float = step_speed[stp] if stp < step_speed.size() else 1.0
@@ -496,6 +620,7 @@ func _build_time_table(wps: Array[Vector3], step_speed: PackedFloat32Array, step
 
 func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, row: int, col: int) -> Array[Vector3]:
 	var wps: Array[Vector3] = []
+	_pending_orient = []   # je Wegpunkt: Vector2(pitch,yaw) (Looping) oder null (normale Ausrichtung)
 	var half = TILE_SIZE / 2.0
 	var type    = data["type"]
 	var rot     = data["rotation"]
@@ -524,6 +649,33 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 	elif type == "straight" or type == "ice":
 		wps.append(center)
 		wps.append(center + _dir_to_vec(exit_dir) * half)
+
+	elif type == "loop":
+		# Looping: Anfahrt (leicht nach rechts) → senkrechter Looping (Auto fährt komplett herum,
+		# oben kopfüber) → Ausfahrt (zurück zur Mitte, nach links). Der Looping kehrt horizontal zu
+		# seinem Einstieg zurück; Ein-/Ausstieg sind seitlich versetzt (rein rechts, raus links),
+		# damit sich die Strecke nicht selbst schneidet. Höhe 2·LOOP_R → Rampensprung fliegt hindurch.
+		var fwd   := _dir_to_vec(exit_dir)
+		var rgt   := Vector3(-fwd.z, 0.0, fwd.x)   # „rechts" relativ zur Fahrtrichtung
+		var up    := Vector3(0.0, 1.0, 0.0)
+		var yaw   := atan2(fwd.x, fwd.z) + MODEL_ROTATION_OFFSET
+		var entry : Vector3 = center - fwd * half
+		var lp_in := center + rgt * LOOP_OFF        # Looping-Einstieg (rechts versetzt)
+		var lp_out := center - rgt * LOOP_OFF       # Looping-Ausstieg (links versetzt)
+		var ex : Vector3 = center + fwd * half
+		# 1. Anfahrt (eben)
+		wps.append(entry);            _pending_orient.append(null)
+		wps.append((entry + lp_in) * 0.5); _pending_orient.append(null)
+		# 2. Looping (θ 1..LOOP_SEGS → 2π). Pitch = θ (Auto dreht sich einmal komplett).
+		for i in range(1, LOOP_SEGS + 1):
+			var th := TAU * float(i) / float(LOOP_SEGS)
+			var p := lp_in + fwd * (LOOP_FWD * sin(th)) + up * (LOOP_R * (1.0 - cos(th))) \
+				+ rgt * (-2.0 * LOOP_OFF * (th / TAU))
+			wps.append(p)
+			_pending_orient.append(Vector2(th, yaw))
+		# 3. Ausfahrt (eben)
+		wps.append((lp_out + ex) * 0.5); _pending_orient.append(null)
+		wps.append(ex);                  _pending_orient.append(null)
 
 	elif type == "curve" or type == "curve_alt":
 		var cx: float; var cz: float
@@ -605,7 +757,32 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 			p.y = 0.05 + WALL_PEAK_H * hf
 			wps.append(p)
 
+	# Wegpunkte ohne explizite Looping-Orientierung bekommen null (= normale Bewegungs-Ausrichtung).
+	while _pending_orient.size() < wps.size():
+		_pending_orient.append(null)
 	return wps
+
+
+# ── Portal-Helfer ────────────────────────────────────────────────────────────────
+func _is_portal(data) -> bool:
+	return typeof(data) == TYPE_DICTIONARY and data.get("type", "") == "portal"
+
+
+# Offene Seite eines Portals (wo die Strecke andockt) abhängig von der Rotation.
+func _portal_open_dir_d(data) -> String:
+	var rot = int(data.get("rotation", 0)) % 360
+	return ["W", "N", "E", "S"][(rot / 90) % 4]
+
+
+# Das ANDERE Portal auf der Strecke (von max. 2). (-1,-1) falls keins.
+func _portal_partner(grid_state: Array, row: int, col: int) -> Vector2i:
+	for r in range(grid_state.size()):
+		var rowarr = grid_state[r]
+		for c in range(rowarr.size()):
+			var d = rowarr[c]
+			if typeof(d) == TYPE_DICTIONARY and d.get("type", "") == "portal" and not (r == row and c == col):
+				return Vector2i(r, c)
+	return Vector2i(-1, -1)
 
 
 # Himmelsrichtung von (row,col) zur Partner-Kachel (pr,pc) – für die Steilwandkurve.
