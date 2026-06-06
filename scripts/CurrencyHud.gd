@@ -31,13 +31,13 @@ func _ready() -> void:
 	add_child(_label)
 	_refresh()
 
-	# TEMP: Test-Cheatbutton (+1M Gold) – neben der Währung. Später wieder entfernen!
+	# TEMP: Test-Cheatbutton (+1B Gold & +100 ⭐) – neben der Währung. Später wieder entfernen!
 	var cheat := Button.new()
-	cheat.text = "🐞 +1M"
+	cheat.text = "🐞 +1B ⭐"
 	cheat.position = Vector2(752 + 4, 9)
 	cheat.size = Vector2(94, 28)
 	cheat.add_theme_font_size_override("font_size", 13)
-	cheat.pressed.connect(func(): Economy.add(1000000))
+	cheat.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
 	add_child(cheat)
 
 

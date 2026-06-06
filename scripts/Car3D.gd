@@ -6,8 +6,10 @@ extends Node3D
 # (Straße ist ~0.4 Einheiten breit; Auto kleiner gehalten, damit es auf die Bahn passt)
 const MODEL_SCALE = Vector3(0.18, 0.18, 0.18)
 
-# Höhe über dem Boden
-const CAR_Y = 0.05
+# Höhe des Modells INNERHALB des Auto-Knotens. Die eigentliche Hover-Höhe über dem Boden
+# kommt bereits aus der Wegpunkt-Höhe (CarController setzt den Auto-Knoten auf y≈0.05) –
+# darum hier 0.0, sonst stapeln sich beide Offsets und das Auto schwebt über der Fahrbahn.
+const CAR_Y = 0.0
 
 var model: Node3D = null
 var _meshes: Array = []

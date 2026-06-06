@@ -91,7 +91,7 @@ var placement_mode: String = "slow"
 
 # Drag-&-Drop-Zustand (nur im "slow"-Modus aktiv)
 var _drag_ghost:        Node2D  = null   # mitlaufende Tile-Vorschau am Cursor
-var _drag_data:    Dictionary = {}       # aktuelle Daten der Vorschau (Typ/Rotation/Richtung) – via [R]/[F] änderbar
+var _drag_data:    Dictionary = {}       # aktuelle Daten der Vorschau (Typ/Rotation/Richtung) – via [R] änderbar
 var _drag_orig:    Dictionary = {}       # Originaldaten des gezogenen Grid-Tiles (für Snap-back / Werterhalt)
 var _drag_source:       String  = ""     # "shop" | "grid"
 var _drag_shop_idx:     int     = -1
@@ -182,6 +182,9 @@ func _ready() -> void:
 	# Tile-Upgrade gekauft → Ertragswert in der Bau-Leiste sofort aktualisieren;
 	# Bonusfeld-Kauf zeigt das neue Feld sofort auf dem Grid (nicht erst nach einer Runde).
 	Economy.upgrade_purchased.connect(_on_upgrade_purchased)
+	# Prestige-Kauf (z. B. „Gratis-Straßen" / „Unlocks behalten") → Bau-Leiste neu auffrischen,
+	# damit Preise/Gratis-Kontingent und Freischalt-Status sofort stimmen.
+	Economy.prestige_changed.connect(_on_prestige_changed)
 
 	# Das Lauf-Ende-Popup erscheint nur in der 3D-Ansicht (World3D), nie im 2D-Bauplan.
 	if Economy.is_run_active(_current_track_idx):
@@ -253,7 +256,7 @@ func _setup_grid_highlight() -> void:
 
 func _update_grid_highlight() -> void:
 	# Explizit gewähltes Tile hat Vorrang; sonst standardmäßig das zuletzt platzierte
-	# Tile markieren (= aktuelles Ziel für [R]/[F]). Start-Tile wird nie markiert.
+	# Tile markieren (= aktuelles Ziel für [R]). Start-Tile wird nie markiert.
 	var hr = selected_grid_row
 	var hc = selected_grid_col
 	if hr < 0 and last_placed_row >= 0:
@@ -271,7 +274,7 @@ func _update_grid_highlight() -> void:
 # Auswahl bewusst aufheben (zweiter Klick aufs ausgewählte Feld / Rechtsklick ins Leere).
 # Blendet den gelben Rahmen direkt aus – _update_grid_highlight würde sonst auf das zuletzt
 # platzierte Tile zurückfallen und der Rahmen bliebe sichtbar, obwohl das Baumenü abwählt.
-# last_placed bleibt absichtlich erhalten (weiterhin Ziel-Fallback für [R]/[F]/[D]).
+# last_placed bleibt absichtlich erhalten (weiterhin Ziel-Fallback für [R]/[D]).
 func _clear_grid_selection() -> void:
 	selected_grid_row = -1
 	selected_grid_col = -1
@@ -446,7 +449,7 @@ func _setup_build_panel() -> void:
 	_build_layer.add_child(_fahren_btn)
 
 	# ── Fußbereich (eigene Box): Auswahl-Status + dauerhafte Steuerungs-Hinweise ─
-	# Oben der aktuelle Status, darunter dauerhaft die Tastenkürzel (Drehen/Wenden).
+	# Oben der aktuelle Status, darunter dauerhaft die Tastenkürzel (Drehen).
 	# Damit es nicht doppelt steht, zeigt die Ziehen-Statuszeile selbst keine Kürzel.
 	const FOOTER_H  = 90
 	var footer_top := BUILD_PANEL_BOT - FOOTER_H
@@ -806,11 +809,17 @@ func _count_paid_tiles(type: String) -> int:
 
 
 # Aktueller Preis eines Shop-Items (Dreck = 0, Default/Rampe = idle-skalierend).
+# Der Prestige-Knoten „Gratis-Straßen" versetzt den Preis um sein Gratis-Kontingent: solange weniger
+# Tiles dieses Typs liegen als das Kontingent, ist das nächste gratis; danach startet der Preis beim
+# ersten Preis (base_price·growth^0), nicht so, als hätte man die Gratis-Tiles bereits bezahlt.
 func _tile_price(item: Dictionary) -> int:
 	if item["tier"] == "dirt":
 		return 0
 	var n = _count_paid_tiles(item["type"])
-	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n)))
+	var free = Economy.get_free_tile_quota(item["type"])
+	if n < free:
+		return 0
+	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - free)))
 
 
 # Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
@@ -849,9 +858,12 @@ func _tile_refund_for(data) -> int:
 	if item.is_empty():
 		return 0
 	var n = _count_paid_tiles(item["type"])   # inkl. dieses Tile (Rampe: zählt ramp_start)
-	if n <= 0:
+	# Gratis-Kontingent (free_roads) berücksichtigen: war dieses Tile noch im Gratis-Bereich
+	# (n <= free), wurde nichts bezahlt → keine Rückerstattung. Sonst marginaler Preis versetzt.
+	var free = Economy.get_free_tile_quota(item["type"])
+	if n <= free:
 		return 0
-	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - 1)))
+	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - free - 1)))
 
 
 func _update_currency_label() -> void:
@@ -927,8 +939,15 @@ func _update_build_ui() -> void:
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		else:
 			val_lbl.text   = "+%d  ·  ×1.2 pro Feld" % _tile_field_earn(item)
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
+			# Gratis-Straßen (free_roads): solange Kontingent übrig ist, gratis platzierbar.
+			var free = Economy.get_free_tile_quota(item["type"])
+			var placed = _count_paid_tiles(item["type"])
+			if placed < free:
+				price_lbl.text = "Gratis (%d übrig)" % (free - placed)
+				price_lbl.add_theme_color_override("font_color", Color(0.64, 0.84, 0.52))
+			else:
+				price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+				price_lbl.add_theme_color_override("font_color", C_ACCENT)
 
 		# Karten-Rahmen je Zustand
 		var style := StyleBoxFlat.new()
@@ -960,6 +979,12 @@ func _update_delete_panel_style() -> void:
 
 # Reaktion auf eine Freischaltung im Shop (Streckenteile): Bau-Leiste auffrischen.
 func _on_tile_unlocked(_key: String) -> void:
+	_update_build_ui()
+	_update_trash_visibility()
+
+
+# Prestige-Knoten gekauft („Gratis-Straßen" ändert Preise, „Unlocks behalten" den Freischalt-Status).
+func _on_prestige_changed() -> void:
 	_update_build_ui()
 	_update_trash_visibility()
 
@@ -1281,10 +1306,14 @@ func _input(event: InputEvent) -> void:
 	if Economy.is_run_active(Economy.get_active_track()):
 		return
 
-	# Build-Modus nicht aktiv: nur Kamera-Pan erlaubt – Ausnahme: im Slow-Modus darf das
-	# Ziehen eines platzierten Strecken-Tiles das Baumenü automatisch öffnen (kein Hammer-Klick nötig).
+	# Build-Modus nicht aktiv: nur Kamera-Pan erlaubt – zwei Ausnahmen, die das Baumenü
+	# automatisch öffnen (kein Hammer-Klick nötig):
+	#   • Slow-Modus: Ziehen eines platzierten Strecken-Tiles (in _input_slow_mouse_closed)
+	#   • beide Modi: Rechtsklick auf ein Tile löscht es direkt (mit Rückerstattung)
 	if _build_layer != null and not _build_layer.visible:
-		if placement_mode == "slow":
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			_grid_right_delete_open(get_global_mouse_position())
+		elif placement_mode == "slow":
 			_input_slow_mouse_closed(event)
 		return
 
@@ -1309,14 +1338,11 @@ func _input(event: InputEvent) -> void:
 			elif selected_grid_row >= 0:
 				_clear_grid_selection()
 
-	# Beim Ziehen (Shop oder Grid) verändern [R]/[F] das gezogene Teil selbst „in der Hand"
+	# Beim Ziehen (Shop oder Grid) verändert [R] das gezogene Teil selbst „in der Hand"
 	# – nicht das auf dem Feld liegende/markierte. Wirkt erst beim Ablegen aufs Grid.
 	if _drag_active and event is InputEventKey and event.pressed:
 		if event.keycode == KEY_R:
 			_drag_rotate()
-			return
-		if event.keycode == KEY_F:
-			_drag_flip()
 			return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
@@ -1325,9 +1351,6 @@ func _input(event: InputEvent) -> void:
 			_update_build_ui()
 		else:
 			_rotate_active(90)
-
-	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
-		_flip_active()
 
 	# D-Taste: ausgewähltes Tile löschen (Quick-Modus)
 	if event is InputEventKey and event.pressed and event.keycode == KEY_D:
@@ -1379,7 +1402,7 @@ func _input_slow_mouse(event: InputEvent) -> void:
 			_drag_ghost.position = _ghost_pos_for(get_global_mouse_position())
 		elif not _drag_active and not _grid_drag_pending:
 			# Nichts „in der Hand" → das Tile unter der Maus automatisch auswählen, damit es
-			# direkt per [R]/[F] gedreht/gewendet werden kann (kein Linksklick zum Auswählen nötig).
+			# direkt per [R] gedreht werden kann (kein Linksklick zum Auswählen nötig).
 			_update_hover_selection(get_global_mouse_position())
 		return
 
@@ -1458,6 +1481,24 @@ func _slow_right_click(global_pos: Vector2) -> void:
 		_delete_tile_at(cell.x, cell.y)
 	elif selected_grid_row >= 0:
 		_clear_grid_selection()
+
+
+# Rechtsklick auf ein platziertes Tile bei GESCHLOSSENEM Baumenü → Tile direkt löschen
+# (mit Rückerstattung) und das Baumenü automatisch öffnen – analog zum Aufgreifen/Ziehen.
+# So sind die geänderten Tile-Preise sofort in der Bau-Leiste sichtbar.
+func _grid_right_delete_open(global_pos: Vector2) -> void:
+	var local = grid_node.to_local(global_pos)
+	if local.x < 0 or local.y < 0 or local.x >= GRID_COLS * TILE_SIZE or local.y >= GRID_ROWS * TILE_SIZE:
+		return
+	var cell = _world_to_grid(local)
+	if not _is_valid_cell(cell):
+		return
+	var rc = grid[cell.x][cell.y]
+	if rc == null or rc.get("is_start", false):
+		return
+	if not GameHUD.is_build_active():
+		GameHUD.request_build_toggle()
+	_delete_tile_at(cell.x, cell.y)
 
 
 # Klick (ohne Ziehen) auf ein platziertes Tile → Auswahl umschalten.
@@ -1540,7 +1581,7 @@ func _begin_grid_drag() -> void:
 	_drag_active = true
 	_drag_source = "grid"
 	selected_shop_slot = -1
-	# Originaldaten merken (für Snap-back & Werterhalt); Vorschau-Transform separat – via [R]/[F] änderbar.
+	# Originaldaten merken (für Snap-back & Werterhalt); Vorschau-Transform separat – via [R] änderbar.
 	_drag_orig = d.duplicate()
 	_drag_data = {
 		"type":      String(d.get("type", "")),
@@ -1564,7 +1605,7 @@ func _drop_shop_drag(global_pos: Vector2) -> void:
 	if not _is_valid_cell(cell):
 		return
 	# Platzieren über die bestehende Shop-Logik (Preis, Rampe, Überschreiben, Start-Schutz).
-	# Das gezogene Teil trägt seine per [R]/[F] geänderte Ausrichtung (_drag_data) mit.
+	# Das gezogene Teil trägt seine per [R] geänderte Ausrichtung (_drag_data) mit.
 	selected_shop_slot = _drag_shop_idx
 	_place_shop_tile(cell.x, cell.y, _drag_data)
 	selected_shop_slot = -1
@@ -1809,24 +1850,6 @@ func _drag_rotate() -> void:
 	_rebuild_drag_ghost()
 
 
-# [F] beim Ziehen (Shop oder Grid): gezogenes Teil wenden (Kurve tauschen / Gerade umkehren / Rampe).
-func _drag_flip() -> void:
-	var t = String(_drag_data.get("type", ""))
-	if t == "curve" or t == "curve_alt":
-		var nt = "curve_alt" if t == "curve" else "curve"
-		_drag_data["type"]      = nt
-		_drag_data["direction"] = -1 if nt == "curve_alt" else 1
-	elif t == "straight":
-		_drag_data["direction"] = -1 if int(_drag_data.get("direction", 1)) == 1 else 1
-	elif t == "ramp_start":
-		# Auffahrseite wechseln ≈ um 180° drehen (Fahrtrichtung kehrt sich um).
-		_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 180) % 360
-		if _drag_shop_idx >= 0:
-			ramp_preview_rot = _drag_data["rotation"]
-			_update_build_ui()
-	_rebuild_drag_ghost()
-
-
 # Erzeugt die Ghost-Vorschau aus _drag_data neu (an gleicher Cursor-Position).
 func _rebuild_drag_ghost() -> void:
 	var pos = _ghost_pos_for(get_global_mouse_position())
@@ -1874,9 +1897,9 @@ func set_placement_mode(mode: String) -> void:
 
 func _update_hint_label() -> void:
 	if placement_mode == "slow":
-		tile_selector.set_hint("[R] Drehen · [F] Wenden\nZiehen & Ablegen")
+		tile_selector.set_hint("[R] Drehen\nZiehen & Ablegen")
 	else:
-		tile_selector.set_hint("[R] Drehen · [F] Wenden · [D] Löschen\nKlick-Modus")
+		tile_selector.set_hint("[R] Drehen · [D] Löschen\nKlick-Modus")
 
 
 func _handle_grid_left_click(row: int, col: int) -> void:
@@ -1887,7 +1910,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 	if selected_shop_slot >= 0:
 		if is_start:
 			return
-		# Klick auf das zuletzt platzierte Tile → auswählen statt überschreiben (drehen/wenden)
+		# Klick auf das zuletzt platzierte Tile → auswählen statt überschreiben (drehen)
 		if cell_data != null and row == last_placed_row and col == last_placed_col:
 			_select_grid_tile(row, col)
 		else:
@@ -1897,7 +1920,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 	if is_start:
 		return
 
-	# Rampen-Tiles (Altstände): zum ramp_start-Partner wechseln für [R]/[F]
+	# Rampen-Tiles (Altstände): zum ramp_start-Partner wechseln für [R]
 	if cell_data != null and cell_data.get("type", "") in ["ramp_start", "ramp_end"]:
 		var target_r = row; var target_c = col
 		if cell_data.get("type", "") == "ramp_end":
@@ -2013,7 +2036,7 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 
 
 # xform (optional): überschreibt Typ/Rotation/Richtung – z. B. das aus dem Shop
-# gezogene Teil trägt seine per [R]/[F] geänderte Ausrichtung mit (Slow-Modus).
+# gezogene Teil trägt seine per [R] geänderte Ausrichtung mit (Slow-Modus).
 func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	var item = SHOP_ITEMS[selected_shop_slot]
 	if not Economy.is_tile_unlocked(item["key"]):
@@ -2246,103 +2269,6 @@ func _update_node_labels(node: Node2D, rot_deg: int) -> void:
 	if el is Label:
 		el.rotation_degrees = -rot_deg
 		el.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-r)
-
-
-# ── F-Taste: Kurve flippen / Gerade umkehren / Rampe tauschen ─────────────────
-
-func _flip_active() -> void:
-	var row = selected_grid_row if selected_grid_row >= 0 else last_placed_row
-	var col = selected_grid_col if selected_grid_row >= 0 else last_placed_col
-	if row < 0:
-		return
-	var data = grid[row][col]
-	if data == null or data.get("is_start", false):
-		return
-	var t = data["type"]
-
-	# Kurventyp wechseln
-	if t == "curve" or t == "curve_alt":
-		var new_type = "curve_alt" if t == "curve" else "curve"
-		var new_data = {
-			"type":          new_type,
-			"rotation":      data["rotation"],
-			"flipped":       data.get("flipped", false),
-			"direction":     -1 if new_type == "curve_alt" else 1,
-			"points":        data.get("points", 0.0),
-			"multiplier":    data.get("multiplier", 1.0),
-			"variant_label": data.get("variant_label", ""),
-			"is_start":      false,
-			"is_dirt":       data.get("is_dirt", false),
-		}
-		data["node"].queue_free()
-		grid[row][col] = null
-		_spawn_tile(row, col, new_data)
-		if selected_grid_row >= 0:
-			tile_selector.set_status(_type_display_name(new_type))
-		_invalidate_track()
-		return
-
-	# Gerade: Fahrtrichtung umkehren
-	if t == "straight":
-		var new_dir = -1 if data.get("direction", 1) == 1 else 1
-		data["node"].queue_free()
-		grid[row][col] = null
-		_spawn_tile(row, col, {
-			"type":          "straight",
-			"rotation":      data["rotation"],
-			"flipped":       data.get("flipped", false),
-			"direction":     new_dir,
-			"points":        data.get("points", 0.0),
-			"multiplier":    data.get("multiplier", 1.0),
-			"variant_label": data.get("variant_label", ""),
-			"series":        data.get("series", ""),
-			"combine_level": data.get("combine_level", 0),
-			"is_start":      false,
-			"is_dirt":       data.get("is_dirt", false),
-		})
-		_invalidate_track()
-		return
-
-	# Rampe: Start und Ende tauschen
-	if t == "ramp_start" or t == "ramp_end":
-		var s_row: int; var s_col: int; var e_row: int; var e_col: int
-		if t == "ramp_start":
-			s_row = row; s_col = col
-			e_row = data.get("ramp_partner_row", -1)
-			e_col = data.get("ramp_partner_col", -1)
-		else:
-			e_row = row; e_col = col
-			s_row = data.get("ramp_partner_row", -1)
-			s_col = data.get("ramp_partner_col", -1)
-		if s_row < 0 or e_row < 0:
-			return
-		var rot = grid[s_row][s_col]["rotation"]
-		# Auffahrseite wechseln: Start/Ende tauschen UND beide um 180° drehen, damit die
-		# Rampen weiter zur Sprung-Lücke hin geneigt bleiben (nur Fahrtrichtung kehrt sich um).
-		var frot = (rot + 180) % 360
-		grid[s_row][s_col]["node"].queue_free()
-		grid[s_row][s_col] = null
-		if grid[e_row][e_col] != null:
-			grid[e_row][e_col]["node"].queue_free()
-			grid[e_row][e_col] = null
-		_spawn_tile(e_row, e_col, {
-			"type": "ramp_start", "rotation": frot, "flipped": false,
-			"direction": 1, "points": 0.0, "multiplier": 1.0,
-			"variant_label": "", "series": "", "combine_level": 0,
-			"is_start": false, "is_dirt": false,
-			"ramp_partner_row": s_row, "ramp_partner_col": s_col,
-		})
-		_spawn_tile(s_row, s_col, {
-			"type": "ramp_end", "rotation": frot, "flipped": false,
-			"direction": 1, "points": 0.0, "multiplier": 1.0,
-			"variant_label": "", "series": "", "combine_level": 0,
-			"is_start": false, "is_dirt": false,
-			"ramp_partner_row": e_row, "ramp_partner_col": e_col,
-		})
-		selected_grid_row = e_row; selected_grid_col = e_col
-		_update_grid_highlight()
-		_invalidate_track()
-		tile_selector.set_status("Rampe")
 
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
@@ -2632,7 +2558,7 @@ func _is_track_valid() -> bool:
 
 func _invalidate_track() -> void:
 	_track_valid = _is_track_valid()
-	# Ist ein Tile markiert, dessen Namen im Baumenü beibehalten (z. B. nach [R]/[F]),
+	# Ist ein Tile markiert, dessen Namen im Baumenü beibehalten (z. B. nach [R]),
 	# sonst den Status leeren.
 	if selected_grid_row >= 0 and selected_grid_col >= 0 \
 			and grid[selected_grid_row][selected_grid_col] != null:
