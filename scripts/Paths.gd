@@ -26,6 +26,14 @@ const SCRIPT_GLOBAL_MODAL    = "res://scripts/GlobalModal.gd"
 # ── Assets ────────────────────────────────────────────────────────────────────
 const MODEL_DEFAULT_CAR = "res://assets/3D-models/cars/default_car/car.glb"
 
+# Test-Auto mit Umfärb-Maske (Werkstatt-Lackierung). Albedo + Maske teilen sich die UVs.
+const MODEL_TEST_CAR    = "res://assets/3D-models/cars/test_car/car.glb"
+const TEX_CAR_ALBEDO    = "res://assets/3D-models/cars/test_car/car_0.png"
+const TEX_CAR_MASK      = "res://assets/3D-models/cars/test_car/car_mask.png"
+
+# Shader: färbt nur die maskierten (roten) Bereiche um, behält Hell-Dunkel-Verläufe.
+const SHADER_CAR_PAINT  = "res://shaders/car_paint.gdshader"
+
 # 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben)
 const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/Default/Default_Street.glb"
 const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/Dirt/Dirt_straight.glb"

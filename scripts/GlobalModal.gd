@@ -921,8 +921,24 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	_ws_summary_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	container.add_child(_ws_summary_lbl)
 
+	_sync_paint_selection_from_economy()
 	_build_preview_viewport(container, Vector2(px, py), Vector2(PREV_W, PREV_H))
 	_rebuild_ws_options()
+
+
+# Setzt die markierte Lackierungs-Karte passend zum gespeicherten Economy-Zustand.
+func _sync_paint_selection_from_economy() -> void:
+	if not Economy.is_car_paint_on():
+		_ws_sel["paint"] = 0
+		return
+	var target := Economy.get_car_paint_color()
+	var opts = _ws_options("paint")
+	for i in opts.size():
+		var c = opts[i].get("color", null)
+		if c != null and (c as Color).is_equal_approx(target):
+			_ws_sel["paint"] = i
+			return
+	_ws_sel["paint"] = 0
 
 
 func _on_ws_tab(idx: int) -> void:
@@ -1000,6 +1016,11 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool) -> 
 
 func _on_ws_option_selected(cat: String, idx: int) -> void:
 	_ws_sel[cat] = idx
+	# Lackierung persistent merken → 3D-Autos (Vorschau wie ingame) übernehmen die Farbe.
+	if cat == "paint":
+		var opts = _ws_options("paint")
+		var col = opts[idx].get("color", null) if idx >= 0 and idx < opts.size() else null
+		Economy.set_car_paint(col != null, col if col != null else Economy.get_car_paint_color())
 	_rebuild_ws_options()
 	_apply_ws_config()
 
@@ -1085,8 +1106,9 @@ func _build_preview_viewport(parent: Control, pos: Vector2, sz: Vector2) -> void
 func _load_preview_model() -> void:
 	_preview_meshes.clear()
 	var model: Node3D = null
-	if ResourceLoader.exists(Paths.MODEL_DEFAULT_CAR):
-		model = (load(Paths.MODEL_DEFAULT_CAR) as PackedScene).instantiate()
+	# Vorerst das Test-Auto (mit Umfärb-Maske) statt default_car laden.
+	if ResourceLoader.exists(Paths.MODEL_TEST_CAR):
+		model = (load(Paths.MODEL_TEST_CAR) as PackedScene).instantiate()
 	else:
 		# Platzhalter-Box falls kein Modell vorhanden
 		model = Node3D.new()
@@ -1147,7 +1169,9 @@ func _frame_preview_camera() -> void:
 
 
 # Wendet die Lackierung live auf das Vorschau-Modell an. "Original" entfernt den
-# Override und zeigt das Originalmaterial.
+# Override und zeigt das Originalmaterial. Bei einer Farbe wird ein Masken-Shader
+# gelegt: nur die roten Maskenbereiche (Karosserie) werden umgefärbt, die
+# Hell-Dunkel-Verläufe der Originaltextur bleiben erhalten.
 func _apply_ws_config() -> void:
 	var opts = _ws_options("paint")
 	var pi = int(_ws_sel.get("paint", 0))
@@ -1160,12 +1184,24 @@ func _apply_ws_config() -> void:
 		if col == null:
 			(m as MeshInstance3D).material_override = null
 		else:
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = col
-			mat.metallic     = 0.35
-			mat.roughness    = 0.40
-			(m as MeshInstance3D).material_override = mat
+			(m as MeshInstance3D).material_override = _make_paint_material(col)
 	_update_ws_summary()
+
+
+# Shader-Material für die Maskenlackierung (Albedo + Maske gecacht).
+var _paint_shader: Shader = null
+
+func _make_paint_material(col: Color) -> ShaderMaterial:
+	if _paint_shader == null and ResourceLoader.exists(Paths.SHADER_CAR_PAINT):
+		_paint_shader = load(Paths.SHADER_CAR_PAINT)
+	var mat := ShaderMaterial.new()
+	mat.shader = _paint_shader
+	if ResourceLoader.exists(Paths.TEX_CAR_ALBEDO):
+		mat.set_shader_parameter("albedo_tex", load(Paths.TEX_CAR_ALBEDO))
+	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
+		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
+	mat.set_shader_parameter("paint_color", col)
+	return mat
 
 
 # ── Upgrade-Reihen ────────────────────────────────────────────────────────────

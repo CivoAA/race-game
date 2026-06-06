@@ -174,6 +174,10 @@ var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke des aktiven Tracks (Rückwärtskompatibilität)
 var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
 
+# Kosmetik: Auto-Lackierung (Werkstatt). car_paint_on=false → Originaltextur (keine Umfärbung).
+var car_paint_on:    bool  = false
+var car_paint_color: Color = Color(0.85, 0.15, 0.12)
+
 # Prestige-Zustand (überlebt den Prestige-Reset; nur „Neues Spiel"/reset_slot löscht ihn).
 var prestige_points: int        = 0   # verfügbare ⭐
 var prestige_earned: int        = 0   # seit dem letzten Prestige verdientes Geld (Basis für Punkte)
@@ -199,6 +203,8 @@ signal slot_changed(slot: int)
 signal upgrade_purchased(id: String)
 # Prestige-Punkte oder Tech-Baum-Knoten haben sich geändert (Kauf oder ausgeführtes Prestige).
 signal prestige_changed
+# Auto-Lackierung wurde in der Werkstatt geändert → 3D-Autos färben sich live um.
+signal car_paint_changed
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -940,6 +946,25 @@ func get_bonus_field_plan() -> Array:
 	return out
 
 
+# ── Auto-Lackierung (Kosmetik) ───────────────────────────────────────────────────
+
+func is_car_paint_on() -> bool:
+	return car_paint_on
+
+
+func get_car_paint_color() -> Color:
+	return car_paint_color
+
+
+# Setzt die Lackierung. on=false → Originaltextur (color wird ignoriert). Persistiert + Live-Update.
+func set_car_paint(on: bool, color: Color = Color(0.85, 0.15, 0.12)) -> void:
+	car_paint_on = on
+	if on:
+		car_paint_color = color
+	save_game()
+	car_paint_changed.emit()
+
+
 # ── Persistenz ──────────────────────────────────────────────────────────────────
 
 # Strecke (Grid-State) merken – wird vom 2D-Bauplan bei Änderungen gesetzt.
@@ -979,6 +1004,8 @@ func save_game_to_slot(slot: int) -> void:
 		"prestige_points": prestige_points,
 		"prestige_earned": prestige_earned,
 		"prestige_nodes":  prestige_nodes,
+		"car_paint_on":    car_paint_on,
+		"car_paint_color": car_paint_color,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
 		"name":        _slot_name,
 	}))
@@ -1000,6 +1027,8 @@ func load_game_from_slot(slot: int) -> void:
 	prestige_points = 0
 	prestige_earned = 0
 	prestige_nodes  = {}
+	car_paint_on    = false
+	car_paint_color = Color(0.85, 0.15, 0.12)
 	_slot_name      = ""
 	_init_tracks()
 
@@ -1022,6 +1051,9 @@ func load_game_from_slot(slot: int) -> void:
 				prestige_earned = int(data.get("prestige_earned", 0))
 				var pn         = data.get("prestige_nodes", {})
 				prestige_nodes = pn.duplicate() if typeof(pn) == TYPE_DICTIONARY else {}
+				car_paint_on   = bool(data.get("car_paint_on", false))
+				var cpc        = data.get("car_paint_color", car_paint_color)
+				car_paint_color = cpc if typeof(cpc) == TYPE_COLOR else car_paint_color
 				_slot_name     = String(data.get("name", ""))
 				# Multi-Track-Grids laden
 				var tg = data.get("track_grids", [])
@@ -1045,6 +1077,8 @@ func reset_slot(slot: int) -> void:
 	prestige_points = 0
 	prestige_earned = 0
 	prestige_nodes  = {}
+	car_paint_on    = false
+	car_paint_color = Color(0.85, 0.15, 0.12)
 	_slot_name      = ""
 	_init_tracks()
 	save_game_to_slot(slot)
