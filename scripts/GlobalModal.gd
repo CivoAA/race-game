@@ -347,9 +347,11 @@ func _tile_entries() -> Array:
 		{"name": "Eisgerade",    "key": "ice",         "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
 		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		{"name": "Steilwandkurve","key": "wall",       "model": "",                                 "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
+		{"name": "Looping",      "key": "loop",        "model": "",                                 "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
+		{"name": "Portal",       "key": "portal",      "model": "",                                 "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
+		{"name": "Tribüne",      "key": "stand",       "model": "",                                 "desc": "×2.5 Nachbarfeld · stapelbar", "upgrade": "standbonus", "field_earn_base": 0},
 		{"name": "Schikane",     "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 		{"name": "Boost-Feld",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
-		{"name": "Tunnel",       "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 	]
 
 
@@ -494,6 +496,21 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		var wall_lv := Economy.get_upgrade_level(upg_id)
 		var wmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
 		desc_lbl.text = "+%s 💰 · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
+	elif has_upg and upg_id == "loopbonus":
+		# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
+		var loop_lv := Economy.get_upgrade_level(upg_id)
+		var lmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		desc_lbl.text = "×%.1f · andere ×%.1f%s" % [Economy.get_loop_factor(loop_lv), Economy.get_loop_factor(loop_lv), lmax_tag]
+	elif has_upg and upg_id == "portalbonus":
+		# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
+		var p_lv := Economy.get_upgrade_level(upg_id)
+		var pmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		desc_lbl.text = "+%s 💰 /Durchgang%s" % [Economy.format_currency(Economy.get_portal_earn(p_lv)), pmax_tag]
+	elif has_upg and upg_id == "standbonus":
+		# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
+		var s_lv := Economy.get_upgrade_level(upg_id)
+		var smax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		desc_lbl.text = "×%.1f /Nachbarfeld%s" % [Economy.get_effect("standbonus", s_lv), smax_tag]
 	elif has_upg:
 		# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
 		var base_e := int(entry.get("field_earn_base", 0))
@@ -527,6 +544,12 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 	elif coming:
 		btn.text     = "Bald verfügbar"
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
+		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+	elif not Economy.can_unlock_tile(key):
+		# Tribüne: erst im Prestige-Baum (End-Knoten „Tribüne") freischalten.
+		btn.text     = "🔒 Prestige-Baum nötig"
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
@@ -578,6 +601,9 @@ func _refresh_tile_buttons() -> void:
 
 func _on_tile_unlock(key: String) -> void:
 	if Economy.is_tile_unlocked(key):
+		return
+	# Tribüne: erst im Prestige-Baum (End-Knoten „Tribüne", 15 ⭐) freischalten, dann hier für Geld.
+	if not Economy.can_unlock_tile(key):
 		return
 	var cost := Economy.get_tile_unlock_cost(key)
 	if Economy.spend(cost):
@@ -1403,6 +1429,10 @@ func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 func _rebuild_prestige() -> void:
 	_refresh_prestige_action()
 	_populate_prestige_tree()
+	# Tribünen-Knoten kann die Shop-Freischaltung gerade erlaubt haben → Tile-Karten neu bewerten,
+	# damit „🔒 Prestige-Baum nötig" sofort zu „🔒 N 💰" wird (ohne erneutes Prestige).
+	if _tiles_grid != null and is_instance_valid(_tiles_grid):
+		_populate_tiles_grid()
 
 
 # Nur Kopfbereich (Punkte, verdient, Prestige-Knopf) aktualisieren – günstig, läuft im _process.

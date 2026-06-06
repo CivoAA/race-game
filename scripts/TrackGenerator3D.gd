@@ -101,6 +101,172 @@ func _wall_mat(color: Color) -> StandardMaterial3D:
 	return mat
 
 
+# Looping-Geometrie (muss zu CarController passen).
+const LOOP_R    = 0.55
+const LOOP_FWD  = 0.45
+const LOOP_OFF  = 0.18
+const LOOP_SEGS = 22
+
+
+# Baut einen senkrechten Looping prozedural: flache Anfahrt-/Ausfahrt-Bahn + Looping-Band (Ribbon),
+# auf dessen Innenseite das Auto herumfährt. Basislage rot=0: vertikal (Süd→Nord), fwd = -Z.
+# Die Node-Rotation in generate() (-d["rotation"]) dreht alles in die Weltlage.
+const LOOP_BAND_W     = 0.34   # Breite der Looping-Fahrbahn (schmaler als zuvor)
+const LOOP_BAND_THICK = 0.14   # Dicke des Bands (mehr Material → Auto buggt nicht durch)
+
+
+func _build_loop_mesh(node: Node3D, _rot: int) -> void:
+	var fwd  = Vector3(0, 0, -1)            # Nord
+	var rgt  = Vector3(-fwd.z, 0, fwd.x)    # rechts = +X
+	var up   = Vector3(0, 1, 0)
+	var road_col  = Color(0.21, 0.22, 0.27)
+	var loop_col  = Color(0.26, 0.50, 0.85)   # blaues Looping-Band
+	var rail_col  = Color(0.92, 0.92, 0.95)
+
+	# Flache Fahrbahn durch die Kachel (Anfahrt + Ausfahrt) – ebenfalls schmaler.
+	var road = _box(Vector3(LOOP_BAND_W, 0.05, TILE_SIZE), road_col, Vector3(0, ROAD_Y, 0))
+	node.add_child(road)
+
+	var lp_in = rgt * LOOP_OFF
+	var loop_center = lp_in + up * LOOP_R   # Kreismittelpunkt (für die Außen-Normale)
+	# Looping-Band als orientierte Segmente entlang der Kreisbahn. Das Band wird NACH AUSSEN
+	# versetzt, sodass seine INNENFLÄCHE auf der Fahrlinie (= Auto-Position) liegt → das Auto
+	# fährt sauber auf der Innenseite und kann nicht durch das Band stechen.
+	var prev = _loop_point(lp_in, fwd, rgt, up, 0.0)
+	for i in range(1, LOOP_SEGS + 1):
+		var th = TAU * float(i) / float(LOOP_SEGS)
+		var p = _loop_point(lp_in, fwd, rgt, up, th)
+		var mid = (prev + p) * 0.5
+		var tang = (p - prev)
+		var seg_len = tang.length() + 0.02
+		tang = tang.normalized()
+		# Bandebene: Quer = rgt, Normale steht senkrecht auf Tangente & Quer.
+		var nrm = rgt.cross(tang).normalized()
+		var side = tang.cross(nrm).normalized()
+		var basis = Basis(side, nrm, tang)
+		# Außen-Richtung (vom Kreismittelpunkt weg), auf die Band-Normale projiziert.
+		var outward = signf(nrm.dot(mid - loop_center))
+		var base_pos = mid + up * ROAD_Y
+		var band_pos = base_pos + nrm * (outward * LOOP_BAND_THICK * 0.5)
+		var seg = MeshInstance3D.new()
+		var sbox = BoxMesh.new()
+		sbox.size = Vector3(LOOP_BAND_W, LOOP_BAND_THICK, seg_len)
+		seg.mesh = sbox
+		seg.material_override = _wall_mat(loop_col)
+		seg.transform = Transform3D(basis, band_pos)
+		node.add_child(seg)
+		# Schmale Rails an den Kanten der Fahrfläche (auf der Innenfläche, leicht erhaben).
+		for s in [-1.0, 1.0]:
+			var rail = MeshInstance3D.new()
+			var rbox = BoxMesh.new()
+			rbox.size = Vector3(0.035, 0.05, seg_len)
+			rail.mesh = rbox
+			rail.material_override = _wall_mat(rail_col)
+			rail.transform = Transform3D(basis, base_pos + basis * Vector3(s * LOOP_BAND_W / 2.0, -outward * 0.02, 0.0))
+			node.add_child(rail)
+		prev = p
+
+
+# Ein Punkt auf der Looping-Kreisbahn bei Winkel th (lokal, Kachelmitte = Ursprung).
+func _loop_point(lp_in: Vector3, fwd: Vector3, rgt: Vector3, up: Vector3, th: float) -> Vector3:
+	return lp_in + fwd * (LOOP_FWD * sin(th)) + up * (LOOP_R * (1.0 - cos(th))) \
+		+ rgt * (-2.0 * LOOP_OFF * (th / TAU))
+
+
+# Portal-Geometrie. Basislage rot=0: offene Seite = West (-X); der Ring steht in der Y-Z-Ebene,
+# das Auto fährt entlang X hindurch. idx 0/1 = Farbe (Portal-Paar visuell unterscheidbar).
+const PORTAL_RING_R = 0.46
+
+
+func _build_portal_mesh(node: Node3D, idx: int) -> void:
+	var half   = TILE_SIZE / 2.0
+	var road_w = TILE_SIZE * 0.4
+	var frame_col = Color(1.0, 0.55, 0.12) if idx == 0 else Color(0.30, 0.55, 1.0)   # A=orange, B=blau
+	var glow_col  = Color(1.0, 0.72, 0.30) if idx == 0 else Color(0.55, 0.80, 1.0)
+	var road_col  = Color(0.21, 0.22, 0.27)
+
+	# Flacher Fahrbahn-Stutzen von der offenen Seite (West) zur Mitte.
+	var road = _box(Vector3(TILE_SIZE, 0.05, road_w), road_col, Vector3(0, ROAD_Y, 0))
+	node.add_child(road)
+
+	# Aufrechter Portal-Ring in der Y-Z-Ebene (das Auto fährt entlang X hindurch).
+	var ring_cy = PORTAL_RING_R + 0.04
+	var ring_segs = 20
+	var tube = 0.07
+	for i in range(ring_segs):
+		var a = TAU * float(i) / float(ring_segs)
+		var p = Vector3(0.0, ring_cy + PORTAL_RING_R * sin(a), PORTAL_RING_R * cos(a))
+		var seg = MeshInstance3D.new()
+		var sbox = BoxMesh.new()
+		sbox.size = Vector3(tube, tube + 0.02, (TAU * PORTAL_RING_R) / ring_segs + 0.03)
+		seg.mesh = sbox
+		seg.material_override = _portal_mat(frame_col, true)
+		# Segment tangential zum Ring ausrichten (Rotation um X).
+		seg.transform = Transform3D(Basis(Vector3(1, 0, 0), -a), p)
+		node.add_child(seg)
+
+	# Leuchtende Portal-Scheibe (halbtransparent) in der Ringebene.
+	var disc = MeshInstance3D.new()
+	var cyl = CylinderMesh.new()
+	cyl.top_radius = PORTAL_RING_R * 0.92
+	cyl.bottom_radius = PORTAL_RING_R * 0.92
+	cyl.height = 0.04
+	disc.mesh = cyl
+	var dmat = _portal_mat(glow_col, true)
+	dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dmat.albedo_color = Color(glow_col.r, glow_col.g, glow_col.b, 0.45)
+	disc.material_override = dmat
+	# Zylinder-Achse (Y) auf die X-Achse drehen → Scheibe steht aufrecht, Fläche zeigt nach West/Ost.
+	disc.transform = Transform3D(Basis(Vector3(0, 0, 1), PI / 2.0), Vector3(0.0, ring_cy, 0.0))
+	node.add_child(disc)
+
+
+func _portal_mat(color: Color, emissive: bool) -> StandardMaterial3D:
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.5
+	if emissive:
+		mat.emission_enabled = true
+		mat.emission = color
+		mat.emission_energy_multiplier = 1.6
+	return mat
+
+
+# Tribüne: je geboosteter Basis-Richtung (Stapel 1=S, 2=S+N, 3=S+N+E, 4=alle) eine kleine
+# Treppen-Tribüne (graue Stufen, braune Sitzflächen, graue Stütze hinten), Sitze zum Nachbarfeld.
+func _build_stand_mesh(node: Node3D, stack: int) -> void:
+	var grey  = Color(0.55, 0.55, 0.60)
+	var dark  = Color(0.40, 0.40, 0.45)
+	var brown = Color(0.55, 0.32, 0.14)
+	var dirs = [Vector3(0, 0, 1), Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(-1, 0, 0)]  # S,N,E,W
+	var count = mini(stack, 4)
+	for i in range(count):
+		_build_one_stand(node, dirs[i], grey, dark, brown)
+
+
+func _build_one_stand(node: Node3D, dv: Vector3, grey: Color, dark: Color, brown: Color) -> void:
+	var nsteps = 3
+	var w     = TILE_SIZE * 0.5
+	var depth = TILE_SIZE * 0.14
+	var sh    = 0.15
+	var lat_z = absf(dv.z) > 0.5   # true: Stufen liegen quer in X (dv entlang Z)
+	var front = TILE_SIZE * 0.44   # unterste Stufe nahe der Fahrbahn-Kante (näher an der Fahrbahn)
+	for s in range(nsteps):
+		var h = sh * float(s + 1)
+		# Höhere Stufen schmaler (Taper) → benachbarte Tribünen (Stack 3/4) überschneiden sich nicht
+		# mehr in der Kachelmitte.
+		var sw = w * (1.0 - 0.33 * float(s))
+		# Treppe steigt VON DER FAHRBAHN (+dv, unterste Stufe vorne) nach hinten (-dv) an.
+		var along = dv * (front - depth * float(s))
+		var cpos = along + Vector3(0.0, ROAD_Y + h * 0.5, 0.0)
+		var size = Vector3(sw, h, depth) if lat_z else Vector3(depth, h, sw)
+		node.add_child(_box(size, grey if s % 2 == 0 else dark, cpos))
+		# Braune Sitzfläche oben auf der Stufe, zur Fahrbahn (+dv) gerichtet.
+		var seat_size = Vector3(sw, 0.04, depth * 0.5) if lat_z else Vector3(depth * 0.5, 0.04, sw)
+		var seat_pos = along + dv * (depth * 0.22) + Vector3(0.0, ROAD_Y + h + 0.02, 0.0)
+		node.add_child(_box(seat_size, brown, seat_pos))
+
+
 func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
 	var road_w = TILE_SIZE * 0.50
 	var kerb_w = TILE_SIZE * 0.07
@@ -239,6 +405,7 @@ func generate(grid_state: Array) -> void:
 
 	var grid_rows = grid_state.size()
 	var grid_cols = grid_state[0].size() if grid_rows > 0 else 0
+	var portal_idx := 0   # 0 = erstes Portal (Farbe A), 1 = zweites (Farbe B)
 
 	for row in range(grid_rows):
 		for col in range(grid_cols):
@@ -269,6 +436,43 @@ func generate(grid_state: Array) -> void:
 				wall_node.rotation_degrees.y = -d["rotation"]
 				_build_wall_mesh(wall_node, d["type"] == "wall_start")
 				add_child(wall_node)
+				continue
+
+			# Looping: prozedural (flache Bahn + senkrechtes Looping-Band).
+			if d["type"] == "loop":
+				var loop_node = Node3D.new()
+				loop_node.position = Vector3(
+					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
+					row * TILE_SIZE + TILE_SIZE / 2.0
+				)
+				loop_node.rotation_degrees.y = -d["rotation"]
+				_build_loop_mesh(loop_node, d["rotation"])
+				add_child(loop_node)
+				continue
+
+			# Portal: prozedural (Fahrbahn-Stutzen + leuchtender Ring). Farbe je Portal (A/B).
+			if d["type"] == "portal":
+				var portal_node = Node3D.new()
+				portal_node.position = Vector3(
+					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
+					row * TILE_SIZE + TILE_SIZE / 2.0
+				)
+				portal_node.rotation_degrees.y = -d["rotation"]
+				_build_portal_mesh(portal_node, portal_idx)
+				portal_idx += 1
+				add_child(portal_node)
+				continue
+
+			# Tribüne: prozedurale Treppen-Tribüne(n) je geboosteter Richtung (Sitze zum Nachbarfeld).
+			if d["type"] == "stand":
+				var stand_node = Node3D.new()
+				stand_node.position = Vector3(
+					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
+					row * TILE_SIZE + TILE_SIZE / 2.0
+				)
+				stand_node.rotation_degrees.y = -d["rotation"]
+				_build_stand_mesh(stand_node, int(d.get("stack", 1)))
+				add_child(stand_node)
 				continue
 
 			var tile_pos = Vector3(
