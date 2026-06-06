@@ -44,9 +44,10 @@ const SHOP_ITEMS = [
 	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 150000, "base_price": 25000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 500000, "base_price": 100000, "growth": 5.0},
+	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 2000000, "base_price": 400000, "growth": 5.0, "upgrade": "wallbonus"},
 ]
 
-const SHOP_SLOT_COUNT = 6   # = SHOP_ITEMS.size()
+const SHOP_SLOT_COUNT = 7   # = SHOP_ITEMS.size()
 const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
 
 # Upgrade-Tabellen: points/multiplier pro combine_level (0–4)
@@ -786,6 +787,9 @@ func _count_paid_tiles_in(g: Array, type: String) -> int:
 			if type == "ramp":
 				if t == "ramp_start":   # ein Paar = ein ramp_start
 					n += 1
+			elif type == "wall":
+				if t == "wall_start":   # ein Paar = ein wall_start
+					n += 1
 			elif type == "curve":
 				if t == "curve" or t == "curve_alt":
 					n += 1
@@ -837,6 +841,8 @@ func _shop_item_for_type(type: String) -> Dictionary:
 		key = "curve"
 	elif type == "ramp_start" or type == "ramp_end":
 		key = "ramp"
+	elif type == "wall_start" or type == "wall_end":
+		key = "wall"
 	else:
 		key = type
 	for item in SHOP_ITEMS:
@@ -852,7 +858,7 @@ func _tile_refund_for(data) -> int:
 	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
 		return 0
 	var t = data.get("type", "")
-	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end", "ice"]):
+	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end"]):
 		return 0
 	var item = _shop_item_for_type(t)
 	if item.is_empty():
@@ -896,6 +902,8 @@ func _update_build_ui() -> void:
 			icon_txt = "⛰"
 		elif item["tier"] == "ice":
 			icon_txt = "❄"
+		elif item["tier"] == "wall":
+			icon_txt = "◗"
 		icon_lbl.text = icon_txt
 		name_lbl.text = item["name"]
 
@@ -909,6 +917,8 @@ func _update_build_ui() -> void:
 				chip_bg = Color(0.40, 0.25, 0.06); chip_fg = Color(1.00, 0.78, 0.36)
 			"ice":
 				chip_bg = Color(0.12, 0.30, 0.42); chip_fg = Color(0.62, 0.90, 1.00)
+			"wall":
+				chip_bg = Color(0.34, 0.16, 0.40); chip_fg = Color(0.86, 0.62, 1.00)
 			_:
 				chip_bg = C_ACCENT_MU.darkened(0.05); chip_fg = Color(0.74, 0.84, 1.00)
 		if locked:
@@ -935,6 +945,10 @@ func _update_build_ui() -> void:
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "ice":
 			val_lbl.text   = "❄ +%.1f Lvl Speed · %d Felder" % [Economy.get_ice_boost_levels(), Economy.get_ice_range()]
+			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.add_theme_color_override("font_color", C_ACCENT)
+		elif item["tier"] == "wall":
+			val_lbl.text   = "+%s 💰 · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Economy.get_wall_boost_levels(), Economy.get_wall_range()]
 			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		else:
@@ -1059,6 +1073,17 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	# Rampen-Tiles: programmatisch gezeichnet, keine Szene
 	if data["type"] in ["ramp_start", "ramp_end"]:
 		var node = _create_ramp_node(data)
+		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
+		node.rotation_degrees = data["rotation"]
+		node.name = "Tile_%d_%d" % [row, col]
+		grid_node.add_child(node)
+		data["node"] = node
+		grid[row][col] = data
+		return
+
+	# Steilwandkurven-Tiles: programmatisch gezeichnet (Top-Down-Haarnadel mit Wand-Schraffur).
+	if data["type"] in ["wall_start", "wall_end"]:
+		var node = _create_wall_node(data)
 		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
 		node.rotation_degrees = data["rotation"]
 		node.name = "Tile_%d_%d" % [row, col]
@@ -1275,6 +1300,51 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 	return node
 
 
+# Steilwandkurven-Tile-Node (programmatisch, Top-Down). rot=0 Basislage:
+#   wall_start = Viertelbogen W↔S (Bogenmitte SW-Ecke), wall_end = Viertelbogen N↔W (NW-Ecke).
+# Die Außenkante (= Steilwand) wird als lila Band hervorgehoben. Node-Rotation dreht in die Weltlage.
+func _create_wall_node(data: Dictionary) -> Node2D:
+	var node     = Node2D.new()
+	var half     = TILE_SIZE / 2.0
+	var is_start = data["type"] == "wall_start"
+	var bg_col   = Color(0.13, 0.12, 0.16)
+	var road_col = Color(0.30, 0.30, 0.36)
+	var wall_col = Color(0.62, 0.40, 0.78)   # lila Steilwand (Außenkante)
+
+	var bg = ColorRect.new()
+	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+	bg.position = Vector2(-half + 1, -half + 1)
+	bg.color    = bg_col
+	node.add_child(bg)
+
+	var corner: Vector2; var a0: float; var a1: float
+	if is_start:
+		corner = Vector2(-half,  half); a0 = -PI / 2.0; a1 = 0.0
+	else:
+		corner = Vector2(-half, -half); a0 = 0.0;       a1 = PI / 2.0
+
+	var pw = 40.0
+	node.add_child(_arc_band(corner, a0, a1, half - pw / 2.0, half + pw / 2.0, road_col))
+	node.add_child(_arc_band(corner, a0, a1, half + pw / 2.0 - 9.0, half + pw / 2.0 + 3.0, wall_col))
+	return node
+
+
+# Polygon2D-Bogenband zwischen r_in und r_out um `center`, über den Winkelbereich [a0,a1].
+func _arc_band(center: Vector2, a0: float, a1: float, r_in: float, r_out: float, col: Color) -> Polygon2D:
+	var pts   = PackedVector2Array()
+	var steps = 14
+	for i in range(steps + 1):
+		var a = lerp(a0, a1, float(i) / steps)
+		pts.append(center + Vector2(cos(a), sin(a)) * r_out)
+	for i in range(steps + 1):
+		var a = lerp(a1, a0, float(i) / steps)
+		pts.append(center + Vector2(cos(a), sin(a)) * r_in)
+	var poly = Polygon2D.new()
+	poly.polygon = pts
+	poly.color   = col
+	return poly
+
+
 # ── Input ──────────────────────────────────────────────────────────────────────
 
 func _process(_delta: float) -> void:
@@ -1346,7 +1416,7 @@ func _input(event: InputEvent) -> void:
 			return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] == "ramp":
+		if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] in ["ramp", "wall"]:
 			ramp_preview_rot = (ramp_preview_rot + 90) % 360
 			_update_build_ui()
 		else:
@@ -1436,10 +1506,10 @@ func _slow_left_press(global_pos: Vector2) -> void:
 	if d == null or d.get("is_start", false):
 		return
 
-	# ramp_end greift immer das ramp_start-Feld (das Paar wird als Ganzes bewegt).
+	# ramp_end/wall_end greift immer das Start-Feld (das Paar wird als Ganzes bewegt).
 	var grab_row = cell.x
 	var grab_col = cell.y
-	if d.get("type", "") == "ramp_end":
+	if d.get("type", "") in ["ramp_end", "wall_end"]:
 		grab_row = d.get("ramp_partner_row", cell.x)
 		grab_col = d.get("ramp_partner_col", cell.y)
 
@@ -1636,6 +1706,8 @@ func _place_dragged_grid_tile(target: Vector2i) -> bool:
 	var t = String(_drag_data.get("type", ""))
 	if t == "ramp_start" or t == "ramp_end":
 		return _drop_grid_ramp(target, int(_drag_data.get("rotation", 0)))
+	if t == "wall_start" or t == "wall_end":
+		return _drop_grid_wall(target, int(_drag_data.get("rotation", 0)))
 	return _drop_grid_normal(target)
 
 
@@ -1702,6 +1774,45 @@ func _drop_grid_ramp(target: Vector2i, rot: int) -> bool:
 	return true
 
 
+func _drop_grid_wall(target: Vector2i, rot: int) -> bool:
+	var src_s = Vector2i(_drag_grid_row, _drag_grid_col)
+	var sdata = grid[src_s.x][src_s.y]
+	if sdata == null:
+		return false
+	var src_e = Vector2i(int(sdata.get("ramp_partner_row", -1)), int(sdata.get("ramp_partner_col", -1)))
+	var tgt_e = _wall_end_pos(target.x, target.y, rot)
+	if not (_ac_in_bounds(target) and _ac_in_bounds(tgt_e)):
+		return false
+	# Start- & End-Feld müssen frei (oder Dreck) sein – die eigenen alten Felder zählen als frei.
+	for c in [target, tgt_e]:
+		var cd = grid[c.x][c.y]
+		var own = (c == src_s or c == src_e)
+		if not (cd == null or cd.get("is_dirt", false) or own):
+			return false
+	_free_tile_node(src_s.x, src_s.y)
+	_clear_dirt_cell(target.x, target.y)
+	_clear_dirt_cell(tgt_e.x, tgt_e.y)
+	_spawn_tile(target.x, target.y, {
+		"type": "wall_start", "rotation": rot, "flipped": false,
+		"direction": 1, "points": 0.0, "multiplier": 1.0,
+		"variant_label": "", "series": "", "combine_level": 0,
+		"is_start": false, "is_dirt": false,
+		"ramp_partner_row": tgt_e.x, "ramp_partner_col": tgt_e.y,
+	})
+	_spawn_tile(tgt_e.x, tgt_e.y, {
+		"type": "wall_end", "rotation": rot, "flipped": false,
+		"direction": 1, "points": 0.0, "multiplier": 1.0,
+		"variant_label": "", "series": "", "combine_level": 0,
+		"is_start": false, "is_dirt": false,
+		"ramp_partner_row": target.x, "ramp_partner_col": target.y,
+	})
+	last_placed_row = target.x
+	last_placed_col = target.y
+	_invalidate_track()
+	_select_grid_tile(target.x, target.y)
+	return true
+
+
 func _reset_drag() -> void:
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		_drag_ghost.queue_free()
@@ -1728,7 +1839,7 @@ func _set_drag_source_visible(vis: bool) -> void:
 		return
 	if d.get("node") != null and is_instance_valid(d["node"]):
 		d["node"].visible = vis
-	if d.get("type", "") in ["ramp_start", "ramp_end"]:
+	if d.get("type", "") in ["ramp_start", "ramp_end", "wall_start", "wall_end"]:
 		var pr = d.get("ramp_partner_row", -1)
 		var pc = d.get("ramp_partner_col", -1)
 		if pr >= 0 and pc >= 0 and _is_valid_cell(Vector2i(pr, pc)):
@@ -1741,6 +1852,8 @@ func _set_drag_source_visible(vis: bool) -> void:
 func _shop_drag_data(item: Dictionary) -> Dictionary:
 	if item["tier"] == "ramp":
 		return {"type": "ramp_start", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false}
+	if item["tier"] == "wall":
+		return {"type": "wall_start", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false}
 	return {
 		"type":      item["type"],
 		"rotation":  0,
@@ -1776,6 +1889,8 @@ func _make_tile_visual(data: Dictionary) -> Node2D:
 		node = _create_dirt_node(data)
 	elif data.get("type", "") in ["ramp_start", "ramp_end"]:
 		node = _create_ramp_node(data)
+	elif data.get("type", "") in ["wall_start", "wall_end"]:
+		node = _create_wall_node(data)
 	else:
 		var scene_path: String
 		match data.get("type", ""):
@@ -1801,6 +1916,12 @@ func _ghost_parts(data: Dictionary) -> Array:
 			{"offset": Vector2.ZERO,             "data": {"type": "ramp_start", "rotation": rot, "direction": 1}},
 			{"offset": _cell_offset_px(_ramp_end_pos(0, 0, rot)), "data": {"type": "ramp_end", "rotation": rot, "direction": 1}},
 		]
+	if t == "wall_start" or t == "wall_end":
+		var rot = int(data.get("rotation", 0))
+		return [
+			{"offset": Vector2.ZERO,             "data": {"type": "wall_start", "rotation": rot, "direction": 1}},
+			{"offset": _cell_offset_px(_wall_end_pos(0, 0, rot)), "data": {"type": "wall_end", "rotation": rot, "direction": 1}},
+		]
 	return [{"offset": Vector2.ZERO, "data": data}]
 
 
@@ -1810,6 +1931,8 @@ func _ghost_footprint_cells(data: Dictionary) -> Array:
 	if t == "ramp_start" or t == "ramp_end":
 		var e = _ramp_end_pos(0, 0, int(data.get("rotation", 0)))
 		return [Vector2i(0, 0), Vector2i(e.x / 2, e.y / 2), e]
+	if t == "wall_start" or t == "wall_end":
+		return [Vector2i(0, 0), _wall_end_pos(0, 0, int(data.get("rotation", 0)))]
 	return [Vector2i(0, 0)]
 
 
@@ -1844,8 +1967,8 @@ func _ghost_pos_for(global_pos: Vector2) -> Vector2:
 # [R] beim Ziehen (Shop oder Grid): gezogenes Teil „in der Hand" um 90° drehen.
 func _drag_rotate() -> void:
 	_drag_data["rotation"] = (int(_drag_data.get("rotation", 0)) + 90) % 360
-	if _drag_shop_idx >= 0 and SHOP_ITEMS[_drag_shop_idx]["tier"] == "ramp":
-		ramp_preview_rot = _drag_data["rotation"]   # Rampe platziert über ramp_preview_rot
+	if _drag_shop_idx >= 0 and SHOP_ITEMS[_drag_shop_idx]["tier"] in ["ramp", "wall"]:
+		ramp_preview_rot = _drag_data["rotation"]   # Rampe/Steilwand platzieren über ramp_preview_rot
 		_update_build_ui()
 	_rebuild_drag_ghost()
 
@@ -1920,10 +2043,12 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 	if is_start:
 		return
 
-	# Rampen-Tiles (Altstände): zum ramp_start-Partner wechseln für [R]
-	if cell_data != null and cell_data.get("type", "") in ["ramp_start", "ramp_end"]:
+	# Rampen-/Steilwand-Tiles: immer zur Start-Hälfte wechseln (Ziel für [R]/Verschieben).
+	if cell_data != null and cell_data.get("type", "") in ["ramp_start", "ramp_end", "wall_start", "wall_end"]:
+		var ct = cell_data.get("type", "")
+		var is_ramp = ct in ["ramp_start", "ramp_end"]
 		var target_r = row; var target_c = col
-		if cell_data.get("type", "") == "ramp_end":
+		if ct == "ramp_end" or ct == "wall_end":
 			target_r = cell_data.get("ramp_partner_row", row)
 			target_c = cell_data.get("ramp_partner_col", col)
 		if selected_grid_row == target_r and selected_grid_col == target_c:
@@ -1931,7 +2056,7 @@ func _handle_grid_left_click(row: int, col: int) -> void:
 		else:
 			selected_grid_row = target_r; selected_grid_col = target_c
 			_update_grid_highlight()
-			tile_selector.set_status("Rampe")
+			tile_selector.set_status("Rampe" if is_ramp else "Steilwandkurve")
 		return
 
 	# Grid-Tile bereits ausgewählt → verschieben (leere Zelle) bzw. Auswahl wechseln
@@ -2012,6 +2137,45 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		_select_grid_tile(new_row, new_col)
 		return
 
+	# Steilwandkurven-Paar verschieben: beide Tiles zusammen an neue Position.
+	if data.get("type", "") == "wall_start":
+		var rotw     = data["rotation"]
+		var new_endw = _wall_end_pos(new_row, new_col, rotw)
+		var end_okw  = _ac_in_bounds(new_endw) and (
+			grid[new_endw.x][new_endw.y] == null or
+			grid[new_endw.x][new_endw.y].get("type", "") == "wall_end"
+		)
+		if not end_okw:
+			tile_selector.set_status("Kein Platz für Steilwandkurve")
+			selected_grid_row = -1; selected_grid_col = -1
+			_update_grid_highlight(); tile_selector.deselect()
+			return
+		var owpr = data.get("ramp_partner_row", -1)
+		var owpc = data.get("ramp_partner_col", -1)
+		if owpr >= 0 and owpc >= 0 and grid[owpr][owpc] != null:
+			grid[owpr][owpc]["node"].queue_free()
+			grid[owpr][owpc] = null
+		data["node"].queue_free()
+		grid[old_row][old_col] = null
+		_spawn_tile(new_row, new_col, {
+			"type": "wall_start", "rotation": rotw, "flipped": false,
+			"direction": 1, "points": 0.0, "multiplier": 1.0,
+			"variant_label": "", "series": "", "combine_level": 0,
+			"is_start": false, "is_dirt": false,
+			"ramp_partner_row": new_endw.x, "ramp_partner_col": new_endw.y,
+		})
+		_spawn_tile(new_endw.x, new_endw.y, {
+			"type": "wall_end", "rotation": rotw, "flipped": false,
+			"direction": 1, "points": 0.0, "multiplier": 1.0,
+			"variant_label": "", "series": "", "combine_level": 0,
+			"is_start": false, "is_dirt": false,
+			"ramp_partner_row": new_row, "ramp_partner_col": new_col,
+		})
+		last_placed_row = new_row; last_placed_col = new_col
+		_invalidate_track()
+		_select_grid_tile(new_row, new_col)
+		return
+
 	var move_data = {
 		"type":          data["type"],
 		"rotation":      data["rotation"],
@@ -2044,6 +2208,10 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	# Rampe ist ein Sonderfall (2 Felder, eigenes Platzieren)
 	if item["tier"] == "ramp":
 		_place_ramp(row, col)
+		return
+	# Steilwandkurve ist ein Sonderfall (2 benachbarte Felder, eigenes Platzieren)
+	if item["tier"] == "wall":
+		_place_wall(row, col)
 		return
 	# Preis für alle bezahlten Tiles (Default & Eis); Dreck ist kostenlos. Vor dem Setzen prüfen.
 	var price = _tile_price(item)
@@ -2092,7 +2260,7 @@ func _free_tile_node(row: int, col: int) -> void:
 	if d == null:
 		return
 	var rtype = d.get("type", "")
-	if rtype == "ramp_start" or rtype == "ramp_end":
+	if rtype in ["ramp_start", "ramp_end", "wall_start", "wall_end"]:
 		var pr = d.get("ramp_partner_row", -1)
 		var pc = d.get("ramp_partner_col", -1)
 		if pr >= 0 and pc >= 0 and grid[pr][pc] != null:
@@ -2106,9 +2274,9 @@ func _remove_tile(row: int, col: int) -> void:
 	if grid[row][col] != null:
 		if grid[row][col].get("is_start", false):
 			return
-		# Rampen-Paar: Partner mitlöschen
+		# Rampen-/Steilwand-Paar: Partner mitlöschen
 		var rtype = grid[row][col].get("type", "")
-		if rtype == "ramp_start" or rtype == "ramp_end":
+		if rtype in ["ramp_start", "ramp_end", "wall_start", "wall_end"]:
 			var pr = grid[row][col].get("ramp_partner_row", -1)
 			var pc = grid[row][col].get("ramp_partner_col", -1)
 			if pr >= 0 and pc >= 0 and grid[pr][pc] != null:
@@ -2130,6 +2298,17 @@ func _ramp_end_pos(row: int, col: int, rot: int) -> Vector2i:
 		90:  return Vector2i(row + 2, col    )
 		180: return Vector2i(row,     col - 2)
 		270: return Vector2i(row - 2, col    )
+	return Vector2i(-1, -1)
+
+
+# Partner-Kachel (Ausfahrt-Hälfte) der Steilwandkurve: benachbartes Feld in „Partner-Richtung".
+# rot=0 → Partner südlich (Haarnadel öffnet nach W: rein oben-W, raus unten-W). CW gedreht: W/N/E.
+func _wall_end_pos(row: int, col: int, rot: int) -> Vector2i:
+	match rot:
+		0:   return Vector2i(row + 1, col    )
+		90:  return Vector2i(row,     col - 1)
+		180: return Vector2i(row - 1, col    )
+		270: return Vector2i(row,     col + 1)
 	return Vector2i(-1, -1)
 
 
@@ -2189,6 +2368,47 @@ func _place_ramp(row: int, col: int) -> void:
 	tile_selector.set_status("Kein Platz für Rampe (2 freie Felder in einer Richtung nötig)")
 
 
+# Platziert eine Steilwandkurve (Einfahrt + Ausfahrt auf 2 benachbarten Feldern). Beide Felder
+# werden befahren (180°-Haarnadel). Preis idle-skalierend wie Default-Tiles; Werkzeug bleibt aktiv.
+func _place_wall(row: int, col: int) -> void:
+	var item  = SHOP_ITEMS[selected_shop_slot]
+	var price = _tile_price(item)
+	var rot   = ramp_preview_rot
+	for _attempt in range(4):
+		var endp = _wall_end_pos(row, col, rot)
+		if _ac_in_bounds(endp) and _ramp_cell_free(row, col) and _ramp_cell_free(endp.x, endp.y):
+			if not Economy.spend(price):
+				_flash_currency()
+				return
+			_clear_dirt_cell(row, col)
+			_clear_dirt_cell(endp.x, endp.y)
+			_spawn_tile(row, col, {
+				"type": "wall_start", "rotation": rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": endp.x, "ramp_partner_col": endp.y,
+			})
+			_spawn_tile(endp.x, endp.y, {
+				"type": "wall_end", "rotation": rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": row, "ramp_partner_col": col,
+			})
+			ramp_preview_rot = rot
+			last_placed_row = row
+			last_placed_col = col
+			_update_currency_label()
+			_update_build_ui()
+			_update_grid_highlight()
+			_invalidate_track()
+			_after_quick_place(row, col)
+			return
+		rot = (rot + 90) % 360
+	tile_selector.set_status("Kein Platz für Steilwandkurve (2 freie Felder nebeneinander nötig)")
+
+
 # ── Rotation ───────────────────────────────────────────────────────────────────
 
 func _rotate_active(degrees: int) -> void:
@@ -2202,6 +2422,10 @@ func _rotate_active(degrees: int) -> void:
 	# Rampen-Rotation: End-Tile neu platzieren
 	if data.get("type", "") == "ramp_start":
 		_rotate_ramp(row, col, degrees)
+		return
+	# Steilwandkurven-Rotation: Paar neu platzieren
+	if data.get("type", "") == "wall_start":
+		_rotate_wall(row, col, degrees)
 		return
 	data["rotation"] = (data["rotation"] + degrees) % 360
 	data["node"].rotation_degrees = data["rotation"]
@@ -2255,6 +2479,47 @@ func _rotate_ramp(row: int, col: int, degrees: int) -> void:
 	tile_selector.set_status("Keine gültige Position für Rampen-Drehung")
 
 
+# Dreht eine Steilwandkurve: End-Tile wird entfernt und in neuer Richtung neu gesetzt.
+func _rotate_wall(row: int, col: int, degrees: int) -> void:
+	var data    = grid[row][col]
+	var new_rot = (data["rotation"] + degrees) % 360
+	for _attempt in range(4):
+		var new_end = _wall_end_pos(row, col, new_rot)
+		var end_free = _ac_in_bounds(new_end) and (
+			grid[new_end.x][new_end.y] == null or
+			grid[new_end.x][new_end.y].get("type", "") == "wall_end"
+		)
+		if end_free:
+			var old_pr = data.get("ramp_partner_row", -1)
+			var old_pc = data.get("ramp_partner_col", -1)
+			if old_pr >= 0 and old_pc >= 0 and grid[old_pr][old_pc] != null:
+				grid[old_pr][old_pc]["node"].queue_free()
+				grid[old_pr][old_pc] = null
+			data["node"].queue_free()
+			grid[row][col] = null
+			_spawn_tile(row, col, {
+				"type": "wall_start", "rotation": new_rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": new_end.x, "ramp_partner_col": new_end.y,
+			})
+			_spawn_tile(new_end.x, new_end.y, {
+				"type": "wall_end", "rotation": new_rot, "flipped": false,
+				"direction": 1, "points": 0.0, "multiplier": 1.0,
+				"variant_label": "", "series": "", "combine_level": 0,
+				"is_start": false, "is_dirt": false,
+				"ramp_partner_row": row, "ramp_partner_col": col,
+			})
+			selected_grid_row = row; selected_grid_col = col
+			_update_grid_highlight()
+			_invalidate_track()
+			tile_selector.set_status("Steilwandkurve")
+			return
+		new_rot = (new_rot + 90) % 360
+	tile_selector.set_status("Keine gültige Position für Steilwandkurven-Drehung")
+
+
 func _update_node_labels(node: Node2D, rot_deg: int) -> void:
 	var r = deg_to_rad(rot_deg)
 	var vl = node.get_node_or_null("VarLabel")
@@ -2281,6 +2546,8 @@ func _type_display_name(typ: String) -> String:
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
 		"ramp_end":   return "Rampe (Ende)"
+		"wall_start": return "Steilwandkurve"
+		"wall_end":   return "Steilwandkurve (Ende)"
 	return typ
 
 func _grid_to_world(row: int, col: int) -> Vector2:
@@ -2632,6 +2899,14 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 	var conns: Dictionary
 	if t == "straight" or t == "ramp_start" or t == "ramp_end" or t == "ice":
 		var bn = false; var be = true; var bs = false; var bw = true
+		var steps = (rot / 90) % 4
+		for _i in range(steps):
+			var tn = bw; var te = bn; var ts = be; var tw = bs
+			bn = tn; be = te; bs = ts; bw = tw
+		conns = {"N": bn, "E": be, "S": bs, "W": bw}
+	elif t == "wall_start" or t == "wall_end":
+		# Basislage (rot=0): wall_start = S+W, wall_end = N+W. CW-Rotation wie oben.
+		var bn = (t == "wall_end"); var be = false; var bs = (t == "wall_start"); var bw = true
 		var steps = (rot / 90) % 4
 		for _i in range(steps):
 			var tn = bw; var te = bn; var ts = be; var tw = bs

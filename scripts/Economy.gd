@@ -86,6 +86,15 @@ const UPGRADES = {
 		"base_cost": 8000, "growth": 2.6, "max_level": 15,
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
+	# Steilwandkurve (Wall-Ride): Geld UND Speed-Boost skalieren mit dem Upgrade. Das Geld läuft
+	# über base/per_level (get_effect → +Wert am Einfahrt-Feld, Schritt 1 des Schneeballs), der
+	# Speed-Boost ist wie bei der Eisgerade special-cased (get_wall_*). max_level=15, damit die
+	# Reichweiten-Stufen (5→4, 10→5, 15→6 Felder) sauber aufgehen.
+	"wallbonus": {
+		"category": "tile", "name": "Steilwandkurven-Boost (Geld + Speed)",
+		"base_cost": 50000, "growth": 2.8, "max_level": 15,
+		"base": 5000.0, "per_level": 2500.0, "unit": "",
+	},
 	# Rampen-Upgrade: additiver Ertrag je Rampe (RAMP_BASE_EARN ist der Grundwert obendrauf) UND
 	# alle 5 Stufen +0.2 auf den Sprung-Multiplikator (Stufe 5 → ×2.2, 10 → ×2.4 …) via
 	# get_ramp_jump_mult(). max_level bewusst durch 5 teilbar, damit die Mult-Stufen sauber aufgehen.
@@ -237,6 +246,7 @@ const TILE_UNLOCK_COST = {
 	"def_curve":    30000,
 	"ice":          150000,
 	"ramp":         500000,
+	"wall":         2000000,
 }
 
 # ── Eisgerade ───────────────────────────────────────────────────────────────────
@@ -246,6 +256,15 @@ const TILE_UNLOCK_COST = {
 const ICE_BASE_BOOST_LEVELS = 1.0
 const ICE_PER_LEVEL_BOOST   = 0.5
 const ICE_BASE_RANGE        = 3
+
+# ── Steilwandkurve (Wall-Ride) ──────────────────────────────────────────────────
+# Zwei vertikal gestapelte Kacheln = eine 180°-Haarnadel an einer Steilwand. Beim Rausfahren
+# bekommen die nächsten Folge-Felder einen absoluten Tempo-Bonus (wie die Eisgerade), Basis
+# +2 Tempo-Stufen, je Upgrade-Stufe +0.5; Reichweite 3 Folge-Felder, +1 je 5 Upgrade-Stufen.
+# Das Geld (Grundertrag am Einfahrt-Feld) läuft über das wallbonus-Upgrade (base/per_level).
+const WALL_BASE_BOOST_LEVELS = 2.0
+const WALL_PER_LEVEL_BOOST   = 0.5
+const WALL_BASE_RANGE        = 3
 
 
 func get_tile_unlock_cost(key: String) -> int:
@@ -420,6 +439,7 @@ func _current_lap_reward(cars: Array) -> int:
 		var dstraight_b := get_effect("dirtstraightbonus")
 		var dcurve_b    := get_effect("dirtcurvebonus")
 		var ramp_b      := get_effect("rampbonus")
+		var wall_b      := get_wall_earn()
 		var running := 0.0
 		for tile in tiles:
 			# 1. Alle +Werte dieses Feldes.
@@ -430,6 +450,7 @@ func _current_lap_reward(cars: Array) -> int:
 				"dstraight": add += dstraight_b
 				"dcurve":    add += dcurve_b
 				"ramp":      add += ramp_b
+				"wall":      add += wall_b
 			# 2. Alle ×Werte dieses Feldes.
 			var m: float = float(tile.get("fixed_mult", 1.0)) * float(tile.get("bonus_mult", 1.0))
 			if String(tile.get("kind", "")) == "ramp" or bool(tile.get("is_jump", false)):
@@ -724,6 +745,9 @@ func effect_text(id: String, level: int) -> String:
 	# Eisgerade: kein Geld-Effekt → Speed-Boost (Tempo-Stufen) + Reichweite zeigen.
 	if id == "icebonus":
 		return "+%.1f Lvl · %d Felder" % [get_ice_boost_levels(level), get_ice_range(level)]
+	# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
+	if id == "wallbonus":
+		return "+%s 💰 · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), get_wall_boost_levels(level), get_wall_range(level)]
 	var v = _effect_at(id, level)
 	var unit = get_upgrade_unit(id)
 	if id == "endmult":
@@ -836,6 +860,34 @@ func get_ice_range(level: int = -1) -> int:
 	if level < 0:
 		level = get_upgrade_level("icebonus")
 	return ICE_BASE_RANGE + int(level / 5)
+
+
+# ── Steilwandkurve (Wall-Ride) ──────────────────────────────────────────────────
+
+# Geld-Grundertrag der Steilwandkurve (am Einfahrt-Feld, additiv = Schritt 1 des Schneeballs):
+# base 5000 + per_level je Upgrade-Stufe. Live über das wallbonus-Upgrade.
+func get_wall_earn(level: int = -1) -> float:
+	return get_effect("wallbonus", level)
+
+
+# Speed-Boost einer Steilwandkurve in „Tempo-Stufen": Basis 2.0 + 0.5 je Upgrade-Stufe.
+func get_wall_boost_levels(level: int = -1) -> float:
+	if level < 0:
+		level = get_upgrade_level("wallbonus")
+	return WALL_BASE_BOOST_LEVELS + WALL_PER_LEVEL_BOOST * level
+
+
+# Absoluter Geschwindigkeits-Bonus (m/s) auf die Folge-Felder beim Rausfahren – analog zur
+# Eisgerade „so viel schneller wie N Tempo-Stufen", unabhängig vom aktuellen Tempo.
+func get_wall_speed_bonus(level: int = -1) -> float:
+	return get_wall_boost_levels(level) * float(UPGRADES["speed"]["per_level"]) * SPEED_SCALE
+
+
+# Reichweite der Steilwandkurve: 3 Folge-Felder, +1 je 5 Upgrade-Stufen (5→4, 10→5, 15→6).
+func get_wall_range(level: int = -1) -> int:
+	if level < 0:
+		level = get_upgrade_level("wallbonus")
+	return WALL_BASE_RANGE + int(level / 5)
 
 
 # ── Prestige ────────────────────────────────────────────────────────────────────

@@ -19,6 +19,86 @@ const CURVE_MODEL_YAW_OFFSET = 180.0
 # des Rasters, ihre AABB ist also kleiner als eine ganze Kachel.
 const MODEL_TILE_NATIVE = 3.0
 
+# Steilwandkurve (Carrera-Stil): Querneigung der Fahrbahn am Apex + leichte Mittellinien-Höhe.
+# Muss zu CarController passen (WALL_PEAK_H = Höhenprofil der Wegpunkte). KEINE separate Wand mehr –
+# die Fahrbahn selbst ist die Steilkurve, damit die Autos nicht verdeckt werden.
+const WALL_PEAK_H     = 0.15
+const WALL_BANK_DEG   = 60.0
+const WALL_SEGS       = 40    # feine Geometrie (≥4× so viele Segmente wie zuvor)
+
+
+# Baut eine Steilkurven-Hälfte (Viertelbogen) prozedural als GEBANKTE Fahrbahn (Carrera-Steilkurve,
+# 60°), ohne verdeckende Wand. Basislage rot=0; die Node-Rotation in generate() (-d["rotation"])
+# dreht das Ganze in die Weltlage. Geometrie folgt denselben CarController-Wegpunkten (gleiche
+# Bogenformel, Apex = gemeinsame Kante beider Kacheln, dort maximale Neigung).
+func _build_wall_mesh(node: Node3D, is_start: bool) -> void:
+	var half   = TILE_SIZE / 2.0
+	var road_w = TILE_SIZE * 0.62
+	var kerb_w = TILE_SIZE * 0.05
+	var road_col = Color(0.21, 0.22, 0.27)
+	var kerb_a   = Color(0.92, 0.92, 0.95)
+	var kerb_b   = Color(0.85, 0.20, 0.18)
+
+	# Bogen-Parameter für die Basislage (rot=0): wall_start = eff90, wall_end = eff180.
+	var cx: float; var cz: float; var a_from: float; var a_to: float
+	if is_start:
+		cx = -half; cz =  half; a_from = PI * 1.5; a_to = PI * 2.0
+	else:
+		cx = -half; cz = -half; a_from = 0.0;      a_to = PI * 0.5
+	var arc_center = Vector3(cx, 0.0, cz)
+	var apex = Vector3(0.0, 0.0, half if is_start else -half)
+	var d_max: float = half * sqrt(2.0)
+	var segs = WALL_SEGS
+
+	for i in range(segs):
+		var tm = (float(i) + 0.5) / segs
+		var ang = lerp(a_from, a_to, tm)
+		var p = Vector3(cx + cos(ang) * half, 0.0, cz + sin(ang) * half)
+		var d = Vector2(p.x - apex.x, p.z - apex.z).length()
+		var hf = clampf(1.0 - d / d_max, 0.0, 1.0)
+		hf = smoothstep(0.0, 1.0, hf)   # gerundeter Scheitel statt spitzer ∧-Übergang an der Naht
+		var h = WALL_PEAK_H * hf
+		# Tangente (Fahrtrichtung) und Außenradiale (von der Bogenmitte weg).
+		var dir_sign = 1.0 if a_to > a_from else -1.0
+		var tang = (Vector3(-sin(ang), 0.0, cos(ang)) * dir_sign).normalized()
+		var yaw  = atan2(tang.x, tang.z)
+		var radial = (p - arc_center); radial.y = 0.0; radial = radial.normalized()
+		var seg_len = (PI * 0.5 * half) / segs + 0.02   # Bogenlänge eines Segments + Überlappung
+
+		# Querneigung der Fahrbahn (außen hoch). Vorzeichen so wählen, dass die Außenkante steigt.
+		var basis_yaw = Basis(Vector3.UP, yaw)
+		var local_x   = basis_yaw.x                       # Querachse der Fahrbahn (vor Roll)
+		var roll_sign = signf(radial.dot(local_x))
+		var bank = deg_to_rad(WALL_BANK_DEG) * hf * roll_sign
+		var road_basis = basis_yaw * Basis(Vector3(0, 0, 1), bank)
+		var seg_pos = Vector3(p.x, ROAD_Y + h, p.z)
+
+		# Gebanktes Fahrbahn-Segment (die Steilkurve selbst – Autos fahren oben drauf, sichtbar).
+		var road = MeshInstance3D.new()
+		var rbox = BoxMesh.new()
+		rbox.size = Vector3(road_w, 0.05, seg_len)
+		road.mesh = rbox
+		road.material_override = _wall_mat(road_col)
+		road.transform = Transform3D(road_basis, seg_pos)
+		node.add_child(road)
+
+		# Flache Rot-Weiß-Randsteine an beiden Kanten (in der Bankebene → verdecken nichts).
+		for s in [-1.0, 1.0]:
+			var kerb = MeshInstance3D.new()
+			var kbox = BoxMesh.new()
+			kbox.size = Vector3(kerb_w, 0.05, seg_len)
+			kerb.mesh = kbox
+			kerb.material_override = _wall_mat(kerb_a if i % 2 == 0 else kerb_b)
+			var off = road_basis * Vector3(s * (road_w / 2.0 + kerb_w / 2.0), 0.0, 0.0)
+			kerb.transform = Transform3D(road_basis, seg_pos + off)
+			node.add_child(kerb)
+
+
+func _wall_mat(color: Color) -> StandardMaterial3D:
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.8
+	return mat
 
 
 func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
@@ -177,6 +257,18 @@ func generate(grid_state: Array) -> void:
 				ramp_node.rotation_degrees.y = -d["rotation"]
 				_build_ramp_mesh(ramp_node, d["type"] == "ramp_start")
 				add_child(ramp_node)
+				continue
+
+			# Steilwandkurve: prozedural (ansteigende, geneigte Fahrbahn + 70°-Außenwand).
+			if d["type"] == "wall_start" or d["type"] == "wall_end":
+				var wall_node = Node3D.new()
+				wall_node.position = Vector3(
+					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
+					row * TILE_SIZE + TILE_SIZE / 2.0
+				)
+				wall_node.rotation_degrees.y = -d["rotation"]
+				_build_wall_mesh(wall_node, d["type"] == "wall_start")
+				add_child(wall_node)
 				continue
 
 			var tile_pos = Vector3(
