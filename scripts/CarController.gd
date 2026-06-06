@@ -53,9 +53,19 @@ const PITCH_FACTOR = 0.14   # rad Pitch pro m/s Vertikalgeschwindigkeit
 const PITCH_MAX   = 0.50    # ~29° maximale Nasenneigung
 const PITCH_SMOOTH = 9.0
 
+# Steilkurve (Carrera-Stil): Mittellinien-Höhe am Apex (m) und max. Auto-Querneigung (rad).
+# Muss zu TrackGenerator3D (WALL_PEAK_H/WALL_BANK_DEG) passen, damit das Auto auf der Fahrbahn sitzt.
+const WALL_PEAK_H   = 0.15
+const WALL_BANK_MAX = 1.0472   # 60° – das Auto liegt voll in der gebankten Steilkurve
+const WALL_ROLL_SMOOTH = 25.0  # schnelleres Einrasten der Querneigung als ROLL_SMOOTH (kein Durchglitchen)
+
 var _prev_yaw: float     = 0.0
 var _prev_car_y: float   = 0.0
 var _yaw_init: bool      = false
+
+# Querneigungs-Intensität (0..1) je Wegpunkt (nur Steilwandkurven-Wegpunkte > 0).
+var _wp_bank: PackedFloat32Array = PackedFloat32Array()
+var _cur_wp: int = 0
 
 
 func _ready() -> void:
@@ -103,6 +113,7 @@ func _sample_at_time(t: float) -> void:
 		if t_in_lap <= _cum_time[i] + st or i == n - 1:
 			var f := (t_in_lap - _cum_time[i]) / st if st > 0.0 else 0.0
 			car.position = waypoints[i].lerp(waypoints[(i + 1) % n], clampf(f, 0.0, 1.0))
+			_cur_wp = i
 			return
 
 
@@ -155,7 +166,16 @@ func _update_orientation(prev_pos: Vector3, delta: float) -> void:
 			if dyaw < -PI: dyaw += 2.0 * PI
 			var yaw_rate  := dyaw / maxf(delta, 0.001)
 			var roll_t    := clampf(-yaw_rate * ROLL_FACTOR, -ROLL_MAX, ROLL_MAX)
-			car.rotation.z = lerp(car.rotation.z, roll_t, delta * ROLL_SMOOTH)
+			# Steilwandkurve: dort „lehnt" sich das Auto bewusst stark in die Wand (Banking aus der
+			# pro-Wegpunkt-Höhe), in dieselbe Richtung wie die normale Kurvenneigung (sign der Gierrate).
+			var bank : float = _wp_bank[_cur_wp] if _cur_wp < _wp_bank.size() else 0.0
+			if bank > 0.001:
+				# Steilkurve: Auto rastet schnell auf die volle Bankung ein, damit es satt auf der
+				# gebankten Fahrbahn liegt und nicht hindurchglitcht.
+				roll_t = signf(-yaw_rate) * WALL_BANK_MAX * bank
+				car.rotation.z = lerp(car.rotation.z, roll_t, clampf(delta * WALL_ROLL_SMOOTH, 0.0, 1.0))
+			else:
+				car.rotation.z = lerp(car.rotation.z, roll_t, delta * ROLL_SMOOTH)
 		else:
 			car.rotation.z = lerp(car.rotation.z, 0.0, delta * ROLL_SMOOTH)
 		_prev_yaw  = new_yaw
@@ -177,6 +197,12 @@ func _get_connections(data) -> Dictionary:
 	var bn: bool; var be: bool; var bs: bool; var bw: bool
 	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end" or data["type"] == "ice":
 		bn = false; be = true; bs = false; bw = true
+	elif data["type"] == "wall_start":
+		# Steilwandkurve – Einfahrt-Hälfte: bei rot=0 offen nach S (zur Partner-Kachel) und W (außen).
+		bn = false; be = false; bs = true; bw = true
+	elif data["type"] == "wall_end":
+		# Steilwandkurve – Ausfahrt-Hälfte: bei rot=0 offen nach N (zur Partner-Kachel) und W (außen).
+		bn = true; be = false; bs = false; bw = true
 	elif data["type"] == "curve" or data["type"] == "curve_alt":
 		# curve und curve_alt haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
 		# rot=0: S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
@@ -371,6 +397,11 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				# (get_ramp_jump_mult), weil das übersprungene Mittelfeld nicht befahren wird.
 				rec["base"] = Economy.RAMP_BASE_EARN
 				rec["kind"] = "ramp"
+			elif t == "wall_start":
+				# Steilwandkurve: Geld-Grundertrag am Einfahrt-Feld. Den vollen Betrag (Basis +
+				# Upgrade) legt Economy live als kind "wall" drauf (get_wall_earn). wall_end bleibt 0.
+				rec["base"] = 0.0
+				rec["kind"] = "wall"
 			elif d.get("is_dirt", false):
 				rec["base"] = DIRT_TILE_EARN
 				rec["kind"] = "dstraight" if t == "straight" else "dcurve"
@@ -394,9 +425,21 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				for j in range(1, ice_range + 1):
 					step_bonus[(ik + j) % n] += ice_bonus
 
+	# Steilwandkurve: beim Rausfahren bekommen die nächsten get_wall_range() Felder denselben
+	# absoluten Tempo-Bonus wie bei der Eisgerade. Emittiert wird am Einfahrt-Feld (wall_start).
+	var wall_bonus := Economy.get_wall_speed_bonus()
+	var wall_range := Economy.get_wall_range()
+	if wall_bonus > 0.0 and n > 0:
+		for wk in range(n):
+			var wdata = route[wk]["data"]
+			if typeof(wdata) == TYPE_DICTIONARY and wdata.get("type", "") == "wall_start":
+				for j in range(1, wall_range + 1):
+					step_bonus[(wk + j) % n] += wall_bonus
+
 	# Wegpunkte aus Route bauen + Zuordnung Wegpunkt→Step (für die Tempo-Faktor-Tabelle)
 	var wps: Array[Vector3] = []
 	_wp_to_step = PackedInt32Array()
+	_wp_bank = PackedFloat32Array()
 	for si in range(n):
 		var step = route[si]
 		var center = Vector3(
@@ -405,8 +448,14 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			step["row"] * TILE_SIZE + TILE_SIZE / 2.0
 		)
 		var tile_wps = _waypoints_for_tile(center, step["data"], step["exit"], step["row"], step["col"])
+		var sdata = step["data"]
+		var is_wall : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["wall_start", "wall_end"]
 		for _w in range(tile_wps.size()):
 			_wp_to_step.append(si)
+			if is_wall:
+				_wp_bank.append(clampf((tile_wps[_w].y - 0.05) / WALL_PEAK_H, 0.0, 1.0))
+			else:
+				_wp_bank.append(0.0)
 		wps.append_array(tile_wps)
 
 	# Segment-Zeittabelle bauen: Position UND Geld leiten sich ab jetzt nur noch hieraus ab.
@@ -514,7 +563,58 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 				center.z + cz + sin(angle) * half
 			))
 
+	elif type == "wall_start" or type == "wall_end":
+		# Steilwandkurve (Wall-Ride): zwei vertikal gestapelte Kacheln bilden eine 180°-Haarnadel.
+		# Jede Kachel ist ein Viertelbogen wie eine Kurve (effektive Kurven-Rotation eff). Zusätzlich
+		# hebt sich die Fahrbahn zur GEMEINSAMEN Kante beider Kacheln (Apex) → das Auto fährt dort
+		# „an der Wand". Der Apex ist für beide Kacheln derselbe Weltpunkt → nahtloser Übergang.
+		var eff: int = (int(rot) + (90 if type == "wall_start" else 180)) % 360
+		var cx2: float; var cz2: float; var a_from2: float; var a_to2: float
+		match eff:
+			0:   cx2 =  half; cz2 =  half; a_from2 = PI;        a_to2 = PI * 1.5
+			90:  cx2 = -half; cz2 =  half; a_from2 = PI * 1.5;  a_to2 = PI * 2.0
+			180: cx2 = -half; cz2 = -half; a_from2 = 0.0;       a_to2 = PI * 0.5
+			270: cx2 =  half; cz2 = -half; a_from2 = PI * 0.5;  a_to2 = PI
+			_:   cx2 =  half; cz2 =  half; a_from2 = PI;        a_to2 = PI * 1.5
+		var fwd_exit2 := "E"
+		match eff:
+			0:   fwd_exit2 = "E"
+			90:  fwd_exit2 = "S"
+			180: fwd_exit2 = "W"
+			270: fwd_exit2 = "N"
+		if exit_dir != fwd_exit2:
+			var tmp2 = a_from2; a_from2 = a_to2; a_to2 = tmp2
+		# Apex = Mitte der gemeinsamen Kante = vom Kachelmittelpunkt um half Richtung Partner.
+		var pr := int(data.get("ramp_partner_row", row))
+		var pc := int(data.get("ramp_partner_col", col))
+		var pdir := _dir_to_vec(_partner_dir(row, col, pr, pc))
+		var apex := Vector3(center.x + pdir.x * half, 0.05, center.z + pdir.z * half)
+		var d_max: float = half * sqrt(2.0)
+		var steps2 = 12
+		for i in range(steps2 + 1):
+			var t2    = float(i) / float(steps2)
+			var angle2 = lerp(a_from2, a_to2, t2)
+			var p := Vector3(
+				center.x + cx2 + cos(angle2) * half,
+				0.05,
+				center.z + cz2 + sin(angle2) * half
+			)
+			var dd := Vector2(p.x - apex.x, p.z - apex.z).length()
+			var hf := clampf(1.0 - dd / d_max, 0.0, 1.0)
+			hf = smoothstep(0.0, 1.0, hf)   # gerundeter Scheitel (passend zur 3D-Fahrbahn)
+			p.y = 0.05 + WALL_PEAK_H * hf
+			wps.append(p)
+
 	return wps
+
+
+# Himmelsrichtung von (row,col) zur Partner-Kachel (pr,pc) – für die Steilwandkurve.
+func _partner_dir(row: int, col: int, pr: int, pc: int) -> String:
+	if pc > col: return "E"
+	elif pc < col: return "W"
+	elif pr > row: return "S"
+	elif pr < row: return "N"
+	return "S"
 
 
 func _dir_to_vec(dir: String) -> Vector3:

@@ -346,8 +346,8 @@ func _tile_entries() -> Array:
 		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+50 Ertrag · ×1.2", "upgrade": "curvebonus", "field_earn_base": 50},
 		{"name": "Eisgerade",    "key": "ice",         "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
 		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
+		{"name": "Steilwandkurve","key": "wall",       "model": "",                                 "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
 		{"name": "Schikane",     "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
-		{"name": "Steilkurve",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 		{"name": "Boost-Feld",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 		{"name": "Tunnel",       "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
 	]
@@ -489,6 +489,11 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		var ice_lv := Economy.get_upgrade_level(upg_id)
 		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
 		desc_lbl.text = "❄ +%.1f Lvl · %d Felder%s" % [Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
+	elif has_upg and upg_id == "wallbonus":
+		# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
+		var wall_lv := Economy.get_upgrade_level(upg_id)
+		var wmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		desc_lbl.text = "+%s 💰 · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
 	elif has_upg:
 		# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
 		var base_e := int(entry.get("field_earn_base", 0))
