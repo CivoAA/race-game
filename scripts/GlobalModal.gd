@@ -1501,16 +1501,28 @@ func _make_prestige_card(id: String) -> Panel:
 
 	# Effekt (von → zu, bzw. nur aktuell wenn maxed)
 	var eff_lbl := Label.new()
-	eff_lbl.position = Vector2(6, 120)
-	eff_lbl.size     = Vector2(CARD_W - 12, 22)
+	eff_lbl.position = Vector2(6, 116)
+	eff_lbl.size     = Vector2(CARD_W - 12, 30)
 	eff_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	eff_lbl.add_theme_font_size_override("font_size", 14)
+	eff_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	eff_lbl.add_theme_color_override("font_color", Color(0.70, 0.85, 1.0))
-	if maxed:
-		eff_lbl.text = Economy.prestige_node_effect_text(id, level)
+	if id == "free_roads":
+		# „Gratis-Straßen" wäre in einer Zeile zu lang → je Straßentyp eine eigene Zeile.
+		var per: Dictionary = Economy.FREE_ROADS_PER_LEVEL
+		eff_lbl.add_theme_font_size_override("font_size", 12)
+		if maxed:
+			eff_lbl.text = "%d Geraden\n%d Kurven" % [per["straight"] * level, per["curve"] * level]
+		else:
+			eff_lbl.text = "Geraden %d → %d\nKurven %d → %d" % [
+				per["straight"] * level, per["straight"] * (level + 1),
+				per["curve"] * level,    per["curve"] * (level + 1)]
 	else:
-		eff_lbl.text = "%s → %s" % [Economy.prestige_node_effect_text(id, level),
-			Economy.prestige_node_effect_text(id, level + 1)]
+		eff_lbl.add_theme_font_size_override("font_size", 14)
+		if maxed:
+			eff_lbl.text = Economy.prestige_node_effect_text(id, level)
+		else:
+			eff_lbl.text = "%s → %s" % [Economy.prestige_node_effect_text(id, level),
+				Economy.prestige_node_effect_text(id, level + 1)]
 	card.add_child(eff_lbl)
 
 	# Beschreibung

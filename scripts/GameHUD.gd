@@ -154,9 +154,9 @@ func _build_bar() -> void:
 	_currency_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
 	add_child(_currency_lbl)
 
-	# „+1M"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Debug: +1 Mio)
+	# „+1B"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Debug: +1 Mrd & +100 ⭐)
 	var debug_btn := Button.new()
-	debug_btn.text     = "+1M"
+	debug_btn.text     = "+1B ⭐"
 	debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
 	debug_btn.size     = Vector2(BADGE_W, 32)
 	debug_btn.focus_mode = Control.FOCUS_NONE
@@ -172,7 +172,7 @@ func _build_bar() -> void:
 	debug_btn.add_theme_stylebox_override("pressed", badge_n)
 	debug_btn.add_theme_stylebox_override("focus",   badge_n)
 	debug_btn.add_theme_color_override("font_color", Color(0.20, 0.12, 0.0))
-	debug_btn.pressed.connect(func(): Economy.add(1_000_000))
+	debug_btn.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
 	add_child(debug_btn)
 
 	# Rechter Block: Upgrade-Center (gefüllte Akzent-Pille)

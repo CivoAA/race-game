@@ -154,20 +154,42 @@ const PRESTIGE_NODES = {
 		"name": "Streckengröße", "icon": "▦", "base_cost": 4, "growth": 4.0, "max_level": 3,
 		"desc": "Vergrößert das Baufeld aller Strecken.", "prereq": {"income": 1},
 	},
+	# Unlocks behalten: einmaliger Kauf (max_level 1). Danach bleiben ALLE freigeschalteten
+	# Streckenteile (Gerade/Kurve/Eis/Rampe) über den Prestige-Reset hinweg gratis nutzbar –
+	# man zahlt die Freischalt-Gebühr nie wieder. Die Tile-UPGRADES bleiben Level 0 (werden
+	# normal zurückgesetzt); nur die einmalige Freischaltung entfällt. Siehe is_tile_unlocked().
+	"keep_unlocks": {
+		"name": "Unlocks behalten", "icon": "🗝", "base_cost": 5, "growth": 1.0, "max_level": 1,
+		"desc": "Freigeschaltete Streckenteile bleiben nach dem Prestige gratis (keine Freischalt-Gebühr mehr).",
+		"prereq": {"grid": 1},
+	},
 	# Zusätzliche Autos – addiert sich auf das normale Auto-Upgrade.
 	"car": {
 		"name": "Extra-Auto", "icon": "🚗", "base_cost": 6, "growth": 5.0, "max_level": 3,
-		"desc": "Je Stufe ein dauerhaft zusätzliches Auto.", "prereq": {"grid": 1},
+		"desc": "Je Stufe ein dauerhaft zusätzliches Auto.", "prereq": {"keep_unlocks": 1},
 	},
 	# Strecken-Freischaltung: Lv1 = Strecke 2, Lv2 = Strecke 3 (Strecke 1 ist immer offen).
 	"track": {
 		"name": "Extra-Strecke", "icon": "🏁", "base_cost": 8, "growth": 8.0, "max_level": 2,
 		"desc": "Schaltet Strecke 2 und 3 frei (eine je Stufe).", "prereq": {"car": 1},
 	},
+	# Gratis-Straßen: mehrfach kaufbar. Je Stufe darf man FREE_ROADS_PER_LEVEL["straight"] Geraden
+	# und ["curve"] Kurven gratis platzieren, BEVOR sie etwas kosten. Danach startet der Preis beim
+	# ersten Preis (base_price·growth^0), nicht so, als hätte man schon welche platziert – siehe
+	# get_free_tile_quota() + Main._tile_price (Preis um die Gratis-Menge versetzt). Da der Prestige
+	# alle Strecken leert, erneuert sich das Gratis-Kontingent jede Prestige-Runde automatisch.
+	"free_roads": {
+		"name": "Gratis-Straßen", "icon": "🛣", "base_cost": 5, "growth": 2.0, "max_level": 10,
+		"desc": "Je Stufe 2 Geraden und 4 Kurven gratis platzierbar, bevor sie etwas kosten.",
+		"prereq": {"track": 1},
+	},
 }
 # Reihenfolge im Tech-Baum (links → rechts).
-const PRESTIGE_ORDER = ["income", "grid", "car", "track"]
+const PRESTIGE_ORDER = ["income", "grid", "keep_unlocks", "car", "track", "free_roads"]
 const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe eine weitere.
+
+# Gratis platzierbare Default-Tiles je Stufe des „free_roads"-Knotens (siehe get_free_tile_quota).
+const FREE_ROADS_PER_LEVEL = {"straight": 2, "curve": 4}
 
 var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
@@ -231,7 +253,22 @@ func get_tile_unlock_cost(key: String) -> int:
 
 
 func is_tile_unlocked(key: String) -> bool:
-	return key == "" or unlocked_tiles.get(key, false)
+	if key == "" or unlocked_tiles.get(key, false):
+		return true
+	# Prestige-Perk „Unlocks behalten": ist er gekauft, gelten ALLE regulär freischaltbaren
+	# Streckenteile (def_straight/def_curve/ice/ramp) dauerhaft als frei – auch nach dem Reset,
+	# ohne dass sie in unlocked_tiles stehen (das wird beim Prestige geleert).
+	if get_prestige_node_level("keep_unlocks") >= 1 and TILE_UNLOCK_COST.has(key):
+		return true
+	return false
+
+
+# Anzahl gratis platzierbarer Default-Tiles dieses Typs (straight/curve) durch den Prestige-Knoten
+# „free_roads": Stufe × FREE_ROADS_PER_LEVEL. Andere Typen haben kein Gratis-Kontingent (→ 0).
+# Wirkung im Preis: Main._tile_price versetzt den Idle-Preis um diese Menge (die ersten N Tiles
+# gratis, danach Preis ab base_price). Reset-fest, da der Knoten den Prestige überlebt.
+func get_free_tile_quota(type: String) -> int:
+	return int(FREE_ROADS_PER_LEVEL.get(type, 0)) * get_prestige_node_level("free_roads")
 
 
 func unlock_tile(key: String) -> void:
@@ -807,6 +844,13 @@ func get_prestige_points() -> int:
 	return prestige_points
 
 
+# Debug/Cheat: Prestige-Punkte direkt gutschreiben (für Test-Buttons). Speichert + meldet Änderung.
+func add_prestige_points(n: int) -> void:
+	prestige_points += n
+	save_game()
+	prestige_changed.emit()
+
+
 func get_prestige_earned() -> int:
 	return prestige_earned
 
@@ -888,6 +932,11 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 		"track":
 			var n := PRESTIGE_TRACK_BASE + level
 			return "%d Strecke" % n if n == 1 else "%d Strecken" % n
+		"keep_unlocks":
+			return "✓ aktiv" if level >= 1 else "aus"
+		"free_roads":
+			return "%d Geraden · %d Kurven" % [
+				FREE_ROADS_PER_LEVEL["straight"] * level, FREE_ROADS_PER_LEVEL["curve"] * level]
 	return str(level)
 
 
