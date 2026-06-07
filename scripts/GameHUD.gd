@@ -222,7 +222,7 @@ const PAGE_OPTIONS = -2   # Einstellungen (liegt im PauseMenu)
 # "Strecke" (tab = -1) ist die Startseite = Modal schließen / zurück zur Strecke.
 const NAV_PAGES = [
 	{"icon": "🏁", "label": "Strecke",   "tab": -1},
-	{"icon": "🏪", "label": "Geschäft",  "tab": 0},
+	{"icon": "🏪", "label": "Shop",      "tab": 0},
 	{"icon": "🔧", "label": "Werkstatt", "tab": 2},
 	{"icon": "🏆", "label": "Erfolge",   "tab": 1},
 	{"icon": "📊", "label": "Statistik", "tab": 3},
@@ -231,6 +231,7 @@ const NAV_PAGES = [
 
 var _nav_btns:    Array = []   # je {btn, tab}
 var _active_page: int   = -1   # gerade geöffnete Seite (-1 = Modal geschlossen)
+var _pause_nav_btn: Button = null   # „Pause-Menü"-Eintrag, nur im Mobile-Steuerungsmodus sichtbar
 
 
 func _build_side_menu() -> void:
@@ -288,7 +289,35 @@ func _build_side_menu() -> void:
 	add_child(opt)
 	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS})
 
+	# „Pause-Menü" direkt unter Optionen – nur im Mobile-Steuerungsmodus sichtbar,
+	# weil am Handy keine ESC-Taste zum Öffnen des Pause-Menüs existiert.
+	_pause_nav_btn = _make_nav_btn("⏸   Pause-Menü", Vector2(NAV_X, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
+	_pause_nav_btn.pressed.connect(_on_pause_nav_pressed)
+	_pause_nav_btn.visible = _load_mobile_mode()
+	add_child(_pause_nav_btn)
+
 	_refresh_nav_highlight()
+
+
+func _on_pause_nav_pressed() -> void:
+	# Erst Offenes schließen, dann das Pause-Menü öffnen.
+	if GlobalModal.visible:
+		GlobalModal.close()
+	if PauseMenu.is_settings_open():
+		PauseMenu.close_settings()
+	PauseMenu.open_pause()
+
+
+# Vom PauseMenu beim Wechsel der Steuerungsart aufgerufen.
+func set_mobile_mode(enabled: bool) -> void:
+	if _pause_nav_btn != null and is_instance_valid(_pause_nav_btn):
+		_pause_nav_btn.visible = enabled
+
+
+func _load_mobile_mode() -> bool:
+	var cfg := ConfigFile.new()
+	cfg.load(Paths.SETTINGS_FILE)
+	return String(cfg.get_value("options", "control_mode", "click")) == "mobile"
 
 
 func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:

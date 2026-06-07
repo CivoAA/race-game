@@ -248,6 +248,7 @@ var car_paint_color: Color = Color(0.85, 0.15, 0.12)
 var prestige_points: int        = 0   # verfügbare ⭐
 var prestige_earned: int        = 0   # seit dem letzten Prestige verdientes Geld (Basis für Punkte)
 var prestige_nodes:  Dictionary = {}  # Tech-Baum-Knoten: id → Stufe
+var total_playtime:  float      = 0.0 # gesamte gespielte Zeit in Sekunden (slot-gebunden)
 var _current_slot:  int        = 0
 var _slot_name:     String     = ""
 
@@ -395,6 +396,7 @@ func _init_tracks() -> void:
 
 
 func _process(delta: float) -> void:
+	total_playtime += delta
 	for i in TRACK_COUNT:
 		if not _tracks[i]["run_active"]:
 			continue
@@ -900,6 +902,19 @@ func get_drive_time() -> float:
 	return _effect_at("drive_time", get_upgrade_level("drive_time"))
 
 
+func get_total_playtime() -> float:
+	return total_playtime
+
+
+# Sekunden → "H:MM:SS" (z. B. 1:59:46), für die Statistik-Seite.
+func format_playtime(seconds: float) -> String:
+	var total := int(seconds)
+	var h := total / 3600
+	var m := (total % 3600) / 60
+	var s := total % 60
+	return "%d:%02d:%02d" % [h, m, s]
+
+
 # Streckengröße kommt jetzt aus dem Prestige-Tech-Baum (reset-fest), nicht mehr aus upgrade_levels.
 func get_grid_rows() -> int:
 	return GRID_STEPS[clampi(get_prestige_node_level("grid"), 0, GRID_STEPS.size() - 1)].x
@@ -1231,6 +1246,7 @@ func save_game_to_slot(slot: int) -> void:
 		"prestige_points": prestige_points,
 		"prestige_earned": prestige_earned,
 		"prestige_nodes":  prestige_nodes,
+		"total_playtime":  total_playtime,
 		"car_paint_on":    car_paint_on,
 		"car_paint_color": car_paint_color,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
@@ -1254,6 +1270,7 @@ func load_game_from_slot(slot: int) -> void:
 	prestige_points = 0
 	prestige_earned = 0
 	prestige_nodes  = {}
+	total_playtime  = 0.0
 	car_paint_on    = false
 	car_paint_color = Color(0.85, 0.15, 0.12)
 	_slot_name      = ""
@@ -1278,6 +1295,7 @@ func load_game_from_slot(slot: int) -> void:
 				prestige_earned = int(data.get("prestige_earned", 0))
 				var pn         = data.get("prestige_nodes", {})
 				prestige_nodes = pn.duplicate() if typeof(pn) == TYPE_DICTIONARY else {}
+				total_playtime = float(data.get("total_playtime", 0.0))
 				car_paint_on   = bool(data.get("car_paint_on", false))
 				var cpc        = data.get("car_paint_color", car_paint_color)
 				car_paint_color = cpc if typeof(cpc) == TYPE_COLOR else car_paint_color
@@ -1304,6 +1322,7 @@ func reset_slot(slot: int) -> void:
 	prestige_points = 0
 	prestige_earned = 0
 	prestige_nodes  = {}
+	total_playtime  = 0.0
 	car_paint_on    = false
 	car_paint_color = Color(0.85, 0.15, 0.12)
 	_slot_name      = ""

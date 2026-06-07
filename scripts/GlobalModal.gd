@@ -146,6 +146,10 @@ func _process(delta: float) -> void:
 	if _active_modal_tab == PRESTIGE_TAB:
 		_refresh_prestige_action()
 
+	# Statistik-Tab: Werte (v. a. Spielzeit) in Echtzeit weiterticken.
+	if _active_modal_tab == STATISTIK_TAB:
+		_tick_statistik()
+
 
 func _input(event: InputEvent) -> void:
 	if not visible:
@@ -241,7 +245,7 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 	for i in SHOP_CATS.size():
 		var cat  = SHOP_CATS[i]
 		var btn  := Button.new()
-		btn.text = "%s  %s" % [cat.icon, cat.name]
+		btn.text = cat.name
 		btn.position = Vector2(0, i * 50 + 8)
 		btn.size     = Vector2(SIDEBAR_W, 44)
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -777,6 +781,7 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 # und beim Tab-Wechsel frisch befüllt.
 
 var _statistik_vbox: VBoxContainer = null
+var _stat_value_lbls: Dictionary = {}   # key → Wert-Label (für Live-Aktualisierung im _process)
 
 
 func _build_statistik_panel(parent: Control, cy: int, ch: int) -> void:
@@ -801,30 +806,80 @@ func _refresh_statistik() -> void:
 		return
 	for c in _statistik_vbox.get_children():
 		c.queue_free()
-
-	_add_cat_header(_statistik_vbox, "STATISTIK")
+	_stat_value_lbls.clear()
 
 	var run_total := 0
 	for i in Economy.TRACK_COUNT:
 		run_total += Economy.get_run_earned(i)
 
-	var rows := [
-		["💰  Aktuelles Guthaben",      Economy.format_currency(Economy.get_currency())],
-		["⭐  Prestige-Punkte",          str(Economy.get_prestige_points())],
-		["📈  Verdient seit Prestige",   Economy.format_currency(Economy.get_prestige_earned())],
-		["🛣  Freigeschaltete Strecken", "%d / %d" % [Economy.get_unlocked_tracks(), Economy.TRACK_COUNT]],
-		["🏎  Autos pro Strecke",        str(Economy.get_car_count())],
-		["▦  Baufeld",                  "%d × %d" % [Economy.get_grid_rows(), Economy.get_grid_cols()]],
-		["🏁  Laufende Runden-Erträge",  Economy.format_currency(run_total)],
-	]
-	for r in rows:
-		_add_stat_row(r[0], r[1])
+	var top_pad := Control.new()
+	top_pad.custom_minimum_size = Vector2(0, 18)
+	_statistik_vbox.add_child(top_pad)
+
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 0)
+	_statistik_vbox.add_child(cols)
+
+	cols.add_child(_hpad(28))
+	cols.add_child(_make_stat_column("Globale Statistiken", [
+		[
+			["Spielzeit",                 Economy.format_playtime(Economy.get_total_playtime()), "playtime"],
+			["Fahrtdauer pro Runde",      "%.1f s" % Economy.get_drive_time()],
+		],
+		[
+			["Freigeschaltete Strecken",  "%d / %d" % [Economy.get_unlocked_tracks(), Economy.TRACK_COUNT]],
+			["Autos pro Strecke",         str(Economy.get_car_count())],
+			["Baufeld",                   "%d × %d" % [Economy.get_grid_rows(), Economy.get_grid_cols()]],
+		],
+		[
+			["Geschwindigkeits-Bonus",    "×%d" % int(Economy.get_prestige_mult()), "speed_bonus"],
+		],
+	]))
+	cols.add_child(_hpad(44))
+	cols.add_child(_make_stat_column("Wirtschaft", [
+		[
+			["Aktuelles Guthaben",        Economy.format_currency(Economy.get_currency()), "guthaben"],
+			["Laufende Runden-Erträge",   Economy.format_currency(run_total), "run_total"],
+		],
+		[
+			["Prestige-Punkte",           str(Economy.get_prestige_points()), "prestige_pts"],
+			["Verdient seit Prestige",    Economy.format_currency(Economy.get_prestige_earned()), "prestige_earned"],
+		],
+	]))
+	cols.add_child(_hpad(28))
 
 
-func _add_stat_row(label_txt: String, value_txt: String) -> void:
+# Baut eine Statistik-Spalte: Titel + Gruppen, zwischen Gruppen eine gepunktete Trennlinie.
+func _make_stat_column(title: String, groups: Array) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(330, 0)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 0)
+
+	var head := Label.new()
+	head.text = title
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_theme_font_size_override("font_size", 18)
+	head.add_theme_color_override("font_color", C_TEXT)
+	col.add_child(head)
+
+	var head_pad := Control.new()
+	head_pad.custom_minimum_size = Vector2(0, 14)
+	col.add_child(head_pad)
+
+	for gi in groups.size():
+		var group: Array = groups[gi]
+		for r in group:
+			var key: String = r[2] if r.size() > 2 else ""
+			col.add_child(_make_stat_line(r[0], r[1], key))
+		if gi < groups.size() - 1:
+			col.add_child(_make_stat_dotsep())
+	return col
+
+
+func _make_stat_line(label_txt: String, value_txt: String, key: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()
-	row.custom_minimum_size = Vector2(0, 46)
-	row.add_child(_hpad(24))
+	row.custom_minimum_size = Vector2(0, 34)
 
 	var l := Label.new()
 	l.text = label_txt
@@ -836,37 +891,64 @@ func _add_stat_row(label_txt: String, value_txt: String) -> void:
 
 	var v := Label.new()
 	v.text = value_txt
-	v.custom_minimum_size = Vector2(240, 0)
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	v.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	v.add_theme_font_size_override("font_size", 15)
+	v.add_theme_font_size_override("font_size", 14)
 	v.add_theme_color_override("font_color", C_ACCENT)
 	row.add_child(v)
-	row.add_child(_hpad(24))
+	# Werte, die sich live ändern (Zeit, Geld, Prestige …), für _tick_statistik merken.
+	if key != "":
+		_stat_value_lbls[key] = v
+	return row
 
-	_statistik_vbox.add_child(row)
 
-	var sep := ColorRect.new()
-	sep.custom_minimum_size = Vector2(0, 1)
-	sep.color = C_LINE
-	_statistik_vbox.add_child(sep)
+# Aktualisiert nur die Wert-Labels der Statistik (läuft im _process, solange der Tab offen ist).
+func _tick_statistik() -> void:
+	if _stat_value_lbls.is_empty():
+		return
+	_set_stat("playtime", Economy.format_playtime(Economy.get_total_playtime()))
+	_set_stat("guthaben", Economy.format_currency(Economy.get_currency()))
+	if _stat_value_lbls.has("run_total"):
+		var run_total := 0
+		for i in Economy.TRACK_COUNT:
+			run_total += Economy.get_run_earned(i)
+		_set_stat("run_total", Economy.format_currency(run_total))
+	_set_stat("prestige_pts", str(Economy.get_prestige_points()))
+	_set_stat("prestige_earned", Economy.format_currency(Economy.get_prestige_earned()))
+	_set_stat("speed_bonus", "×%d" % int(Economy.get_prestige_mult()))
+
+
+func _set_stat(key: String, value_txt: String) -> void:
+	var lbl = _stat_value_lbls.get(key)
+	if lbl != null and is_instance_valid(lbl):
+		lbl.text = value_txt
+
+
+# Gepunktete Gruppen-Trennlinie (wie im Statistik-Screenshot).
+func _make_stat_dotsep() -> Label:
+	var dots := Label.new()
+	dots.custom_minimum_size = Vector2(0, 18)
+	dots.text = "·".repeat(80)
+	dots.clip_text = true
+	dots.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	dots.add_theme_color_override("font_color", C_TEXT_DIM.darkened(0.15))
+	return dots
 
 
 # ── Werkstatt (Auto-Konfiguration) ─────────────────────────────────────────────
-# Unter-Tabs: Form · Lackierung · Muster · Reifen · Fähigkeit. Darunter eine
+# Unter-Tabs: Form · Lackierung · Reifen · Fähigkeit. Darunter eine
 # 3D-Live-Vorschau (SubViewport). UI-Gerüst: Auswahl wird im Speicher gehalten;
 # nur die Lackierung wird derzeit direkt auf das Vorschau-Modell angewandt.
 
 const WS_TABS = [
 	{"id": "form",    "name": "Form",      "icon": "🚗"},
 	{"id": "paint",   "name": "Lackierung","icon": "🎨"},
-	{"id": "pattern", "name": "Muster",    "icon": "🏁"},
 	{"id": "tires",   "name": "Reifen",    "icon": "⚙"},
 	{"id": "ability", "name": "Fähigkeit", "icon": "✦"},
 ]
 
 var _ws_active_tab:  int           = 0
-var _ws_sel:         Dictionary    = {"form": 0, "paint": 0, "pattern": 0, "tires": 0, "ability": 0}
+var _ws_sel:         Dictionary    = {"form": 0, "paint": 0, "tires": 0, "ability": 0}
 var _ws_tab_btns:    Array[Button] = []
 var _ws_options_box: Control       = null
 var _ws_summary_lbl: Label         = null
@@ -896,13 +978,6 @@ func _ws_options(id: String) -> Array:
 				{"name": "Gelb",     "color": Color(0.95, 0.80, 0.15)},
 				{"name": "Schwarz",  "color": Color(0.08, 0.08, 0.10)},
 				{"name": "Weiß",     "color": Color(0.92, 0.93, 0.96)},
-			]
-		"pattern":
-			return [
-				{"name": "Keins",    "icon": "▭"},
-				{"name": "Streifen", "icon": "≡"},
-				{"name": "Flammen",  "icon": "🔥"},
-				{"name": "Karo",     "icon": "🏁"},
 			]
 		"tires":
 			return [
@@ -1506,7 +1581,7 @@ func _populate_prestige_tree() -> void:
 			arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			arrow.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 			arrow.add_theme_font_size_override("font_size", 26)
-			arrow.add_theme_color_override("font_color", C_ACCENT if next_unlocked else C_LINE)
+			arrow.add_theme_color_override("font_color", C_STAR if next_unlocked else C_LINE)
 			arrow.text = "→"
 			_prestige_tree_box.add_child(arrow)
 
@@ -1527,7 +1602,7 @@ func _make_prestige_card(id: String) -> Panel:
 	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
 	var csb := StyleBoxFlat.new()
 	csb.bg_color     = C_SURFACE
-	csb.border_color = C_ACCENT if has_level else (C_LINE if active else C_ACCENT_MU.darkened(0.4))
+	csb.border_color = C_STAR if has_level else (C_LINE if active else C_LINE.darkened(0.2))
 	csb.set_border_width_all(2 if has_level else 1)
 	csb.set_corner_radius_all(10)
 	card.add_theme_stylebox_override("panel", csb)
@@ -1568,7 +1643,7 @@ func _make_prestige_card(id: String) -> Panel:
 	eff_lbl.size     = Vector2(CARD_W - 12, 30)
 	eff_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	eff_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	eff_lbl.add_theme_color_override("font_color", Color(0.70, 0.85, 1.0))
+	eff_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.58))
 	if id == "free_roads":
 		# „Gratis-Straßen" wäre in einer Zeile zu lang → je Straßentyp eine eigene Zeile.
 		var per: Dictionary = Economy.FREE_ROADS_PER_LEVEL

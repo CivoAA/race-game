@@ -4,7 +4,15 @@ const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (125%)", 1.25], ["Sehr groß (150%)", 1.5]]
 # Kategorien der Side-Nav in den Einstellungen
-const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"], ["🎲", "Cheats"]]
+const SETTINGS_CATS = [["🌐", "Allgemein"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
+# Steuerungsarten der Kategorie „Steuerung" (Pill-/Segment-Auswahl). Reihenfolge = Index.
+const CTRL_SUBTABS = ["Klick modus", "Drag & Drop", "Mobile"]
+const CTRL_MODE_IDS = ["click", "drag", "mobile"]
+const CTRL_DESCS = [
+	"Wähle ein Teil in der Palette und klicke dann auf das Baufeld, um es zu setzen.",
+	"Ziehe Teile direkt aus der Palette auf das Baufeld – beim Loslassen wird gesetzt.",
+	"Touch-Bedienung fürs Handy: Ziehen & Ablegen plus optionaler Drehen-Knopf.",
+]
 const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
 # Inhaltsbereich der Einstellungen = links der GameHUD-Seitenleiste, unter der Top-Bar und
@@ -46,7 +54,6 @@ var _music_slider:   HSlider
 var _sfx_slider:     HSlider
 var _window_option:    OptionButton
 var _ui_scale_option:  OptionButton
-var _placement_switch: CheckButton
 var _rotate_switch:    CheckButton
 var _cheat_switch:     CheckButton
 var _lbl_master_val: Label
@@ -55,6 +62,13 @@ var _lbl_sfx_val:    Label
 
 var _settings_nav_btns:   Array[Button]  = []
 var _settings_cat_panels: Array[Control] = []
+
+# Steuerung – Modus-Auswahl
+var _ctrl_subtab:      int           = 0   # aktiver Modus-Index (0 click / 1 drag / 2 mobile)
+var _ctrl_subtab_btns: Array[Button] = []
+var _ctrl_desc_lbl:    Label
+var _ctrl_rotate_label: Label
+var _ctrl_mobile_hint: Label
 
 var _loading_settings := false
 
@@ -371,31 +385,10 @@ func _build_settings_panel() -> Control:
 	scale_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	v2.add_child(scale_hint)
 
-	# Kategorie 3 – Steuerung
-	var v3 := _new_settings_cat(holder)
-	_add_section_label(v3, "STEUERUNG")
-	var place_row := _make_hrow(v3)
-	_make_row_label(place_row, "Platzierung:")
-	_placement_switch = _make_placement_switch()
-	_placement_switch.toggled.connect(_on_placement_toggled)
-	place_row.add_child(_placement_switch)
-
-	var rotate_row := _make_hrow(v3)
-	_make_row_label(rotate_row, "Drehen-Knopf:")
-	_rotate_switch = _make_placement_switch()
-	_rotate_switch.toggled.connect(_on_rotate_btn_toggled)
-	rotate_row.add_child(_rotate_switch)
-	var rotate_hint := Label.new()
-	rotate_hint.text = "Zeigt im 2D-Bauplan einen ↻-Knopf zum Drehen (für Touch/Handy). Standard: aus."
-	rotate_hint.add_theme_font_size_override("font_size", 11)
-	rotate_hint.add_theme_color_override("font_color", C_TEXT_DIM)
-	rotate_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	v3.add_child(rotate_hint)
-
-	# Kategorie 4 – Cheats
-	var v4 := _new_settings_cat(holder)
-	_add_section_label(v4, "CHEAT-MODUS")
-	var cheat_row := _make_hrow(v4)
+	# Cheats sind jetzt ein Abschnitt der Anzeige-Kategorie (eigener Tab entfällt).
+	_add_hline(v2)
+	_add_section_label(v2, "CHEAT-MODUS")
+	var cheat_row := _make_hrow(v2)
 	_make_row_label(cheat_row, "Cheat-Modus:")
 	_cheat_switch = _make_placement_switch()
 	_cheat_switch.toggled.connect(_on_cheat_toggled)
@@ -405,7 +398,11 @@ func _build_settings_panel() -> Control:
 	cheat_hint.add_theme_font_size_override("font_size", 11)
 	cheat_hint.add_theme_color_override("font_color", C_TEXT_DIM)
 	cheat_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	v4.add_child(cheat_hint)
+	v2.add_child(cheat_hint)
+
+	# Kategorie 3 – Steuerung (mit Unter-Tabs: Klick modus / Drag & Drop / Mobile)
+	var v3 := _new_settings_cat(holder)
+	_build_steuerung_cat(v3)
 
 	_show_settings_cat(0)
 
@@ -547,6 +544,132 @@ func _on_settings_nav(idx: int) -> void:
 func _show_settings_cat(idx: int) -> void:
 	for i in _settings_cat_panels.size():
 		_settings_cat_panels[i].visible = (i == idx)
+
+
+# ── Steuerung-Kategorie: Modus-Auswahl (Klick / Drag & Drop / Mobile) ──────────
+# Die Pill-/Segment-Tabs OBEN sind keine reinen Ansichts-Tabs mehr, sondern wählen
+# die aktive Steuerungsart. „Klick modus" = placement_mode quick, „Drag & Drop" = slow,
+# „Mobile" = slow + Touch-Extras (Drehen-Knopf, Pause-Eintrag in der Side-Nav).
+
+func _build_steuerung_cat(parent: VBoxContainer) -> void:
+	_add_section_label(parent, "STEUERUNGSART")
+
+	# Segment-/Pill-Auswahl: bestimmt den aktiven Steuerungsmodus.
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 8)
+	parent.add_child(bar)
+	_ctrl_subtab_btns.clear()
+	for i in CTRL_SUBTABS.size():
+		var b := Button.new()
+		b.text = CTRL_SUBTABS[i]
+		b.custom_minimum_size = Vector2(0, 34)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.focus_mode = Control.FOCUS_NONE
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		_style_ctrl_subtab(b, i == 0)
+		b.pressed.connect(_on_ctrl_mode_selected.bind(i))
+		bar.add_child(b)
+		_ctrl_subtab_btns.append(b)
+
+	# Beschreibung des aktiven Modus
+	_ctrl_desc_lbl = Label.new()
+	_ctrl_desc_lbl.add_theme_font_size_override("font_size", 11)
+	_ctrl_desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	_ctrl_desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	parent.add_child(_ctrl_desc_lbl)
+
+	# Mobile-spezifische Einstellungen – nur im Mobile-Modus bedienbar, sonst ausgegraut.
+	_add_hline(parent)
+	_add_section_label(parent, "MOBILE-EINSTELLUNGEN")
+	var rotate_row := _make_hrow(parent)
+	_ctrl_rotate_label = _make_row_label(rotate_row, "Drehen-Knopf:")
+	_rotate_switch = _make_placement_switch()
+	_rotate_switch.toggled.connect(_on_rotate_btn_toggled)
+	rotate_row.add_child(_rotate_switch)
+	_ctrl_mobile_hint = Label.new()
+	_ctrl_mobile_hint.text = "Zeigt im 2D-Bauplan einen ↻-Knopf zum Drehen. Im Mobile-Modus standardmäßig an, in den anderen Modi deaktiviert."
+	_ctrl_mobile_hint.add_theme_font_size_override("font_size", 11)
+	_ctrl_mobile_hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	_ctrl_mobile_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	parent.add_child(_ctrl_mobile_hint)
+
+	# Anzeige initial setzen (echter Wert kommt aus _sync_settings_ui).
+	_apply_ctrl_mode(0, false)
+
+
+# Modus-Wechsel durch Klick auf eine Pill (persistiert + wendet an).
+func _on_ctrl_mode_selected(idx: int) -> void:
+	_apply_ctrl_mode(idx, true)
+
+
+# Setzt den aktiven Steuerungsmodus. persist=false → nur UI/Anzeige (für _sync_settings_ui).
+func _apply_ctrl_mode(idx: int, persist: bool) -> void:
+	_ctrl_subtab = idx
+	for i in _ctrl_subtab_btns.size():
+		_style_ctrl_subtab(_ctrl_subtab_btns[i], i == idx)
+	var mode_id: String = CTRL_MODE_IDS[idx]
+	var is_mobile := mode_id == "mobile"
+	_ctrl_desc_lbl.text = CTRL_DESCS[idx]
+	_set_mobile_settings_enabled(is_mobile)
+
+	if not persist or _loading_settings:
+		return
+
+	# Pause-Eintrag in der rechten Side-Nav nur im Mobile-Modus (GameHUD lädt den
+	# Startzustand selbst; hier nur auf echte Nutzer-Wechsel reagieren).
+	GameHUD.set_mobile_mode(is_mobile)
+	settings.set_value("options", "control_mode", mode_id)
+	# placement_mode für Main: click → quick, drag/mobile → slow (Ziehen/Touch).
+	var pm := "quick" if mode_id == "click" else "slow"
+	settings.set_value("options", "placement_mode", pm)
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("set_placement_mode"):
+		scene.set_placement_mode(pm)
+
+	# Erstmaliger Wechsel IN den Mobile-Modus: Drehen-Knopf standardmäßig AN.
+	if is_mobile and not settings.has_section_key("options", "rotate_button"):
+		settings.set_value("options", "rotate_button", true)
+	var rot := is_mobile and bool(settings.get_value("options", "rotate_button", true))
+	_loading_settings = true
+	_rotate_switch.button_pressed = rot
+	_loading_settings = false
+	_rotate_switch.text = "An" if rot else "Aus"
+	_apply_rotate_button(is_mobile)
+	_settings_dirty = true
+
+
+# Aktiviert/Deaktiviert die Mobile-Einstellungen (Drehen-Knopf).
+func _set_mobile_settings_enabled(enabled: bool) -> void:
+	_rotate_switch.disabled = not enabled
+	_rotate_switch.modulate = Color(1, 1, 1, 1.0 if enabled else 0.45)
+	_ctrl_rotate_label.add_theme_color_override("font_color", C_TEXT_DIM if enabled else C_LINE)
+
+
+# Wendet die effektive Drehen-Knopf-Sichtbarkeit an (nur im Mobile-Modus sichtbar).
+func _apply_rotate_button(is_mobile: bool) -> void:
+	var rot := is_mobile and bool(settings.get_value("options", "rotate_button", true))
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("set_rotate_button_visible"):
+		scene.set_rotate_button_visible(rot)
+
+
+# Pill-/Segment-Tab: aktiv = gefüllte abgerundete Fläche + Akzent-Balken unten.
+func _style_ctrl_subtab(btn: Button, active: bool) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color            = C_SURFACE2 if active else C_SURFACE.darkened(0.15)
+	sb.set_corner_radius_all(10)
+	sb.border_width_bottom = 3 if active else 0
+	sb.border_color        = C_ACCENT if active else Color(0, 0, 0, 0)
+	sb.content_margin_left = 14; sb.content_margin_right = 14
+	sb.content_margin_top  = 7;  sb.content_margin_bottom = 7
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	if not active:
+		sb_h.bg_color = C_SURFACE
+	for state in ["normal", "pressed", "focus"]:
+		btn.add_theme_stylebox_override(state, sb)
+	btn.add_theme_stylebox_override("hover", sb_h)
+	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
+	btn.add_theme_font_size_override("font_size", 13)
 
 
 # Erstellt einen scrollbaren Kategorie-Bereich im Inhalts-Holder und gibt dessen VBox zurück.
@@ -871,11 +994,14 @@ func _sync_settings_ui() -> void:
 			_ui_scale_option.selected = i
 			break
 
-	var slow := (settings.get_value("options", "placement_mode", "slow") as String) == "slow"
-	_placement_switch.button_pressed = slow
-	_update_placement_switch_text(slow)
-
-	var rotbtn := bool(settings.get_value("options", "rotate_button", false))
+	# Steuerungsart (Modus-Auswahl). Fallback: aus altem placement_mode ableiten.
+	var mode := String(settings.get_value("options", "control_mode", _infer_default_ctrl_mode()))
+	var midx := CTRL_MODE_IDS.find(mode)
+	if midx < 0:
+		midx = 0
+	_apply_ctrl_mode(midx, false)   # nur Anzeige – nicht erneut speichern
+	var is_mobile: bool = String(CTRL_MODE_IDS[midx]) == "mobile"
+	var rotbtn: bool = is_mobile and bool(settings.get_value("options", "rotate_button", true))
 	_rotate_switch.button_pressed = rotbtn
 	_rotate_switch.text = "An" if rotbtn else "Aus"
 
@@ -926,15 +1052,10 @@ func _on_window_mode_changed(index: int) -> void:
 	_settings_dirty = true
 
 
-func _on_placement_toggled(pressed: bool) -> void:
-	_update_placement_switch_text(pressed)
-	if _loading_settings: return
-	var mode := "slow" if pressed else "quick"
-	settings.set_value("options", "placement_mode", mode)
-	var scene := get_tree().current_scene
-	if scene != null and scene.has_method("set_placement_mode"):
-		scene.set_placement_mode(mode)
-	_settings_dirty = true
+# Altes placement_mode in eine Steuerungsart übersetzen (für Saves ohne control_mode).
+func _infer_default_ctrl_mode() -> String:
+	var pm := String(settings.get_value("options", "placement_mode", "slow"))
+	return "click" if pm == "quick" else "drag"
 
 
 func _on_rotate_btn_toggled(pressed: bool) -> void:
@@ -1058,11 +1179,6 @@ func _build_save_modal() -> Control:
 	))
 
 	return center
-
-
-# Schalter-Beschriftung zeigt den aktiven Modus an (an = Langsam/Ziehen, aus = Schnell/Klick).
-func _update_placement_switch_text(slow: bool) -> void:
-	_placement_switch.text = "Langsam" if slow else "Schnell"
 
 
 func _make_placement_switch() -> CheckButton:

@@ -2345,14 +2345,24 @@ func _after_quick_place(row: int, col: int) -> void:
 func _load_placement_mode() -> String:
 	var cfg = ConfigFile.new()
 	cfg.load(Paths.SETTINGS_FILE)
+	# Die Steuerungsart (control_mode) bestimmt jetzt den Platzierungsmodus:
+	# click → quick (Klick-Modus), drag/mobile → slow (Ziehen & Ablegen).
+	var mode := String(cfg.get_value("options", "control_mode", ""))
+	if mode == "click":
+		return "quick"
+	elif mode == "drag" or mode == "mobile":
+		return "slow"
 	return String(cfg.get_value("options", "placement_mode", "slow"))
 
 
-# Drehen-Knopf-Einstellung (Einstellungen → Steuerung). Standard AUS – nur fürs Handy gedacht.
+# Drehen-Knopf-Einstellung (Einstellungen → Steuerung). Nur im Mobile-Modus aktiv;
+# dort standardmäßig AN, sonst immer aus.
 func _load_rotate_button_setting() -> bool:
 	var cfg = ConfigFile.new()
 	cfg.load(Paths.SETTINGS_FILE)
-	return bool(cfg.get_value("options", "rotate_button", false))
+	if String(cfg.get_value("options", "control_mode", "click")) != "mobile":
+		return false
+	return bool(cfg.get_value("options", "rotate_button", true))
 
 
 # Wird von PauseMenu beim Umschalten in den Einstellungen aufgerufen (Live-Wechsel).

@@ -1175,7 +1175,15 @@ func _sync_options_ui() -> void:
 			_ui_scale_option.selected = i
 			break
 
-	var slow := (settings.get_value("options", "placement_mode", "slow") as String) == "slow"
+	# Platzierung aus der Steuerungsart ableiten (control_mode hat Vorrang vor placement_mode).
+	var cmode := String(settings.get_value("options", "control_mode", ""))
+	var slow: bool
+	if cmode == "click":
+		slow = false
+	elif cmode == "drag" or cmode == "mobile":
+		slow = true
+	else:
+		slow = (settings.get_value("options", "placement_mode", "slow") as String) == "slow"
 	_placement_switch.button_pressed = slow
 	_update_placement_switch_text(slow)
 
@@ -1226,6 +1234,8 @@ func _on_placement_toggled(pressed: bool) -> void:
 	_update_placement_switch_text(pressed)
 	if _loading_settings: return
 	settings.set_value("options", "placement_mode", "slow" if pressed else "quick")
+	# Steuerungsart mitführen, damit das In-Game-Optionsmenü konsistent bleibt (Mobile nur dort wählbar).
+	settings.set_value("options", "control_mode", "drag" if pressed else "click")
 	_options_dirty = true
 
 

@@ -1,7 +1,7 @@
 [gd_resource type="Theme" format=3 uid="uid://b71l3l0g87lyv"]
 
 [sub_resource type="SystemFont" id="SystemFont_clean"]
-font_names = PackedStringArray("Segoe UI", "Inter", "Roboto", "Helvetica Neue", "Arial")
+font_names = PackedStringArray("Bahnschrift", "Oswald", "Segoe UI Semibold", "Segoe UI", "Inter", "Roboto", "Arial")
 
 [resource]
 default_font = SubResource("SystemFont_clean")
