@@ -1,13 +1,14 @@
 extends CanvasLayer
 
-const C_BG       := Color(0.05, 0.11, 0.13)
-const C_BORDER   := Color(0.17, 0.29, 0.32)
-const C_ACCENT   := Color(0.16, 0.66, 0.87)
-const C_BLUE     := Color(0.16, 0.35, 0.54)
-const C_SURFACE  := Color(0.09, 0.18, 0.21)
-const C_SURFACE2 := Color(0.05, 0.11, 0.13)
-const C_TEXT     := Color(0.85, 0.94, 0.93)
-const C_TEXT_DIM := Color(0.40, 0.56, 0.58)
+# Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
+const C_BG       := Color(0.118, 0.122, 0.133)   # #1e1f22
+const C_BORDER   := Color(0.247, 0.255, 0.278)   # #3f4147
+const C_ACCENT   := Color(0.345, 0.396, 0.949)   # #5865f2 Blurple
+const C_BLUE     := Color(0.290, 0.310, 0.490)
+const C_SURFACE  := Color(0.169, 0.176, 0.192)   # #2b2d31
+const C_SURFACE2 := Color(0.118, 0.122, 0.133)
+const C_TEXT     := Color(0.859, 0.871, 0.882)   # #dbdee1
+const C_TEXT_DIM := Color(0.580, 0.608, 0.643)   # #949ba4
 
 @onready var main: Node2D          = get_parent()
 @onready var label_selected: Label = $Panel/VBox/LabelSelected

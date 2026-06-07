@@ -37,6 +37,7 @@ var _grid_state:      Array = []   # für Auto-Respawn bei Live-Upgrade gemerkt
 
 var _timer_label:  Label = null
 var _finish_btn:   Button = null
+var _bottom_bar:   Control = null   # untere Leiste (wie im 2D-Bauplan), trägt den Finish-Button
 
 
 func _ready() -> void:
@@ -166,14 +167,32 @@ func _setup_hud() -> void:
 	layer.layer = 21
 	add_child(layer)
 
-	# Kein freier "2D-Ansicht"-Button mehr. Stattdessen "Fahrt beenden": beendet den Lauf
-	# vorzeitig (ohne den Timer abzuwarten) und zeigt die Zusammenfassung, von der aus es per
-	# "Zurück zum Bauplan" in die 2D-Ansicht geht. Streckenwechsel weiterhin über die Tabs.
-	const NAV_H = 50
+	# Untere Leiste (wie im 2D-Bauplan): bleibt während der Fahrt sichtbar und trägt unten
+	# links den "Fahrt beenden"-Button. Geht über die ganze Breite, y = 498..540.
+	const BAR_H = 42
+	var bar_y := 540 - BAR_H
+	_bottom_bar = Control.new()
+	layer.add_child(_bottom_bar)
+
+	var bar_bg := ColorRect.new()
+	bar_bg.position = Vector2(0, bar_y)
+	bar_bg.size     = Vector2(960, BAR_H)
+	bar_bg.color    = Color(0.118, 0.122, 0.133)   # Discord-BG (#1e1f22)
+	_bottom_bar.add_child(bar_bg)
+
+	var bar_line := ColorRect.new()
+	bar_line.position = Vector2(0, bar_y)
+	bar_line.size     = Vector2(960, 1)
+	bar_line.color    = Color(0.247, 0.255, 0.278)  # Discord-Line (#3f4147)
+	_bottom_bar.add_child(bar_line)
+
+	# "Fahrt beenden": beendet den Lauf vorzeitig (ohne den Timer abzuwarten) und zeigt die
+	# Zusammenfassung, von der aus es per "Zurück zum Bauplan" in die 2D-Ansicht geht.
+	# Streckenwechsel weiterhin über die Tabs. Sitzt unten links auf der Leiste.
 	_finish_btn = Button.new()
 	_finish_btn.text     = "⏹  Fahrt beenden"
-	_finish_btn.position = Vector2(8, NAV_H + 8)
-	_finish_btn.size     = Vector2(150, 34)
+	_finish_btn.position = Vector2(8, bar_y + (BAR_H - 34) / 2.0)
+	_finish_btn.size     = Vector2(170, 34)
 	_finish_btn.focus_mode = Control.FOCUS_NONE
 	_finish_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_finish_btn.tooltip_text = "Lauf jetzt beenden und zur Zusammenfassung"
@@ -194,7 +213,17 @@ func _setup_hud() -> void:
 	_finish_btn.add_theme_color_override("font_hover_color", Color(1.00, 0.70, 0.64))
 	_finish_btn.add_theme_font_size_override("font_size", 13)
 	_finish_btn.pressed.connect(_on_finish_run_pressed)
-	layer.add_child(_finish_btn)
+	_bottom_bar.add_child(_finish_btn)
+
+	# Status-Text rechts neben dem Button (dezent), füllt die Leiste.
+	var bar_status := Label.new()
+	bar_status.text = "Runde läuft – Strecke %d" % (_active_track_idx + 1)
+	bar_status.position = Vector2(192, bar_y)
+	bar_status.size     = Vector2(560, BAR_H)
+	bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	bar_status.add_theme_font_size_override("font_size", 12)
+	bar_status.add_theme_color_override("font_color", Color(0.580, 0.608, 0.643))
+	_bottom_bar.add_child(bar_status)
 
 	# Timer – zwischen Währung (endet ~x580) und Run-Anzeige (x820)
 	_timer_label = Label.new()
@@ -231,9 +260,9 @@ func _show_summary() -> void:
 	# Das Popup wird ausschließlich hier (3D-Ansicht) gezeigt. Der pending_summary-Flag
 	# in Economy gilt als "quittiert", sobald das Popup in der 3D-Ansicht erscheint.
 	Economy.clear_pending_summary(_active_track_idx)
-	# Der "Fahrt beenden"-Button gehört zum laufenden Lauf – über dem Popup ausblenden.
-	if _finish_btn != null:
-		_finish_btn.visible = false
+	# Die untere Leiste (mit "Fahrt beenden") gehört zum laufenden Lauf – über dem Popup ausblenden.
+	if _bottom_bar != null:
+		_bottom_bar.visible = false
 
 	var layer = CanvasLayer.new()
 	layer.layer = 8

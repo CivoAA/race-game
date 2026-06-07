@@ -7,17 +7,20 @@ const BAR_H        = 50
 const VIEWPORT_W   = 960
 const VIEWPORT_H   = 540
 
-const C_BG         := Color(0.07, 0.13, 0.15)
-const C_SURFACE    := Color(0.11, 0.20, 0.23)
-const C_SURFACE_HI := Color(0.17, 0.29, 0.33)
-const C_ACCENT     := Color(0.16, 0.66, 0.87)
-const C_ACCENT_MU  := Color(0.16, 0.37, 0.54)
-const C_ACCENT_RD  := Color(0.97, 0.41, 0.43)
-const C_TEXT       := Color(0.90, 0.97, 0.96)
-const C_TEXT_DIM   := Color(0.48, 0.64, 0.65)
-const C_LINE       := Color(0.17, 0.29, 0.32)
-const C_RUN_ON     := Color(0.30, 0.92, 0.62)
-const C_RUN_OFF    := Color(0.26, 0.42, 0.46)
+# Discord-artige Graupalette (Grau-Abstufungen + Blurple-Akzent). Farbe nur für „Standouts"
+# (Akzente, Zahlen, Geld in Gold). DUPLIZIERT in GameHUD/Main/GlobalModal/MainMenu/PauseMenu/
+# TileSelector – bei Änderungen alle synchron halten.
+const C_BG         := Color(0.118, 0.122, 0.133)   # #1e1f22 (dunkelste Fläche)
+const C_SURFACE    := Color(0.169, 0.176, 0.192)   # #2b2d31
+const C_SURFACE_HI := Color(0.220, 0.227, 0.251)   # #383a40
+const C_ACCENT     := Color(0.345, 0.396, 0.949)   # #5865f2 (Blurple – Akzent/aktiv)
+const C_ACCENT_MU  := Color(0.290, 0.310, 0.490)   # gedämpftes Blurple
+const C_ACCENT_RD  := Color(0.929, 0.259, 0.271)   # #ed4245 (Signal-Rot)
+const C_TEXT       := Color(0.859, 0.871, 0.882)   # #dbdee1
+const C_TEXT_DIM   := Color(0.580, 0.608, 0.643)   # #949ba4
+const C_LINE       := Color(0.247, 0.255, 0.278)   # #3f4147
+const C_RUN_ON     := Color(0.180, 0.690, 0.400)   # Discord-Grün (läuft)
+const C_RUN_OFF    := Color(0.350, 0.360, 0.400)   # neutrales Grau (aus)
 
 # Rechter Block – von rechts nach links:
 # Der Bauen-Button ist aus der Top-Nav entfernt (jetzt Hammer-Button unten links in Main.gd).
@@ -74,6 +77,9 @@ signal shop_requested()
 
 func _ready() -> void:
 	layer = 20
+	# ALWAYS: die Seitenleiste muss auch dann bedienbar bleiben, wenn das Spiel pausiert
+	# ist (Einstellungen pausieren), damit man von dort weiter navigieren kann.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_track_view_3d.resize(TRACK_COUNT)
 	_track_view_3d.fill(false)
 	_build_bar()
@@ -182,16 +188,9 @@ func _build_bar() -> void:
 	_debug_btn.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
 	add_child(_debug_btn)
 
-	# Rechter Block: Upgrade-Center (gefüllte Akzent-Pille)
-	_shop_btn = _make_uc_btn("Upgrade-Center", Vector2(UC_X, UC_Y), UC_W, UC_H)
-	_shop_btn.pressed.connect(_on_shop_pressed)
-	add_child(_shop_btn)
-
-	# Einstellungen-Zahnrad (ganz rechts) – öffnet das Pause-Menü.
-	_cog_btn = _make_btn("⚙", Vector2(COG_X, UC_Y), COG_W, UC_H)
-	_cog_btn.add_theme_font_size_override("font_size", 20)
-	_cog_btn.pressed.connect(_on_settings_pressed)
-	add_child(_cog_btn)
+	# Rechter Block: das Upgrade-Center liegt jetzt als dauerhafte Seitenleiste am rechten
+	# Rand (volle Höhe). Sie ist gleichzeitig die Navigation des Modals und enthält unten
+	# auch „Optionen" (früher das Zahnrad oben rechts). Siehe _build_side_menu().
 
 	# Endlos-Modus-Toggle (links neben Währungsanzeige)
 	_endless_btn = _make_btn("∞", Vector2(344, BTN_Y), 34, BTN_H)
@@ -202,6 +201,163 @@ func _build_bar() -> void:
 	_refresh_tabs()
 	_refresh_view_buttons()
 	_refresh_cheat_visibility()
+	_build_side_menu()
+
+
+# ── Rechte Seitenleiste / Navigation ────────────────────────────────────────────
+# Dauerhaft sichtbare, durchgezogene Leiste am rechten Rand (volle Höhe bis über die
+# Run-Bar). Sie ist GLEICHZEITIG die Navigation des Upgrade-Centers (GlobalModal):
+# ein Klick öffnet/wechselt die jeweilige Seite, der aktive Eintrag bleibt markiert.
+const NAV_W      = 150
+const NAV_X      = VIEWPORT_W - NAV_W       # 810
+const NAV_TOP    = 0
+const NAV_BOT    = 498                       # endet bündig über der Run-Bar (540-42)
+const NAV_HDR_H  = 52
+
+# Sonder-„tab"-Werte (keine GlobalModal-Seiten):
+const PAGE_STRECKE = -1   # Startseite = alles schließen / zurück zur Strecke
+const PAGE_OPTIONS = -2   # Einstellungen (liegt im PauseMenu)
+
+# "tab" = Index im GlobalModal (MODAL_TABS): Shop0, Erfolge1, Werkstatt2, Statistik3, Prestige4.
+# "Strecke" (tab = -1) ist die Startseite = Modal schließen / zurück zur Strecke.
+const NAV_PAGES = [
+	{"icon": "🏁", "label": "Strecke",   "tab": -1},
+	{"icon": "🏪", "label": "Geschäft",  "tab": 0},
+	{"icon": "🔧", "label": "Werkstatt", "tab": 2},
+	{"icon": "🏆", "label": "Erfolge",   "tab": 1},
+	{"icon": "📊", "label": "Statistik", "tab": 3},
+	{"icon": "⭐", "label": "Prestige",  "tab": 4},
+]
+
+var _nav_btns:    Array = []   # je {btn, tab}
+var _active_page: int   = -1   # gerade geöffnete Seite (-1 = Modal geschlossen)
+
+
+func _build_side_menu() -> void:
+	var nav_h := NAV_BOT - NAV_TOP
+
+	# Hintergrund (durchgezogene Fläche) + linke Trennlinie
+	var bg := ColorRect.new()
+	bg.position = Vector2(NAV_X, NAV_TOP)
+	bg.size     = Vector2(NAV_W, nav_h)
+	bg.color    = C_SURFACE
+	add_child(bg)
+
+	var vline := ColorRect.new()
+	vline.position = Vector2(NAV_X, NAV_TOP)
+	vline.size     = Vector2(1, nav_h)
+	vline.color    = C_LINE
+	add_child(vline)
+
+	# Kopf
+	var hdr := Label.new()
+	hdr.position = Vector2(NAV_X + 16, NAV_TOP)
+	hdr.size     = Vector2(NAV_W - 22, NAV_HDR_H)
+	hdr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hdr.add_theme_font_size_override("font_size", 16)
+	hdr.add_theme_color_override("font_color", C_ACCENT)
+	hdr.text = "◎ Menü"
+	add_child(hdr)
+
+	var hline := ColorRect.new()
+	hline.position = Vector2(NAV_X, NAV_TOP + NAV_HDR_H)
+	hline.size     = Vector2(NAV_W, 1)
+	hline.color    = C_LINE
+	add_child(hline)
+
+	# Seiten-Einträge (volle Breite, links ausgerichtet, wie eine Liste)
+	const ITEM_H = 44
+	const ITEM_GAP = 2
+	var y0 := NAV_TOP + NAV_HDR_H + 8
+	_nav_btns.clear()
+	for entry in NAV_PAGES:
+		var btn := _make_nav_btn("%s   %s" % [entry.icon, entry.label], Vector2(NAV_X, y0), NAV_W, ITEM_H)
+		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
+		add_child(btn)
+		_nav_btns.append({"btn": btn, "tab": int(entry.tab)})
+		y0 += ITEM_H + ITEM_GAP
+
+	# Trenner + „Optionen" (öffnet das Pause-Menü, keine Modal-Seite)
+	var sep := ColorRect.new()
+	sep.position = Vector2(NAV_X + 12, y0 + 8)
+	sep.size     = Vector2(NAV_W - 24, 1)
+	sep.color    = C_LINE
+	add_child(sep)
+	var opt := _make_nav_btn("⚙   Optionen", Vector2(NAV_X, y0 + 18), NAV_W, ITEM_H)
+	opt.pressed.connect(_on_nav_page.bind(PAGE_OPTIONS))
+	add_child(opt)
+	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS})
+
+	_refresh_nav_highlight()
+
+
+func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
+	var btn := Button.new()
+	btn.text      = txt
+	btn.position  = pos
+	btn.size      = Vector2(w, h)
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal",  _nav_sb(C_SURFACE,    false))
+	btn.add_theme_stylebox_override("hover",   _nav_sb(C_SURFACE_HI, false))
+	btn.add_theme_stylebox_override("pressed", _nav_sb(C_SURFACE_HI, true))
+	btn.add_theme_stylebox_override("focus",   _nav_sb(C_SURFACE,    false))
+	btn.add_theme_color_override("font_color",       C_TEXT_DIM)
+	btn.add_theme_color_override("font_hover_color", C_TEXT)
+	btn.add_theme_font_size_override("font_size", 15)
+	return btn
+
+
+# Flache, randlose Listen-Optik; aktiver Eintrag bekommt einen Akzent-Balken links.
+func _nav_sb(bg: Color, active: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.content_margin_left   = 16
+	sb.content_margin_right  = 8
+	sb.content_margin_top    = 4
+	sb.content_margin_bottom = 4
+	if active:
+		sb.border_width_left = 3
+		sb.border_color      = C_ACCENT
+	return sb
+
+
+func _on_nav_page(tab: int) -> void:
+	var prev := _active_page
+	# Erst alles Offene schließen (Upgrade-Center ODER Einstellungen). _active_page wird
+	# danach selbst gesetzt – die Schließen-Callbacks dürfen das Ergebnis nicht überschreiben.
+	if GlobalModal.visible:
+		GlobalModal.close()
+	if PauseMenu.is_settings_open():
+		PauseMenu.close_settings()
+	# Erneuter Klick auf den aktiven Eintrag (oder „Strecke") → geschlossen lassen.
+	if tab == prev or tab == PAGE_STRECKE:
+		_active_page = PAGE_STRECKE
+		_refresh_nav_highlight()
+		return
+	_active_page = tab
+	_refresh_nav_highlight()
+	if tab == PAGE_OPTIONS:
+		PauseMenu.open_settings()
+	else:
+		GlobalModal.open_tab(tab)
+
+
+# Wird von GlobalModal.close() gerufen (ESC / ✕ / erneuter Klick) → Markierung zurücksetzen.
+func _on_modal_closed() -> void:
+	_active_page = -1
+	_refresh_nav_highlight()
+
+
+func _refresh_nav_highlight() -> void:
+	for e in _nav_btns:
+		var btn: Button = e["btn"]
+		if not is_instance_valid(btn):
+			continue
+		var on: bool = (int(e["tab"]) == _active_page)
+		btn.add_theme_stylebox_override("normal", _nav_sb(C_SURFACE_HI if on else C_SURFACE, on))
+		btn.add_theme_color_override("font_color", C_ACCENT if on else C_TEXT_DIM)
 
 
 func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
@@ -346,6 +502,17 @@ func _process(_delta: float) -> void:
 		if i < _run_dot_sbs.size():
 			_set_run_dot(i, Economy.is_run_active(i))
 
+	# Nav-Highlight mit dem echten Zustand abgleichen: wurde die Seite/Optionen extern
+	# geschlossen (✕/ESC/eigene Buttons), Markierung auf „Strecke" zurücksetzen.
+	var synced := _active_page
+	if _active_page == PAGE_OPTIONS and not PauseMenu.is_settings_open():
+		synced = PAGE_STRECKE
+	elif _active_page >= 0 and not GlobalModal.visible:
+		synced = PAGE_STRECKE
+	if synced != _active_page:
+		_active_page = synced
+		_refresh_nav_highlight()
+
 
 # ── Callbacks ──────────────────────────────────────────────────────────────────
 
@@ -469,11 +636,6 @@ func is_build_active() -> bool:
 
 
 # ── Einstellungen / Cheat-Buttons ───────────────────────────────────────────────
-
-# Zahnrad → Pause-Menü öffnen (dort liegt unter „Einstellungen" der Cheat-Modus).
-func _on_settings_pressed() -> void:
-	PauseMenu.open_pause()
-
 
 # Blendet die Cheat-Buttons (∞ und +1B ⭐) je nach Einstellung ein/aus.
 func _refresh_cheat_visibility() -> void:

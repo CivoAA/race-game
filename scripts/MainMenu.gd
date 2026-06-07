@@ -6,15 +6,16 @@ const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (12
 const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
 const SETTINGS_BASE = Vector2i(960, 540)
 
-const C_BG        := Color(0.09, 0.16, 0.18)
-const C_SURFACE   := Color(0.13, 0.23, 0.26)
-const C_SURFACE2  := Color(0.18, 0.31, 0.35)
-const C_ACCENT    := Color(0.16, 0.66, 0.87)
-const C_ACCENT_MU := Color(0.16, 0.37, 0.54)
-const C_ACCENT_RD := Color(0.97, 0.41, 0.43)
-const C_TEXT      := Color(0.90, 0.97, 0.96)
-const C_TEXT_DIM  := Color(0.48, 0.64, 0.65)
-const C_LINE      := Color(0.17, 0.29, 0.32)
+# Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
+const C_BG        := Color(0.118, 0.122, 0.133)   # #1e1f22
+const C_SURFACE   := Color(0.169, 0.176, 0.192)   # #2b2d31
+const C_SURFACE2  := Color(0.220, 0.227, 0.251)   # #383a40
+const C_ACCENT    := Color(0.345, 0.396, 0.949)   # #5865f2 Blurple
+const C_ACCENT_MU := Color(0.290, 0.310, 0.490)
+const C_ACCENT_RD := Color(0.929, 0.259, 0.271)   # #ed4245
+const C_TEXT      := Color(0.859, 0.871, 0.882)   # #dbdee1
+const C_TEXT_DIM  := Color(0.580, 0.608, 0.643)   # #949ba4
+const C_LINE      := Color(0.247, 0.255, 0.278)   # #3f4147
 
 var settings := ConfigFile.new()
 
