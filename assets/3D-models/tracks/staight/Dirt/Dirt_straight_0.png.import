@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://djqrdpp6heqqs"
 path.s3tc="res://.godot/imported/Dirt_straight_0.png-ad7d41e3dbd78c817b1059a2423fd946.s3tc.ctex"
+path.etc2="res://.godot/imported/Dirt_straight_0.png-ad7d41e3dbd78c817b1059a2423fd946.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/3D-models/tracks/staight/Dirt/Dirt_straight_0.png"
-dest_files=["res://.godot/imported/Dirt_straight_0.png-ad7d41e3dbd78c817b1059a2423fd946.s3tc.ctex"]
+dest_files=["res://.godot/imported/Dirt_straight_0.png-ad7d41e3dbd78c817b1059a2423fd946.s3tc.ctex", "res://.godot/imported/Dirt_straight_0.png-ad7d41e3dbd78c817b1059a2423fd946.etc2.ctex"]
 
 [params]
 

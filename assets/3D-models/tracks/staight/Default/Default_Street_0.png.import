@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cqdmnoajgxxgd"
 path.s3tc="res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.s3tc.ctex"
+path.etc2="res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/3D-models/tracks/staight/Default/Default_Street_0.png"
-dest_files=["res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.s3tc.ctex"]
+dest_files=["res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.s3tc.ctex", "res://.godot/imported/Default_Street_0.png-6605d7b80441ab392e7f9cc783343559.etc2.ctex"]
 
 [params]
 

@@ -5,6 +5,10 @@ var GRID_ROWS: int = 5
 var GRID_COLS: int = 6
 const TILE_SIZE = 100
 
+# Multiplikator gekaufter Default-Tiles (Geraden/Kurven). MUSS mit CarController.PREMIUM_TILE_MULT
+# übereinstimmen – nur für die „×x.x"-Anzeige im 2D-Bauplan (_cell_total_mult).
+const PREMIUM_TILE_MULT = 1.2
+
 # Farben (neue Palette)
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
 const C_BG       := Color(0.118, 0.122, 0.133)   # #1e1f22
@@ -119,6 +123,7 @@ var _hint_lbl:      Label       = null
 var _fahren_btn:    Button      = null
 var _build_cards:   Array       = []
 var _trash_panel:   Panel       = null   # Papierkorb (nur Slow-Modus)
+var _rotate_btn:    Button      = null   # Drehen-Knopf (Touch/Handy, beide Modi)
 var _hammer_btn:    Button      = null   # Baumenü-Umschalter (persistent, unten links)
 
 # Persistenter Run-Bar (Layer 4, immer sichtbar: Track-Status + Fahren-Button)
@@ -175,7 +180,7 @@ func _ready() -> void:
 
 	_update_build_ui()
 	_roll_bonus_fields()
-	_refresh_jump_markers()
+	_refresh_mult_markers()
 
 	placement_mode = _load_placement_mode()
 	_track_valid = _is_track_valid()
@@ -526,6 +531,10 @@ func _setup_build_panel() -> void:
 	_build_layer.add_child(_trash_panel)
 	_update_trash_visibility()
 
+	# Drehen-Knopf – direkt über dem Papierkorb (beide Modi, v. a. für Touch/Handy)
+	_rotate_btn = _make_rotate_card()
+	_build_layer.add_child(_rotate_btn)
+
 
 # Persistenter Hammer-Button unten links (öffnet/schließt das Baumenü).
 func _setup_build_toggle_btn() -> void:
@@ -704,6 +713,56 @@ func _make_trash_card() -> Panel:
 	return card
 
 
+# Drehen-Knopf direkt über dem Papierkorb. Ersetzt die [R]-Taste auf Touch-Geräten;
+# in beiden Bauweisen (schnell + langsam) sichtbar, solange das Baumenü offen ist.
+func _make_rotate_card() -> Button:
+	const TW  = BOTTOM_BTN_W
+	const TH  = BOTTOM_BTN_H
+	const GAP = 8
+	const TX  = 960 - 8 - TW              # gleiche Spalte wie der Papierkorb
+	const TY  = BOTTOM_BTN_Y - TH - GAP   # eine Reihe darüber
+	var btn := Button.new()
+	btn.position = Vector2(TX, TY)
+	btn.size     = Vector2(TW, TH)
+	btn.text     = "↻"
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.tooltip_text = "Ausgewähltes Teil um 90° drehen"
+	btn.add_theme_font_size_override("font_size", 30)
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_SURFACE
+	sb.set_border_width_all(2)
+	sb.border_color = C_ACCENT_MU
+	sb.set_corner_radius_all(8)
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	sb_h.bg_color = C_SURFACE.lightened(0.08)
+	sb_h.border_color = C_ACCENT
+	for state in ["normal", "pressed", "focus"]:
+		btn.add_theme_stylebox_override(state, sb)
+	btn.add_theme_stylebox_override("hover", sb_h)
+	btn.add_theme_color_override("font_color", C_TEXT)
+	btn.pressed.connect(_on_rotate_btn_pressed)
+	return btn
+
+
+# Touch-Pendant zur [R]-Taste: dreht das, was [R] gerade drehen würde.
+func _on_rotate_btn_pressed() -> void:
+	if Economy.is_run_active(Economy.get_active_track()):
+		return
+	# 1) Etwas „in der Hand" (Drag aus Shop/Grid) → Vorschau drehen.
+	if _drag_active:
+		_drag_rotate()
+		return
+	# 2) Rampe/Steilwand/Tribüne im Shop ausgewählt → Platzier-Rotation drehen.
+	if selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] in ["ramp", "wall", "stand"]:
+		ramp_preview_rot = (ramp_preview_rot + 90) % 360
+		_update_build_ui()
+		return
+	# 3) Sonst das ausgewählte/zuletzt platzierte Tile auf dem Grid drehen.
+	_rotate_active(90)
+
+
 func _update_trash_visibility() -> void:
 	if _trash_panel == null:
 		return
@@ -751,7 +810,7 @@ func _on_tab_changed(idx: int) -> void:
 		_restore_grid(new_grid)
 	_update_build_ui()
 	_roll_bonus_fields()
-	_refresh_jump_markers()
+	_refresh_mult_markers()
 	selected_grid_row  = -1
 	selected_grid_col  = -1
 	selected_shop_slot = -1
@@ -1062,9 +1121,9 @@ func _on_upgrade_purchased(id: String) -> void:
 	# Prestige-Knoten „Streckengröße" meldet sich als grid_size → Grid live nachwachsen lassen.
 	elif id == "grid_size":
 		_rebuild_grid_for_size()
-	# Rampen-Upgrade kann den Sprung-Multiplikator erhöhen → ×N-Marker im 2D live aktualisieren.
-	elif id == "rampbonus":
-		_refresh_jump_markers()
+	# Jeder Kauf kann den tatsächlichen Feld-Multiplikator ändern (rampbonus → Sprung-×, standbonus →
+	# Tribüne, loopbonus → Looping-F, ×1.5-Bonusfeld) → die „×x.x"-Gesamt-Badges live neu zeichnen.
+	_refresh_mult_markers()
 
 
 func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
@@ -1437,8 +1496,6 @@ func _create_loop_node(data: Dictionary) -> Node2D:
 	var bg_col   = Color(0.13, 0.12, 0.16)
 	var road_col = Color(0.30, 0.30, 0.36)
 	var loop_col = Color(0.36, 0.62, 0.95)
-	var rot      = data.get("rotation", 0)
-	var rot_rad  = deg_to_rad(rot)
 
 	var bg = ColorRect.new()
 	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
@@ -1469,19 +1526,8 @@ func _create_loop_node(data: Dictionary) -> Node2D:
 	ring.color   = loop_col
 	node.add_child(ring)
 
-	# ×2-Marke (gegen die Tile-Rotation gedreht, damit lesbar)
-	var lbl = Label.new()
-	lbl.text = "×2"
-	lbl.size = Vector2(40, 20)
-	lbl.position = Vector2(-20, -10).rotated(-rot_rad)
-	lbl.rotation_degrees = -rot
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 13)
-	lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
-	lbl.add_theme_constant_override("outline_size", 3)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0.1, 0.25, 0.9))
-	node.add_child(lbl)
+	# Kein eigenes „×2" mehr – der tatsächliche Faktor steht im zentralen „×x.x"-Gesamt-Badge
+	# (_make_mult_marker / _cell_total_mult), das Looping-Upgrades live berücksichtigt.
 	return node
 
 
@@ -1589,8 +1635,6 @@ func _create_stand_node(data: Dictionary) -> Node2D:
 	var node    = Node2D.new()
 	var half    = TILE_SIZE / 2.0
 	var stack   = int(data.get("stack", 1))
-	var rot     = int(data.get("rotation", 0))
-	var rot_rad = deg_to_rad(rot)
 	var bg_col    = Color(0.16, 0.16, 0.18)
 	var stand_col = Color(0.55, 0.55, 0.60)
 	var seat_col  = Color(0.55, 0.32, 0.14)
@@ -1627,19 +1671,8 @@ func _create_stand_node(data: Dictionary) -> Node2D:
 		tri.color = arrow_col
 		node.add_child(tri)
 
-	# ×Wert + Stapel-Marke (gegen die Tile-Rotation gedreht, damit lesbar).
-	var lbl = Label.new()
-	lbl.text = "×%.1f" % Economy.get_stand_mult(stack)
-	lbl.size = Vector2(50, 18)
-	lbl.position = Vector2(-25, -9).rotated(-rot_rad)
-	lbl.rotation_degrees = -rot
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
-	lbl.add_theme_constant_override("outline_size", 3)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	node.add_child(lbl)
+	# Kein „×2.5" auf der Tribüne selbst – sie ist nicht befahrbar. Der Faktor erscheint als zentrales
+	# „×x.x"-Gesamt-Badge auf dem/den geboosteten Nachbarfeld(ern) (_refresh_mult_markers).
 	return node
 
 
@@ -3087,8 +3120,10 @@ func _build_drive_state() -> Array:
 	for cell in _ramp_jump_cells():
 		if typeof(state[cell.x][cell.y]) == TYPE_DICTIONARY:
 			state[cell.x][cell.y]["jump_mult"] = Economy.get_ramp_jump_mult()
-	# Tribüne: multipliziert das/die Nachbarfeld(er) VOR ihr (× in bonus_mult eingerechnet → wirkt im
-	# Schneeball am betroffenen Fahr-Feld, stapelt mit Bonusfeldern/anderen Tribünen).
+	# Tribüne: multipliziert das/die Nachbarfeld(er) VOR ihr. Tribünen werden SEPARAT von den
+	# Bonusfeldern geführt (stand_mult = Produkt, stand_count = Anzahl), damit ein Looping jede
+	# Tribüne EINZELN mit F skalieren kann (Economy._current_lap_reward: sm·F^sc). Im Schneeball
+	# am Fahr-Feld wirkt es weiterhin als ×-Wert (auf Nicht-Loop-Feldern identisch zum Produkt).
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
 			var d = grid[r][c]
@@ -3098,7 +3133,8 @@ func _build_drive_state() -> Array:
 			for dir in _stand_dirs(int(d.get("rotation", 0)), int(d.get("stack", 1))):
 				var nb = _ac_step(r, c, dir)
 				if _ac_in_bounds(nb) and typeof(state[nb.x][nb.y]) == TYPE_DICTIONARY:
-					state[nb.x][nb.y]["bonus_mult"] = float(state[nb.x][nb.y].get("bonus_mult", 1.0)) * mult
+					state[nb.x][nb.y]["stand_mult"]  = float(state[nb.x][nb.y].get("stand_mult", 1.0)) * mult
+					state[nb.x][nb.y]["stand_count"] = int(state[nb.x][nb.y].get("stand_count", 0)) + 1
 	return state
 
 
@@ -3177,14 +3213,18 @@ func _make_bonus_marker(eff: Dictionary) -> Node2D:
 			2: r.position = Vector2(0, 0);              r.size = Vector2(bw, TILE_SIZE)
 			3: r.position = Vector2(TILE_SIZE - bw, 0); r.size = Vector2(bw, TILE_SIZE)
 		node.add_child(r)
-	var lbl = Label.new()
-	lbl.text = eff["label"]
-	lbl.position = Vector2(4, 2)
-	lbl.add_theme_font_size_override("font_size", 13)
-	lbl.add_theme_color_override("font_color", col)
-	lbl.add_theme_constant_override("outline_size", 3)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	node.add_child(lbl)
+	# Additive Boni (+5/+10) zeigen ihren Wert in der Ecke. Der ×1.5-Bonus zeigt KEINEN eigenen
+	# Text mehr – sein Faktor steckt im zentralen „×x.x"-Gesamt-Badge (_make_mult_marker), der den
+	# tatsächlich wirkenden Multiplikator des Feldes anzeigt. Der farbige Rahmen bleibt als Hinweis.
+	if not String(eff["label"]).begins_with("×"):
+		var lbl = Label.new()
+		lbl.text = eff["label"]
+		lbl.position = Vector2(4, 2)
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_color_override("font_color", col)
+		lbl.add_theme_constant_override("outline_size", 3)
+		lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		node.add_child(lbl)
 	return node
 
 
@@ -3243,7 +3283,7 @@ func _invalidate_track() -> void:
 	else:
 		tile_selector.set_status("")
 	_refresh_run_bar()
-	_refresh_jump_markers()
+	_refresh_mult_markers()
 	_persist_track_for_current()
 
 
@@ -3263,75 +3303,84 @@ func _ramp_jump_cells() -> Array:
 	return cells
 
 
-# Zeichnet ×2-Marker auf alle Sprung-Mittelfelder neu.
-func _refresh_jump_markers() -> void:
+# Zeichnet pro Feld EIN „×x.x"-Badge mit dem TATSÄCHLICHEN Gesamt-Multiplikator dieses Feldes.
+# Multiplikativ kombiniert (genau wie Economy._current_lap_reward faltet): Premium-Default ×1.2,
+# ×1.5-Bonusfeld, Tribüne(n) (Produkt, stapelbar), Sprung/Rampe ×2 und Looping ×F. Ersetzt die
+# früheren getrennten Sprung- und Tribünen-Marker, sodass auf jedem Feld nur EIN ×-Wert steht.
+func _refresh_mult_markers() -> void:
 	for n in _jump_marker_nodes:
 		if is_instance_valid(n):
 			n.queue_free()
 	_jump_marker_nodes.clear()
-	for cell in _ramp_jump_cells():
-		var marker = _make_jump_marker()
-		marker.position = _grid_to_world(cell.x, cell.y)
-		marker.z_index  = 5
-		grid_node.add_child(marker)
-		_jump_marker_nodes.append(marker)
-	_refresh_stand_markers()
-
-
-# Zeichnet „×N"-Marker auf die von Tribünen geboosteten Nachbarfelder neu.
-func _refresh_stand_markers() -> void:
+	# Alt-Tribünen-Marker (jetzt Teil der Gesamtberechnung) ebenfalls aufräumen.
 	for n in _stand_marker_nodes:
 		if is_instance_valid(n):
 			n.queue_free()
 	_stand_marker_nodes.clear()
-	var cell_mult: Dictionary = {}
+
+	var dstate := _build_drive_state()
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
-			var d = grid[r][c]
-			if d == null or d.get("type", "") != "stand":
+			var m := _cell_total_mult(dstate[r][c])
+			if absf(m - 1.0) < 0.05:
 				continue
-			var mult = Economy.get_stand_mult(int(d.get("stack", 1)))
-			for dir in _stand_dirs(int(d.get("rotation", 0)), int(d.get("stack", 1))):
-				var nb = _ac_step(r, c, dir)
-				if _ac_in_bounds(nb):
-					cell_mult[nb] = float(cell_mult.get(nb, 1.0)) * mult
-	for cell in cell_mult:
-		var marker = _make_stand_marker(float(cell_mult[cell]))
-		marker.position = _grid_to_world(cell.x, cell.y)
-		marker.z_index  = 5
-		grid_node.add_child(marker)
-		_stand_marker_nodes.append(marker)
+			var marker := _make_mult_marker(m)
+			marker.position = _grid_to_world(r, c)
+			marker.z_index  = 5
+			grid_node.add_child(marker)
+			_jump_marker_nodes.append(marker)
 
 
-func _make_stand_marker(mult: float) -> Node2D:
+# Gesamt-×-Faktor eines Feldes – identische Logik wie Economy._current_lap_reward (Schritt 2).
+# `sd` ist der Drive-State-Eintrag des Feldes (Dictionary mit bonus_mult/jump_mult oder "" wenn leer).
+func _cell_total_mult(sd) -> float:
+	if typeof(sd) != TYPE_DICTIONARY:
+		return 1.0
+	var t := String(sd.get("type", ""))
+	# Premium-Default-Tiles (gekaufte Geraden/Kurven, nicht Dreck/Start) geben ×1.2.
+	var fm := 1.0
+	if (not bool(sd.get("is_dirt", false))) and (not bool(sd.get("is_start", false))) \
+			and t in ["straight", "curve", "curve_alt"]:
+		fm = PREMIUM_TILE_MULT
+	var bm := float(sd.get("bonus_mult", 1.0))                       # ×1.5-Bonusfeld (ohne Tribünen)
+	var sm := float(sd.get("stand_mult", 1.0))                       # Produkt aller Tribünen-Mult.
+	var sc := int(sd.get("stand_count", 0))                          # Anzahl wirkender Tribünen
+	# Der Sprung-×2 wirkt NUR auf dem übersprungenen Mittelfeld (zwischen ramp_start und ramp_end),
+	# nicht auf der Rampe selbst. Das Mittelfeld trägt jump_mult≠1 aus _build_drive_state.
+	var has_jump := float(sd.get("jump_mult", 1.0)) != 1.0
+	var m := 1.0
+	if t == "loop":
+		# Looping: eigener ×F UND jeder andere Multiplikator dieses Feldes mit F skaliert (M·F);
+		# JEDE Tribüne einzeln (sm·F^sc). Spiegelt Economy._current_lap_reward.
+		var lf := Economy.get_loop_factor()
+		m = lf
+		if fm != 1.0: m *= fm * lf
+		if bm != 1.0: m *= bm * lf
+		if sc > 0:    m *= sm * pow(lf, sc)
+		if has_jump:  m *= Economy.get_ramp_jump_mult() * lf
+	else:
+		m = fm * bm * sm
+		if has_jump:
+			m *= Economy.get_ramp_jump_mult()
+	return m
+
+
+# „×x.x" – kaufmännisch auf eine Nachkommastelle gerundet (6,25 → 6,3), ganze Werte ohne „.0".
+func _fmt_mult(m: float) -> String:
+	var rounded: float = floor(m * 10.0 + 0.5) / 10.0
+	return String.num(rounded, 1).trim_suffix(".0")
+
+
+func _make_mult_marker(mult: float) -> Node2D:
 	var node = Node2D.new()
 	var lbl = Label.new()
-	lbl.text = "×%s" % String.num(mult, 1).trim_suffix(".0")
+	lbl.text = "×" + _fmt_mult(mult)
 	lbl.position = Vector2(0, 0)
 	lbl.size = Vector2(TILE_SIZE, TILE_SIZE)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 20)
-	lbl.add_theme_color_override("font_color", Color(0.80, 0.86, 1.0))
-	lbl.add_theme_constant_override("outline_size", 4)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	node.add_child(lbl)
-	return node
-
-
-func _make_jump_marker() -> Node2D:
-	# Nur ein "×N"-Hinweis im Sprung-Mittelfeld – kein Rahmen (überlagert keine Tiles).
-	# Zeigt den aktuellen Sprung-Multiplikator (×2 → ×2.2 … je Rampen-Upgrade), damit man sieht,
-	# wie viel eine kreuzende Strecke unter der Rampe hier bekommt.
-	var node = Node2D.new()
-	var lbl = Label.new()
-	lbl.text = "×%s" % String.num(Economy.get_ramp_jump_mult(), 1).trim_suffix(".0")
-	lbl.position = Vector2(0, 0)
-	lbl.size = Vector2(TILE_SIZE, TILE_SIZE)
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 22)
-	lbl.add_theme_color_override("font_color", Color(1.0, 0.6, 0.12))
+	lbl.add_theme_font_size_override("font_size", 19)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.30))
 	lbl.add_theme_constant_override("outline_size", 4)
 	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	node.add_child(lbl)
