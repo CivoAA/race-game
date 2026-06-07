@@ -109,7 +109,7 @@ const UPGRADES = {
 	"loopbonus": {
 		"category": "tile", "name": "Looping-Multiplikator (×)",
 		"base_cost": 50000, "growth": 2.5, "max_level": 10,
-		"base": 2.0, "per_level": 0.2, "unit": "",
+		"base": 1.5, "per_level": 0.2, "unit": "",
 	},
 	# Portal-Upgrade: additiver Geld-Ertrag am Eingangs-Portal (kein Multiplikator). 25 Stufen.
 	# Geld skaliert bewusst etwas STÄRKER als übliche Tiles (per_level = 60 % der Basis je Stufe),
@@ -496,7 +496,8 @@ func _laps_total(i: int) -> int:
 #
 # Quelle der Felder: car["tiles"] (streckenfixe Tile-Reihenfolge aus CarController). Konkrete
 # Zuordnung in diesem Code: base = Grundertrag, tile-Bonus/tile-spezifische Upgrades + bonus_points
-# = Schritt 1; fixed_mult (Premium ×1.2), bonus_mult (×1.5-Feld), jump_mult (kind=="ramp"/is_jump)
+# = Schritt 1; fixed_mult (Premium ×1.2), bonus_mult (×1.5-Feld), jump_mult (NUR is_jump = das
+# übersprungene Mittelfeld zwischen ramp_start/ramp_end; die Rampe SELBST bekommt KEIN ×2)
 # = Schritt 2. Alles aus den AKTUELLEN Upgrade-Werten → wirkt live, auch auf Hintergrund-Strecken.
 # Alle Autos einer Strecke teilen das Layout → einheitlicher Reward; erstes gültiges Auto genügt.
 func _current_lap_reward(cars: Array) -> int:
@@ -529,20 +530,25 @@ func _current_lap_reward(cars: Array) -> int:
 				"portal":    add += portal_b
 			# 2. Alle ×Werte dieses Feldes.
 			var fm: float = float(tile.get("fixed_mult", 1.0))
-			var bm: float = float(tile.get("bonus_mult", 1.0))
-			var has_jump: bool = String(tile.get("kind", "")) == "ramp" or bool(tile.get("is_jump", false))
+			var bm: float = float(tile.get("bonus_mult", 1.0))      # ×1.5-Bonusfeld (OHNE Tribünen)
+			var sm: float = float(tile.get("stand_mult", 1.0))      # Produkt aller Tribünen-Mult.
+			var sc: int   = int(tile.get("stand_count", 0))         # Anzahl wirkender Tribünen
+			# Sprung-×2 NUR auf dem übersprungenen Mittelfeld (is_jump), nicht auf der Rampe selbst.
+			var has_jump: bool = bool(tile.get("is_jump", false))
 			var m: float
 			if bool(tile.get("is_loop", false)):
 				# Looping: eigener ×F UND jeder ANDERE Multiplikator dieses Feldes mit F multipliziert
-				# (M·F). F = get_loop_factor() (Basis 2.0, +0.2 je loopbonus-Stufe). Beispiel auf
-				# Rampen-Sprungfeld bei F=2: ((X+0)·(2·2))·2. Auf ×1.5-Feld: (X·(1.5·2))·2.
+				# (M·F). F = get_loop_factor() (Basis 1.5, +0.2 je loopbonus-Stufe). JEDE Tribüne zählt
+				# EINZELN: pro Tribüne ein eigenes ×F (sm·F^sc), nicht nur einmal aufs Produkt. Beispiel
+				# auf Rampen-Sprungfeld bei F=2: ((X+0)·(2·2))·2. Auf ×1.5-Feld: (X·(1.5·2))·2.
 				var lf := get_loop_factor()
 				m = lf
 				if fm != 1.0: m *= fm * lf
 				if bm != 1.0: m *= bm * lf
+				if sc > 0:    m *= sm * pow(lf, sc)
 				if has_jump:  m *= jump_mult * lf
 			else:
-				m = fm * bm
+				m = fm * bm * sm
 				if has_jump:
 					m *= jump_mult
 			running = (running + add) * m

@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dtuivj50a724q"
 path.s3tc="res://.godot/imported/Racing_straight_0.png-8dab544f46312df69e04eccf1a99016b.s3tc.ctex"
+path.etc2="res://.godot/imported/Racing_straight_0.png-8dab544f46312df69e04eccf1a99016b.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/3D-models/tracks/staight/racing/Racing_straight_0.png"
-dest_files=["res://.godot/imported/Racing_straight_0.png-8dab544f46312df69e04eccf1a99016b.s3tc.ctex"]
+dest_files=["res://.godot/imported/Racing_straight_0.png-8dab544f46312df69e04eccf1a99016b.s3tc.ctex", "res://.godot/imported/Racing_straight_0.png-8dab544f46312df69e04eccf1a99016b.etc2.ctex"]
 
 [params]
 

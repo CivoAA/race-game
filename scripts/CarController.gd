@@ -24,7 +24,7 @@ var start_delay: float = 0.0   # verzögerter Start (gestaffelt bei mehreren Aut
 
 # Tile-Reihenfolge für die Runden-Abrechnung (in _build_waypoints gefüllt). Jeder Eintrag
 # beschreibt ein befahrenes Feld STRECKENFIX (upgrade-unabhängig): {base, kind, fixed_mult,
-# bonus_points, bonus_mult, is_jump}. Economy faltet daraus pro Runde live den Schneeball mit
+# bonus_points, bonus_mult, stand_mult, stand_count, is_jump, is_loop}. Economy faltet daraus pro Runde den Schneeball mit
 # den AKTUELLEN Upgrade-Werten – auch für Hintergrund-Strecken (3D-Ansicht nicht offen).
 var tile_rewards: Array = []
 
@@ -457,7 +457,8 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		step_speed.append(_tile_speed_factor(d))
 		var rec := {
 			"base": 0.0, "kind": "plain", "fixed_mult": 1.0,
-			"bonus_points": 0.0, "bonus_mult": 1.0, "is_jump": false, "is_loop": false,
+			"bonus_points": 0.0, "bonus_mult": 1.0, "stand_mult": 1.0, "stand_count": 0,
+			"is_jump": false, "is_loop": false,
 		}
 		if typeof(d) == TYPE_DICTIONARY:
 			var t = d.get("type", "")
@@ -492,7 +493,9 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			else:
 				rec["base"] = BASIC_TILE_EARN   # Start-/Standard-/ramp_end-Feld (nur Tile-Bonus zählt)
 			rec["bonus_points"] = float(d.get("bonus_points", 0.0))
-			rec["bonus_mult"]   = float(d.get("bonus_mult", 1.0))
+			rec["bonus_mult"]   = float(d.get("bonus_mult", 1.0))   # ×1.5-Bonusfeld (ohne Tribünen)
+			rec["stand_mult"]   = float(d.get("stand_mult", 1.0))   # Produkt aller Tribünen-Mult.
+			rec["stand_count"]  = int(d.get("stand_count", 0))      # Anzahl wirkender Tribünen
 			# Sprung-Mittelfeld: ein ECHTES, befahrenes Tile mit jump_mult bekommt den Sprung-×2.
 			rec["is_jump"]      = d.get("jump_mult", 1.0) != 1.0
 		tile_rewards.append(rec)
