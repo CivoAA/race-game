@@ -47,6 +47,7 @@ var _sfx_slider:     HSlider
 var _window_option:    OptionButton
 var _ui_scale_option:  OptionButton
 var _placement_switch: CheckButton
+var _rotate_switch:    CheckButton
 var _cheat_switch:     CheckButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
@@ -378,6 +379,18 @@ func _build_settings_panel() -> Control:
 	_placement_switch = _make_placement_switch()
 	_placement_switch.toggled.connect(_on_placement_toggled)
 	place_row.add_child(_placement_switch)
+
+	var rotate_row := _make_hrow(v3)
+	_make_row_label(rotate_row, "Drehen-Knopf:")
+	_rotate_switch = _make_placement_switch()
+	_rotate_switch.toggled.connect(_on_rotate_btn_toggled)
+	rotate_row.add_child(_rotate_switch)
+	var rotate_hint := Label.new()
+	rotate_hint.text = "Zeigt im 2D-Bauplan einen ↻-Knopf zum Drehen (für Touch/Handy). Standard: aus."
+	rotate_hint.add_theme_font_size_override("font_size", 11)
+	rotate_hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	rotate_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	v3.add_child(rotate_hint)
 
 	# Kategorie 4 – Cheats
 	var v4 := _new_settings_cat(holder)
@@ -862,6 +875,10 @@ func _sync_settings_ui() -> void:
 	_placement_switch.button_pressed = slow
 	_update_placement_switch_text(slow)
 
+	var rotbtn := bool(settings.get_value("options", "rotate_button", false))
+	_rotate_switch.button_pressed = rotbtn
+	_rotate_switch.text = "An" if rotbtn else "Aus"
+
 	var cheat := bool(settings.get_value("cheats", "enabled", false))
 	_cheat_switch.button_pressed = cheat
 	_cheat_switch.text = "An" if cheat else "Aus"
@@ -917,6 +934,17 @@ func _on_placement_toggled(pressed: bool) -> void:
 	var scene := get_tree().current_scene
 	if scene != null and scene.has_method("set_placement_mode"):
 		scene.set_placement_mode(mode)
+	_settings_dirty = true
+
+
+func _on_rotate_btn_toggled(pressed: bool) -> void:
+	_rotate_switch.text = "An" if pressed else "Aus"
+	if _loading_settings: return
+	settings.set_value("options", "rotate_button", pressed)
+	# Live anwenden, falls gerade der 2D-Bauplan offen ist (sonst greift es beim nächsten Laden).
+	var scene := get_tree().current_scene
+	if scene != null and scene.has_method("set_rotate_button_visible"):
+		scene.set_rotate_button_visible(pressed)
 	_settings_dirty = true
 
 

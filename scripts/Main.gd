@@ -183,6 +183,9 @@ func _ready() -> void:
 	_refresh_mult_markers()
 
 	placement_mode = _load_placement_mode()
+	# Drehen-Knopf ist standardmäßig AUS (nur fürs Handy); per Einstellung → Steuerung schaltbar.
+	if _rotate_btn != null:
+		_rotate_btn.visible = _load_rotate_button_setting()
 	_track_valid = _is_track_valid()
 	_update_hint_label()
 
@@ -719,7 +722,9 @@ func _make_rotate_card() -> Button:
 	const TW  = BOTTOM_BTN_W
 	const TH  = BOTTOM_BTN_H
 	const GAP = 8
-	const TX  = 960 - 8 - TW              # gleiche Spalte wie der Papierkorb
+	# Gleiche Spalte wie der Papierkorb (_make_trash_card): vor der rechten GameHUD-Nav (ab x=810),
+	# sonst läge der Knopf hinter der Seitenleiste. Bei Änderung von _make_trash_card hier mitziehen.
+	const TX  = 810 - 8 - TW              # = 746, gleiche Spalte wie der Papierkorb
 	const TY  = BOTTOM_BTN_Y - TH - GAP   # eine Reihe darüber
 	var btn := Button.new()
 	btn.position = Vector2(TX, TY)
@@ -2341,6 +2346,19 @@ func _load_placement_mode() -> String:
 	var cfg = ConfigFile.new()
 	cfg.load(Paths.SETTINGS_FILE)
 	return String(cfg.get_value("options", "placement_mode", "slow"))
+
+
+# Drehen-Knopf-Einstellung (Einstellungen → Steuerung). Standard AUS – nur fürs Handy gedacht.
+func _load_rotate_button_setting() -> bool:
+	var cfg = ConfigFile.new()
+	cfg.load(Paths.SETTINGS_FILE)
+	return bool(cfg.get_value("options", "rotate_button", false))
+
+
+# Wird von PauseMenu beim Umschalten in den Einstellungen aufgerufen (Live-Wechsel).
+func set_rotate_button_visible(on: bool) -> void:
+	if _rotate_btn != null:
+		_rotate_btn.visible = on
 
 
 # Wird von PauseMenu beim Umschalten in den Einstellungen aufgerufen (Live-Wechsel).
