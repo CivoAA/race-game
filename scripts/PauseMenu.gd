@@ -4,7 +4,7 @@ const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (125%)", 1.25], ["Sehr groß (150%)", 1.5]]
 # Kategorien der Side-Nav in den Einstellungen
-const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
+const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"], ["🎲", "Cheats"]]
 const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
 const C_SURFACE   := Color(0.13, 0.23, 0.26)
@@ -35,6 +35,7 @@ var _sfx_slider:     HSlider
 var _window_option:    OptionButton
 var _ui_scale_option:  OptionButton
 var _placement_switch: CheckButton
+var _cheat_switch:     CheckButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
@@ -88,6 +89,15 @@ func _open() -> void:
 	visible = true
 	get_tree().paused = true
 	_show_pause()
+
+
+# Öffentlicher Einstieg (z. B. vom Zahnrad-Button im GameHUD). Im Hauptmenü ohne Wirkung.
+func open_pause() -> void:
+	var scene := get_tree().current_scene
+	if scene == null or scene.name == "MainMenu":
+		return
+	if not visible:
+		_open()
 
 
 func _resume() -> void:
@@ -339,6 +349,21 @@ func _build_settings_panel() -> Control:
 	_placement_switch = _make_placement_switch()
 	_placement_switch.toggled.connect(_on_placement_toggled)
 	place_row.add_child(_placement_switch)
+
+	# Kategorie 4 – Cheats
+	var v4 := _new_settings_cat(holder)
+	_add_section_label(v4, "CHEAT-MODUS")
+	var cheat_row := _make_hrow(v4)
+	_make_row_label(cheat_row, "Cheat-Modus:")
+	_cheat_switch = _make_placement_switch()
+	_cheat_switch.toggled.connect(_on_cheat_toggled)
+	cheat_row.add_child(_cheat_switch)
+	var cheat_hint := Label.new()
+	cheat_hint.text = "Zeigt den Endlos-Modus (∞) und den +1B ⭐ Button in der oberen Leiste an."
+	cheat_hint.add_theme_font_size_override("font_size", 11)
+	cheat_hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	cheat_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	v4.add_child(cheat_hint)
 
 	_show_settings_cat(0)
 
@@ -881,6 +906,10 @@ func _sync_settings_ui() -> void:
 	_placement_switch.button_pressed = slow
 	_update_placement_switch_text(slow)
 
+	var cheat := bool(settings.get_value("cheats", "enabled", false))
+	_cheat_switch.button_pressed = cheat
+	_cheat_switch.text = "An" if cheat else "Aus"
+
 	_loading_settings = false
 
 
@@ -935,6 +964,15 @@ func _on_placement_toggled(pressed: bool) -> void:
 	_settings_dirty = true
 
 
+func _on_cheat_toggled(pressed: bool) -> void:
+	_cheat_switch.text = "An" if pressed else "Aus"
+	if _loading_settings: return
+	settings.set_value("cheats", "enabled", pressed)
+	# Live anwenden, damit die Cheat-Buttons (∞ / +1B ⭐) sofort ein-/ausblenden.
+	Economy.apply_cheat_mode(pressed)
+	_settings_dirty = true
+
+
 func _on_settings_back() -> void:
 	if _settings_dirty:
 		_hide_all()
@@ -967,6 +1005,7 @@ func _on_discard_confirm() -> void:
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
 	_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
 	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
+	Economy.apply_cheat_mode(bool(settings.get_value("cheats", "enabled", false)))
 	_settings_dirty = false
 	_show_pause()
 

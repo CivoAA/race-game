@@ -255,6 +255,9 @@ var _slot_name:     String     = ""
 var _active_track: int = 0
 var _tracks: Array = []   # TRACK_COUNT Einträge
 var endless_mode: bool = false   # Kein Timer, Geld wird live gutgeschrieben
+# Globale Einstellung (slot-unabhängig, in user://settings.cfg): blendet die Cheat-Buttons
+# (Endlos-Modus ∞ und +1B ⭐) in der oberen Leiste ein/aus.
+var cheat_mode: bool = false
 
 signal run_ended(track_idx: int, earned: int)
 # Eine (oder mehrere) Runde(n) wurden gutgeschrieben (Auto über die Startlinie) – Betrag = Summe.
@@ -271,6 +274,8 @@ signal upgrade_purchased(id: String)
 signal prestige_changed
 # Auto-Lackierung wurde in der Werkstatt geändert → 3D-Autos färben sich live um.
 signal car_paint_changed
+# Cheat-Modus (globale Einstellung) wurde umgeschaltet → HUD blendet die Cheat-Buttons ein/aus.
+signal cheat_mode_changed
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -346,7 +351,29 @@ func unlock_tile(key: String) -> void:
 
 
 func _ready() -> void:
+	_load_settings()
 	_init_tracks()
+
+
+# ── Globale Einstellungen (slot-unabhängig, user://settings.cfg) ────────────────
+
+func _load_settings() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(Paths.SETTINGS_FILE)   # fehlende Datei → Defaults
+	cheat_mode = bool(cfg.get_value("cheats", "enabled", false))
+
+
+# Cheat-Modus live anwenden und Hörer benachrichtigen (HUD blendet die Cheat-Buttons um).
+# Die Persistenz in user://settings.cfg erfolgt über den Einstellungen-Speicherfluss im
+# Pause-Menü (PauseMenu) – hier wird bewusst NICHT auf die Platte geschrieben.
+# Beim Ausschalten wird ein evtl. laufender Endlos-Modus beendet, da sein Button verschwindet.
+func apply_cheat_mode(val: bool) -> void:
+	if cheat_mode == val:
+		return
+	cheat_mode = val
+	if not cheat_mode:
+		endless_mode = false
+	cheat_mode_changed.emit()
 
 
 func _init_tracks() -> void:

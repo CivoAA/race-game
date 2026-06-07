@@ -25,16 +25,19 @@ const C_RUN_OFF    := Color(0.26, 0.42, 0.46)
 const R_PAD      = 8
 const UC_W       = 196   # Upgrade-Center (großer, beschrifteter Button)
 const UC_H       = 40
+const COG_W      = 40    # Einstellungen-Zahnrad (ganz rechts, neben dem Upgrade-Center)
 const VIEW_W     = 42
 const BTN_GAP    = 4
 const BTN_H      = 34
 const BTN_Y      = (BAR_H - BTN_H) / 2
 const UC_Y       = (BAR_H - UC_H) / 2
 
-# Berechnete x-Positionen (von rechts nach links)
-const UC_X    = VIEWPORT_W - R_PAD - UC_W                         # 756
-const V3D_X   = UC_X - BTN_GAP - VIEW_W                           # 710
-const V2D_X   = V3D_X - BTN_GAP - VIEW_W                          # 664
+# Berechnete x-Positionen (von rechts nach links): ganz rechts der Cog, links daneben das
+# Upgrade-Center.
+const COG_X   = VIEWPORT_W - R_PAD - COG_W                        # 912
+const UC_X    = COG_X - BTN_GAP - UC_W                            # 712
+const V3D_X   = UC_X - BTN_GAP - VIEW_W                           # 666
+const V2D_X   = V3D_X - BTN_GAP - VIEW_W                          # 620
 
 # Tab-Block (links)
 const TAB_W   = 108
@@ -59,6 +62,8 @@ var _view_2d_btn:  Button           = null
 var _view_3d_btn:  Button           = null
 var _shop_btn:     Button           = null
 var _endless_btn:  Button           = null
+var _debug_btn:    Button           = null   # „+1B ⭐"-Cheat-Button
+var _cog_btn:      Button           = null   # Einstellungen-Zahnrad (öffnet das Pause-Menü)
 
 signal tab_changed(idx: int)
 signal build_mode_toggled(active: bool)
@@ -77,6 +82,8 @@ func _ready() -> void:
 	# Prestige kann Strecken freischalten → Tabs neu bewerten (Sperre/Beschriftung).
 	Economy.prestige_changed.connect(_refresh_tabs)
 	Economy.slot_changed.connect(func(_s): _refresh_tabs())
+	# Cheat-Modus-Einstellung blendet die Cheat-Buttons (∞ und +1B ⭐) ein/aus.
+	Economy.cheat_mode_changed.connect(_refresh_cheat_visibility)
 
 
 func _on_lap_credited(_track_idx: int, amount: int) -> void:
@@ -154,31 +161,37 @@ func _build_bar() -> void:
 	_currency_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
 	add_child(_currency_lbl)
 
-	# „+1B"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Debug: +1 Mrd & +100 ⭐)
-	var debug_btn := Button.new()
-	debug_btn.text     = "+1B ⭐"
-	debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
-	debug_btn.size     = Vector2(BADGE_W, 32)
-	debug_btn.focus_mode = Control.FOCUS_NONE
-	debug_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	debug_btn.add_theme_font_size_override("font_size", 12)
+	# „+1B"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Cheat: +1 Mrd & +100 ⭐)
+	_debug_btn = Button.new()
+	_debug_btn.text     = "+1B ⭐"
+	_debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
+	_debug_btn.size     = Vector2(BADGE_W, 32)
+	_debug_btn.focus_mode = Control.FOCUS_NONE
+	_debug_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_debug_btn.add_theme_font_size_override("font_size", 12)
 	var badge_n := StyleBoxFlat.new()
 	badge_n.bg_color = Color(0.96, 0.62, 0.18)
 	badge_n.set_corner_radius_all(16)
 	var badge_h := badge_n.duplicate() as StyleBoxFlat
 	badge_h.bg_color = Color(1.0, 0.71, 0.30)
-	debug_btn.add_theme_stylebox_override("normal",  badge_n)
-	debug_btn.add_theme_stylebox_override("hover",   badge_h)
-	debug_btn.add_theme_stylebox_override("pressed", badge_n)
-	debug_btn.add_theme_stylebox_override("focus",   badge_n)
-	debug_btn.add_theme_color_override("font_color", Color(0.20, 0.12, 0.0))
-	debug_btn.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
-	add_child(debug_btn)
+	_debug_btn.add_theme_stylebox_override("normal",  badge_n)
+	_debug_btn.add_theme_stylebox_override("hover",   badge_h)
+	_debug_btn.add_theme_stylebox_override("pressed", badge_n)
+	_debug_btn.add_theme_stylebox_override("focus",   badge_n)
+	_debug_btn.add_theme_color_override("font_color", Color(0.20, 0.12, 0.0))
+	_debug_btn.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
+	add_child(_debug_btn)
 
 	# Rechter Block: Upgrade-Center (gefüllte Akzent-Pille)
 	_shop_btn = _make_uc_btn("Upgrade-Center", Vector2(UC_X, UC_Y), UC_W, UC_H)
 	_shop_btn.pressed.connect(_on_shop_pressed)
 	add_child(_shop_btn)
+
+	# Einstellungen-Zahnrad (ganz rechts) – öffnet das Pause-Menü.
+	_cog_btn = _make_btn("⚙", Vector2(COG_X, UC_Y), COG_W, UC_H)
+	_cog_btn.add_theme_font_size_override("font_size", 20)
+	_cog_btn.pressed.connect(_on_settings_pressed)
+	add_child(_cog_btn)
 
 	# Endlos-Modus-Toggle (links neben Währungsanzeige)
 	_endless_btn = _make_btn("∞", Vector2(344, BTN_Y), 34, BTN_H)
@@ -188,6 +201,7 @@ func _build_bar() -> void:
 
 	_refresh_tabs()
 	_refresh_view_buttons()
+	_refresh_cheat_visibility()
 
 
 func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
@@ -452,6 +466,22 @@ func reset_after_prestige() -> void:
 
 func is_build_active() -> bool:
 	return _build_active
+
+
+# ── Einstellungen / Cheat-Buttons ───────────────────────────────────────────────
+
+# Zahnrad → Pause-Menü öffnen (dort liegt unter „Einstellungen" der Cheat-Modus).
+func _on_settings_pressed() -> void:
+	PauseMenu.open_pause()
+
+
+# Blendet die Cheat-Buttons (∞ und +1B ⭐) je nach Einstellung ein/aus.
+func _refresh_cheat_visibility() -> void:
+	if _endless_btn != null:
+		_endless_btn.visible = Economy.cheat_mode
+	if _debug_btn != null:
+		_debug_btn.visible = Economy.cheat_mode
+	_refresh_endless_btn()
 
 
 func _on_endless_toggled() -> void:
