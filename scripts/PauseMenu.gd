@@ -7,26 +7,38 @@ const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (12
 const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"], ["🎲", "Cheats"]]
 const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
-const C_SURFACE   := Color(0.13, 0.23, 0.26)
-const C_SURFACE2  := Color(0.18, 0.31, 0.35)
-const C_ACCENT    := Color(0.16, 0.66, 0.87)
-const C_ACCENT_MU := Color(0.16, 0.37, 0.54)
-const C_ACCENT_RD := Color(0.97, 0.41, 0.43)
-const C_TEXT      := Color(0.90, 0.97, 0.96)
-const C_TEXT_DIM  := Color(0.48, 0.64, 0.65)
-const C_LINE      := Color(0.17, 0.29, 0.32)
+# Inhaltsbereich der Einstellungen = links der GameHUD-Seitenleiste, unter der Top-Bar und
+# über der unteren Leiste – damit die rechte Nav (und Top-/Bottom-Bar) sichtbar/bedienbar bleibt.
+const NAV_W  = 150
+const TOP_H  = 50
+const BOT_H  = 42
+const VIEW_W = 960
+const VIEW_H = 540
+
+# Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
+const C_SURFACE   := Color(0.169, 0.176, 0.192)   # #2b2d31
+const C_SURFACE2  := Color(0.220, 0.227, 0.251)   # #383a40
+const C_ACCENT    := Color(0.345, 0.396, 0.949)   # #5865f2 Blurple
+const C_ACCENT_MU := Color(0.290, 0.310, 0.490)
+const C_ACCENT_RD := Color(0.929, 0.259, 0.271)   # #ed4245
+const C_TEXT      := Color(0.859, 0.871, 0.882)   # #dbdee1
+const C_TEXT_DIM  := Color(0.580, 0.608, 0.643)   # #949ba4
+const C_LINE      := Color(0.247, 0.255, 0.278)   # #3f4147
 
 var settings := ConfigFile.new()
 
+var _dim_bg:             ColorRect   # Vollbild-Abdunkelung (für Einstellungen ausgeblendet)
 var _pause_panel:        Control
 var _settings_panel:     Control
-var _achievements_panel: Control
 var _quit_modal:         Control
 var _discard_modal:      Control
 var _save_modal:         Control
 
 var _save_status_lbl: Label
 var _settings_dirty:  bool = false
+# Wie wurden die Einstellungen geöffnet? true = über das Pause-Menü (Zurück → Pause),
+# false = direkt über „Optionen" in der Seitenleiste (Zurück → zurück ins Spiel).
+var _settings_from_pause: bool = false
 
 var _lang_option:    OptionButton
 var _master_slider:  HSlider
@@ -55,14 +67,13 @@ func _ready() -> void:
 
 	settings.load(Paths.SETTINGS_FILE)
 
-	var bg := ColorRect.new()
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0, 0, 0, 0.94)
-	add_child(bg)
+	_dim_bg = ColorRect.new()
+	_dim_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dim_bg.color = Color(0, 0, 0, 0.94)
+	add_child(_dim_bg)
 
 	_pause_panel        = _build_pause_panel()
 	_settings_panel     = _build_settings_panel()
-	_achievements_panel = _build_achievements_panel()
 	_quit_modal         = _build_quit_modal()
 	_discard_modal      = _build_discard_modal()
 	_save_modal         = _build_save_modal()
@@ -100,9 +111,31 @@ func open_pause() -> void:
 		_open()
 
 
+# Öffentlicher Einstieg „Optionen" aus der Seitenleiste: öffnet DIREKT die Einstellungen
+# (kein Pause-Menü dazwischen). Zurück/Speichern/Verwerfen führen dann zurück ins Spiel.
+func open_settings() -> void:
+	var scene := get_tree().current_scene
+	if scene == null or scene.name == "MainMenu":
+		return
+	visible = true
+	get_tree().paused = true
+	_settings_from_pause = false
+	_show_settings()
+
+
 func _resume() -> void:
+	# Einstellungen automatisch speichern (kein Speichern-Button mehr).
+	_autosave_settings()
 	get_tree().paused = false
 	visible = false
+
+
+# Schreibt geänderte Einstellungen auf die Platte, falls die Einstellungen offen & „dirty" sind.
+# Wird beim Verlassen (ESC, „Strecke"/Seitenwechsel über die Nav) aufgerufen.
+func _autosave_settings() -> void:
+	if _settings_panel != null and _settings_panel.visible and _settings_dirty:
+		settings.save(Paths.SETTINGS_FILE)
+		_settings_dirty = false
 
 
 # ── Pause-Hauptmenü ───────────────────────────────────────────────────────────
@@ -134,10 +167,9 @@ func _build_pause_panel() -> Control:
 	_add_spacer(vbox, 12)
 
 	_add_btn(vbox, "01", "Weiterspielen",    C_ACCENT,    _resume)
-	_add_btn(vbox, "02", "Einstellungen",    C_ACCENT_MU, _show_settings)
-	_add_btn(vbox, "03", "Errungenschaften", C_ACCENT_MU, _show_achievements)
+	_add_btn(vbox, "02", "Einstellungen",    C_ACCENT_MU, _show_settings_from_pause)
 	_add_spacer(vbox, 10)
-	_add_btn(vbox, "04", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
+	_add_btn(vbox, "03", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
 
 	_save_status_lbl = Label.new()
 	_save_status_lbl.text = "✓ Gespeichert!"
@@ -147,7 +179,7 @@ func _build_pause_panel() -> Control:
 	_save_status_lbl.add_theme_color_override("font_color", Color(0.4, 0.85, 0.4))
 	vbox.add_child(_save_status_lbl)
 
-	_add_btn(vbox, "05", "Spiel beenden",    C_ACCENT_RD, _on_quit_pressed)
+	_add_btn(vbox, "04", "Spiel beenden",    C_ACCENT_RD, _on_quit_pressed)
 
 	return center
 
@@ -213,17 +245,19 @@ func _go_main_menu() -> void:
 # ── Einstellungen-Panel ───────────────────────────────────────────────────────
 
 func _build_settings_panel() -> Control:
-	# Fullscreen-Modal
+	# Modal NUR über dem Spielbereich links der Seitenleiste, unter der Top-Bar und über der
+	# unteren Leiste – so bleibt die rechte Nav (GameHUD) sichtbar und bedienbar.
 	var overlay := ColorRect.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.color = Color(0, 0, 0, 0.82)
+	overlay.position     = Vector2(0, TOP_H)
+	overlay.size         = Vector2(VIEW_W - NAV_W, VIEW_H - TOP_H - BOT_H)
+	overlay.color        = Color(0, 0, 0, 0.82)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(overlay)
 
 	var panel := Panel.new()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.11, 0.12, 0.17)
+	ps.bg_color = Color(0.118, 0.122, 0.133)   # Discord-BG
 	ps.set_border_width_all(0)
 	panel.add_theme_stylebox_override("panel", ps)
 	overlay.add_child(panel)
@@ -250,37 +284,32 @@ func _build_settings_panel() -> Control:
 
 	_add_hline(outer_vbox)
 
-	# ── Body: Side-Nav (links) + Inhaltsbereich (rechts) ──────────────────────
-	var body := HBoxContainer.new()
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 0)
-	outer_vbox.add_child(body)
+	# ── Body: Top-Nav (oben) + Inhaltsbereich (darunter) ──────────────────────
+	# Horizontale Kategorie-Leiste direkt unter dem Header.
+	var navbar := PanelContainer.new()
+	navbar.custom_minimum_size = Vector2(0, 50)
+	var nav_sb := StyleBoxFlat.new()
+	nav_sb.bg_color = C_SURFACE.darkened(0.18)
+	nav_sb.border_width_bottom = 1
+	nav_sb.border_color = C_LINE
+	nav_sb.content_margin_left = 16; nav_sb.content_margin_right = 16
+	nav_sb.content_margin_top = 8;   nav_sb.content_margin_bottom = 8
+	navbar.add_theme_stylebox_override("panel", nav_sb)
+	outer_vbox.add_child(navbar)
 
-	# Sidebar mit Kategorie-Buttons
-	var sidebar := PanelContainer.new()
-	sidebar.custom_minimum_size = Vector2(212, 0)
-	var side_sb := StyleBoxFlat.new()
-	side_sb.bg_color = C_SURFACE.darkened(0.18)
-	side_sb.border_width_right = 1
-	side_sb.border_color = C_LINE
-	side_sb.content_margin_left = 10; side_sb.content_margin_right = 10
-	side_sb.content_margin_top = 14;  side_sb.content_margin_bottom = 14
-	sidebar.add_theme_stylebox_override("panel", side_sb)
-	body.add_child(sidebar)
-
-	var nav := VBoxContainer.new()
-	nav.add_theme_constant_override("separation", 4)
-	sidebar.add_child(nav)
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 6)
+	navbar.add_child(nav)
 	_settings_nav_btns.clear()
 	for i in SETTINGS_CATS.size():
 		_add_settings_nav(nav, i, SETTINGS_CATS[i][0], SETTINGS_CATS[i][1])
 
-	# Inhaltsbereich (hält alle Kategorie-Panels, eines sichtbar)
+	# Inhaltsbereich darunter (hält alle Kategorie-Panels, eines sichtbar)
 	var holder := Control.new()
 	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	holder.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	holder.clip_contents = true
-	body.add_child(holder)
+	outer_vbox.add_child(holder)
 	_settings_cat_panels.clear()
 
 	# Kategorie 0 – Sprache
@@ -367,36 +396,27 @@ func _build_settings_panel() -> Control:
 
 	_show_settings_cat(0)
 
-	# Spacer + Trennlinie vor Buttons
+	# Kein Speichern/Zurück-Button mehr: Änderungen werden automatisch übernommen und beim
+	# Schließen (über die Seitenleiste oder ESC) gespeichert. Nur ein dezenter Hinweis.
 	var bot_line := ColorRect.new()
 	bot_line.custom_minimum_size = Vector2(0, 1)
 	bot_line.color = C_LINE
 	outer_vbox.add_child(bot_line)
 
-	var btn_row := HBoxContainer.new()
-	btn_row.custom_minimum_size = Vector2(0, 76)
-	btn_row.add_theme_constant_override("separation", 0)
-	outer_vbox.add_child(btn_row)
+	var hint_row := HBoxContainer.new()
+	hint_row.custom_minimum_size = Vector2(0, 40)
+	outer_vbox.add_child(hint_row)
 
-	var bpad := Control.new(); bpad.custom_minimum_size = Vector2(24, 0)
-	btn_row.add_child(bpad)
+	var hpad := Control.new(); hpad.custom_minimum_size = Vector2(24, 0)
+	hint_row.add_child(hpad)
 
-	var back_btn := _build_settings_btn("←  Zurück", C_SURFACE, C_ACCENT_MU)
-	back_btn.size_flags_stretch_ratio = 1.0
-	back_btn.pressed.connect(_on_settings_back)
-	btn_row.add_child(back_btn)
-
-	var sep := Control.new(); sep.custom_minimum_size = Vector2(14, 0)
-	btn_row.add_child(sep)
-
-	var save_btn := _build_settings_btn("💾  Speichern", Color(0.13, 0.45, 0.26), Color(0.30, 0.85, 0.48))
-	save_btn.size_flags_stretch_ratio = 1.7
-	save_btn.add_theme_color_override("font_color", Color(0.88, 1.0, 0.92))
-	save_btn.pressed.connect(_on_settings_save)
-	btn_row.add_child(save_btn)
-
-	var epad := Control.new(); epad.custom_minimum_size = Vector2(24, 0)
-	btn_row.add_child(epad)
+	var hint := Label.new()
+	hint.text = "✓  Änderungen werden automatisch gespeichert"
+	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	hint_row.add_child(hint)
 
 	return overlay
 
@@ -472,14 +492,12 @@ func _build_ghost_btn(txt: String, cb: Callable) -> Button:
 	return btn
 
 
-# ── Settings Side-Nav ─────────────────────────────────────────────────────────
+# ── Settings Top-Nav ──────────────────────────────────────────────────────────
 
-func _add_settings_nav(parent: VBoxContainer, idx: int, icon: String, label: String) -> void:
+func _add_settings_nav(parent: HBoxContainer, idx: int, icon: String, label: String) -> void:
 	var btn := Button.new()
 	btn.text = "%s  %s" % [icon, label]
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size = Vector2(0, 46)
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0, 34)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_style_settings_nav(btn, idx == 0)
@@ -488,14 +506,15 @@ func _add_settings_nav(parent: VBoxContainer, idx: int, icon: String, label: Str
 	_settings_nav_btns.append(btn)
 
 
+# Horizontale Tab-Optik: aktiver Tab mit Akzent-Balken UNTEN + gefüllter Fläche.
 func _style_settings_nav(btn: Button, active: bool) -> void:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color          = C_SURFACE2 if active else Color(0, 0, 0, 0)
-	sb.border_width_left = 3
-	sb.border_color      = C_ACCENT if active else Color(0, 0, 0, 0)
+	sb.bg_color            = C_SURFACE2 if active else Color(0, 0, 0, 0)
+	sb.border_width_bottom = 3
+	sb.border_color        = C_ACCENT if active else Color(0, 0, 0, 0)
 	sb.set_corner_radius_all(8)
-	sb.content_margin_left = 12; sb.content_margin_right = 8
-	sb.content_margin_top  = 8;  sb.content_margin_bottom = 8
+	sb.content_margin_left = 16; sb.content_margin_right = 16
+	sb.content_margin_top  = 6;  sb.content_margin_bottom = 6
 	var sb_h := sb.duplicate() as StyleBoxFlat
 	if not active:
 		sb_h.bg_color = C_SURFACE
@@ -563,104 +582,15 @@ func _apply_ui_scale(factor: float) -> void:
 	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
 
 
-# ── Errungenschaften-Panel ────────────────────────────────────────────────────
-
-func _build_achievements_panel() -> Control:
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(520, 460)
-	panel.add_theme_stylebox_override("panel", _panel_style())
-	center.add_child(panel)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	panel.add_child(vbox)
-
-	_add_panel_title(vbox, "ERRUNGENSCHAFTEN")
-	_add_hline(vbox)
-
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(scroll)
-
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 0)
-	scroll.add_child(list)
-
-	var achievements := [
-		["Erster Start",       "Starte dein erstes Rennen",            false],
-		["Schnellster Fahrer", "Beende ein Rennen unter 60 Sekunden",  false],
-		["Streckenbauer",      "Erstelle 10 verschiedene Strecken",    false],
-		["Unaufhaltsam",       "Gewinne 5 Rennen in Folge",            false],
-		["Vollgas",            "Erreiche die maximale Geschwindigkeit", false],
-	]
-
-	for i in achievements.size():
-		var ach = achievements[i]
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 12)
-		row.custom_minimum_size = Vector2(0, 54)
-		list.add_child(row)
-
-		var bar := ColorRect.new()
-		bar.custom_minimum_size = Vector2(3, 0)
-		bar.color = C_ACCENT if ach[2] else C_ACCENT_MU
-		bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		row.add_child(bar)
-
-		var pad := Control.new()
-		pad.custom_minimum_size = Vector2(10, 0)
-		row.add_child(pad)
-
-		var star := Label.new()
-		star.text = "★" if ach[2] else "☆"
-		star.custom_minimum_size = Vector2(24, 0)
-		star.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		star.add_theme_font_size_override("font_size", 22)
-		star.add_theme_color_override("font_color", C_ACCENT if ach[2] else C_TEXT_DIM)
-		row.add_child(star)
-
-		var info := VBoxContainer.new()
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		info.size_flags_vertical   = Control.SIZE_EXPAND_FILL
-		info.alignment = BoxContainer.ALIGNMENT_CENTER
-		info.add_theme_constant_override("separation", 2)
-		row.add_child(info)
-
-		var name_lbl := Label.new()
-		name_lbl.text = ach[0].to_upper()
-		name_lbl.add_theme_font_size_override("font_size", 13)
-		name_lbl.add_theme_color_override("font_color", C_TEXT if ach[2] else C_TEXT.darkened(0.15))
-		info.add_child(name_lbl)
-
-		var desc_lbl := Label.new()
-		desc_lbl.text = ach[1]
-		desc_lbl.add_theme_font_size_override("font_size", 11)
-		desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-		info.add_child(desc_lbl)
-
-		if i < achievements.size() - 1:
-			var sep := ColorRect.new()
-			sep.custom_minimum_size = Vector2(0, 1)
-			sep.color = C_LINE
-			list.add_child(sep)
-
-	_add_spacer(vbox, 4)
-	_add_back_button(vbox, _show_pause)
-
-	return center
-
-
 # ── Panel-Wechsel ─────────────────────────────────────────────────────────────
 
 func _hide_all() -> void:
+	# Standard: Vollbild-Abdunkelung an (Pause-Menü/Modals). Einstellungen schalten sie ab,
+	# damit die rechte Seitenleiste sichtbar bleibt.
+	if _dim_bg != null:
+		_dim_bg.visible = true
 	_pause_panel.visible        = false
 	_settings_panel.visible     = false
-	_achievements_panel.visible = false
 	_quit_modal.visible         = false
 	_discard_modal.visible      = false
 	_save_modal.visible         = false
@@ -671,17 +601,43 @@ func _show_pause() -> void:
 	_pause_panel.visible = true
 
 
+# Einstellungen aus dem Pause-Menü heraus öffnen (Zurück führt wieder ins Pause-Menü).
+func _show_settings_from_pause() -> void:
+	_settings_from_pause = true
+	_show_settings()
+
+
 func _show_settings() -> void:
 	_hide_all()
+	# Keine Vollbild-Abdunkelung → die rechte Seitenleiste (GameHUD) bleibt sichtbar.
+	if _dim_bg != null:
+		_dim_bg.visible = false
 	_settings_panel.visible = true
 	_settings_dirty = false
 	_sync_settings_ui()
 	_on_settings_nav(0)
 
 
-func _show_achievements() -> void:
-	_hide_all()
-	_achievements_panel.visible = true
+# Sind die Einstellungen gerade offen? (für die Nav-Koordination in GameHUD)
+func is_settings_open() -> bool:
+	return visible and _settings_panel != null and _settings_panel.visible
+
+
+# Von der Seitenleiste (GameHUD) gerufen, wenn von den Einstellungen zu einer anderen
+# Seite (oder „Strecke") gewechselt wird: Einstellungen schließen, Spiel fortsetzen.
+func close_settings() -> void:
+	if is_settings_open():
+		_resume()
+
+
+# Einstellungen verlassen: je nach Einstieg zurück ins Pause-Menü oder direkt ins Spiel.
+func _exit_settings() -> void:
+	if _settings_from_pause:
+		_show_pause()
+	else:
+		_resume()
+		# Nav-Highlight in der Seitenleiste (Optionen → Strecke) zurücksetzen.
+		GameHUD._on_modal_closed()
 
 
 # ── UI-Hilfsfunktionen ────────────────────────────────────────────────────────
@@ -978,7 +934,7 @@ func _on_settings_back() -> void:
 		_hide_all()
 		_discard_modal.visible = true
 	else:
-		_show_pause()
+		_exit_settings()
 
 
 func _on_settings_save() -> void:
@@ -991,7 +947,7 @@ func _on_settings_save() -> void:
 func _on_save_confirm() -> void:
 	settings.save(Paths.SETTINGS_FILE)
 	_settings_dirty = false
-	_show_pause()
+	_exit_settings()
 
 
 func _on_discard_confirm() -> void:
@@ -1007,7 +963,7 @@ func _on_discard_confirm() -> void:
 	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
 	Economy.apply_cheat_mode(bool(settings.get_value("cheats", "enabled", false)))
 	_settings_dirty = false
-	_show_pause()
+	_exit_settings()
 
 
 func _build_discard_modal() -> Control:

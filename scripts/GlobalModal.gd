@@ -3,27 +3,34 @@ extends CanvasLayer
 ## Autoload "GlobalModal" (layer 25, über GameHUD).
 ## process_mode ALWAYS damit es auch bei Pause funktioniert.
 
-const VW = 960
+# Die Navigation liegt jetzt als dauerhafte Seitenleiste rechts (in GameHUD). Das Modal
+# füllt nur den Bereich LINKS davon und beginnt unter der Top-Bar.
+const NAV_W = 150                 # Breite der rechten Seitenleiste (GameHUD)
+const VW = 960 - NAV_W            # Inhaltsbreite des Modals = 810
 const VH = 540
-const TAB_BAR_H = 48
+const TOP_H = 50                  # unter der GameHUD-Top-Bar
+const BOT_H = 42                  # Höhe der unteren Run-Bar (bleibt frei → „Fahren" sichtbar)
+const TAB_BAR_H = 48              # (Alt – Tab-Leiste entfernt, Konstante bleibt für Refs)
 
-const C_BG        := Color(0.07, 0.13, 0.15)
-const C_SURFACE   := Color(0.11, 0.20, 0.23)
-const C_SURFACE2  := Color(0.17, 0.29, 0.33)
-const C_ACCENT    := Color(0.16, 0.66, 0.87)
-const C_ACCENT_MU := Color(0.16, 0.37, 0.54)
-const C_ACCENT_RD := Color(0.97, 0.41, 0.43)
-const C_TEXT      := Color(0.90, 0.97, 0.96)
-const C_TEXT_DIM  := Color(0.48, 0.64, 0.65)
-const C_LINE      := Color(0.17, 0.29, 0.32)
+# Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
+const C_BG        := Color(0.118, 0.122, 0.133)   # #1e1f22
+const C_SURFACE   := Color(0.169, 0.176, 0.192)   # #2b2d31
+const C_SURFACE2  := Color(0.220, 0.227, 0.251)   # #383a40
+const C_ACCENT    := Color(0.345, 0.396, 0.949)   # #5865f2 Blurple
+const C_ACCENT_MU := Color(0.290, 0.310, 0.490)
+const C_ACCENT_RD := Color(0.929, 0.259, 0.271)   # #ed4245
+const C_TEXT      := Color(0.859, 0.871, 0.882)   # #dbdee1
+const C_TEXT_DIM  := Color(0.580, 0.608, 0.643)   # #949ba4
+const C_LINE      := Color(0.247, 0.255, 0.278)   # #3f4147
 
 # Reifen/Autos/Lackierung sind vorerst ausgeblendet (Platzhalter, noch nicht spielbar).
 const SHOP_CATS = [
 	{"id": "tiles",    "name": "Streckenteile", "icon": "🏎"},
 	{"id": "upgrades", "name": "Upgrades",      "icon": "⬆"},
 ]
-const MODAL_TABS = ["Shop", "Archivments", "Werkstatt", "Prestige"]
-const PRESTIGE_TAB = 3
+const MODAL_TABS = ["Shop", "Archivments", "Werkstatt", "Statistik", "Prestige"]
+const STATISTIK_TAB = 3
+const PRESTIGE_TAB = 4
 
 var _active_modal_tab: int = 0
 var _active_shop_cat:  int = 0
@@ -85,8 +92,15 @@ func open() -> void:
 	_rebuild_shop_upgrades()
 	_refresh_affordability()
 	_rebuild_prestige()   # Punkte/Knoten könnten sich seit dem letzten Öffnen geändert haben
+	_refresh_statistik()  # Statistik-Werte (Geld/Prestige/Strecken …) frisch anzeigen
 	_refresh_modal_money()
 	visible = true
+
+
+# Öffnet das Modal direkt auf einem bestimmten Tab (von der rechten Seitenleiste in GameHUD).
+func open_tab(idx: int) -> void:
+	open()
+	_on_modal_tab(idx)
 
 
 # Aktuellen Geldstand in der Tab-Leiste (oben rechts) aktualisieren.
@@ -103,6 +117,8 @@ func _refresh_affordability() -> void:
 
 func close() -> void:
 	visible = false
+	# Seitenleiste (GameHUD) markiert keinen Eintrag mehr als aktiv.
+	GameHUD._on_modal_closed()
 
 
 func _process(delta: float) -> void:
@@ -140,124 +156,55 @@ func _input(event: InputEvent) -> void:
 
 
 func _build_modal() -> void:
-	# ── Hintergrund (Abdunkelung + Panel) ──────────────────────────────────────
+	# Abdunkelung NUR über dem Spielbereich links der Seitenleiste, ab unter der Top-Bar –
+	# damit die rechte Nav (GameHUD) und die obere Leiste sichtbar bleiben.
+	# Höhe: unter der Top-Bar beginnen UND die untere Run-Bar freilassen, damit der
+	# „Fahren"-Knopf nicht verdeckt wird.
+	var area_h := VH - TOP_H - BOT_H
+
 	var dim := ColorRect.new()
-	dim.position     = Vector2(0, 0)
-	dim.size         = Vector2(VW, VH)
+	dim.position     = Vector2(0, TOP_H)
+	dim.size         = Vector2(VW, area_h)
 	dim.color        = Color(0, 0, 0, 0.82)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(dim)
 
 	var panel := Panel.new()
-	panel.position = Vector2(0, 0)
-	panel.size     = Vector2(VW, VH)
+	panel.position = Vector2(0, TOP_H)
+	panel.size     = Vector2(VW, area_h)
 	var ps := StyleBoxFlat.new()
 	ps.bg_color = C_BG
 	ps.set_border_width_all(0)
 	panel.add_theme_stylebox_override("panel", ps)
 	add_child(panel)
 
-	# ── Tab-Leiste (oben, Höhe TAB_BAR_H) ─────────────────────────────────────
-	_build_tab_bar(panel)
+	# Inhaltsbereiche füllen das ganze Panel – navigiert wird über die rechte Seitenleiste.
+	# Geschlossen wird über „Strecke" in der Nav, erneuten Klick auf die aktive Seite oder ESC.
+	const CONTENT_Y = 0
 
-	# Trennlinie
-	var line := ColorRect.new()
-	line.position = Vector2(0, TAB_BAR_H)
-	line.size     = Vector2(VW, 1)
-	line.color    = C_LINE
-	panel.add_child(line)
-
-	# ── Inhaltsbereiche (y = TAB_BAR_H+1, h = VH-TAB_BAR_H-1) ────────────────
-	const CONTENT_Y = TAB_BAR_H + 1
-	const CONTENT_H = VH - TAB_BAR_H - 1
-
-	_build_shop_panel(panel,           CONTENT_Y, CONTENT_H)
-	_build_achievements_panel(panel,   CONTENT_Y, CONTENT_H)
-	_build_werkstatt_panel(panel,      CONTENT_Y, CONTENT_H)
-	_build_prestige_panel(panel,       CONTENT_Y, CONTENT_H)
+	_build_shop_panel(panel,           CONTENT_Y, area_h)
+	_build_achievements_panel(panel,   CONTENT_Y, area_h)
+	_build_werkstatt_panel(panel,      CONTENT_Y, area_h)
+	_build_statistik_panel(panel,      CONTENT_Y, area_h)
+	_build_prestige_panel(panel,       CONTENT_Y, area_h)
 
 	_build_prestige_confirm(panel)
 
 	_show_modal_tab(0)
 
 
-func _build_tab_bar(parent: Control) -> void:
-	# Linkes Padding + Titel
-	var title := Label.new()
-	title.position = Vector2(16, 0)
-	title.size     = Vector2(90, TAB_BAR_H)
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 14)
-	title.add_theme_color_override("font_color", C_ACCENT)
-	title.text = "MENÜ"
-	parent.add_child(title)
-
-	# Tab-Buttons (zentriert) – Breite dynamisch aus der Tab-Anzahl.
-	const TAB_W = 120
-	const TAB_GAP = 4
-	var total_tabs_w = MODAL_TABS.size() * TAB_W + (MODAL_TABS.size() - 1) * TAB_GAP
-	var tabs_x = (VW - total_tabs_w) / 2.0
-	for i in MODAL_TABS.size():
-		var btn := Button.new()
-		btn.text     = MODAL_TABS[i]
-		btn.position = Vector2(tabs_x + i * (TAB_W + TAB_GAP), 6)
-		btn.size     = Vector2(TAB_W, TAB_BAR_H - 12)
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		_style_modal_tab(btn, i == 0)
-		btn.pressed.connect(_on_modal_tab.bind(i))
-		parent.add_child(btn)
-		_modal_tab_btns.append(btn)
-
-	# Schließen-Button
-	var close_btn := Button.new()
-	close_btn.text     = "✕"
-	close_btn.position = Vector2(VW - 46, 7)
-	close_btn.size     = Vector2(38, TAB_BAR_H - 14)
-	close_btn.focus_mode = Control.FOCUS_NONE
-	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	close_btn.add_theme_stylebox_override("normal",  _sbf(C_SURFACE,              C_ACCENT_RD.darkened(0.4)))
-	close_btn.add_theme_stylebox_override("hover",   _sbf(C_ACCENT_RD.darkened(0.3), C_ACCENT_RD))
-	close_btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE,              C_ACCENT_RD))
-	close_btn.add_theme_stylebox_override("focus",   _sbf(C_SURFACE,              C_ACCENT_RD.darkened(0.4)))
-	close_btn.add_theme_color_override("font_color", C_TEXT_DIM)
-	close_btn.add_theme_font_size_override("font_size", 14)
-	close_btn.pressed.connect(close)
-	parent.add_child(close_btn)
-
-	# Aktueller Geldstand – gerahmtes Kästchen links neben dem Schließen-✕ (live in _process).
-	const MONEY_W = 144
-	const MONEY_H = 30
-	var money_box := Panel.new()
-	money_box.position = Vector2(VW - 46 - 28 - MONEY_W, (TAB_BAR_H - MONEY_H) / 2.0)
-	money_box.size     = Vector2(MONEY_W, MONEY_H)
-	var money_sb := StyleBoxFlat.new()
-	money_sb.bg_color     = C_SURFACE
-	money_sb.set_border_width_all(1)
-	money_sb.border_color = C_ACCENT
-	money_sb.set_corner_radius_all(10)
-	money_box.add_theme_stylebox_override("panel", money_sb)
-	parent.add_child(money_box)
-
-	_modal_money_lbl = Label.new()
-	_modal_money_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_modal_money_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_modal_money_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_modal_money_lbl.add_theme_font_size_override("font_size", 16)
-	_modal_money_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
-	money_box.add_child(_modal_money_lbl)
-
-
 # ── Modal-Tab-Switching ────────────────────────────────────────────────────────
+# Tabs werden über die rechte Seitenleiste (GameHUD) angesteuert – hier nur das
+# Umschalten des sichtbaren Inhalts + passender Refresh.
 
 func _on_modal_tab(idx: int) -> void:
 	_active_modal_tab = idx
-	for i in _modal_tab_btns.size():
-		_style_modal_tab(_modal_tab_btns[i], i == idx)
 	_show_modal_tab(idx)
 	_refresh_affordability()
 	if idx == PRESTIGE_TAB:
 		_rebuild_prestige()
+	elif idx == STATISTIK_TAB:
+		_refresh_statistik()
 
 
 func _show_modal_tab(idx: int) -> void:
@@ -392,7 +339,7 @@ func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
 	vbox.add_child(margin)
 
 	_tiles_grid = GridContainer.new()
-	_tiles_grid.columns = 4
+	_tiles_grid.columns = 3
 	_tiles_grid.add_theme_constant_override("h_separation", 12)
 	_tiles_grid.add_theme_constant_override("v_separation", 12)
 	margin.add_child(_tiles_grid)
@@ -825,6 +772,86 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 		vbox.add_child(sep)
 
 
+# ── Statistik ───────────────────────────────────────────────────────────────────
+# Einfache Übersichts-Seite (Geld, Prestige, Strecken, Baufeld …). Wird beim Öffnen
+# und beim Tab-Wechsel frisch befüllt.
+
+var _statistik_vbox: VBoxContainer = null
+
+
+func _build_statistik_panel(parent: Control, cy: int, ch: int) -> void:
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(0, cy)
+	scroll.size     = Vector2(VW, ch)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	parent.add_child(scroll)
+	_tab_panels.append(scroll)
+
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(VW - 20, 0)
+	vbox.add_theme_constant_override("separation", 0)
+	scroll.add_child(vbox)
+	_statistik_vbox = vbox
+
+	_refresh_statistik()
+
+
+func _refresh_statistik() -> void:
+	if _statistik_vbox == null:
+		return
+	for c in _statistik_vbox.get_children():
+		c.queue_free()
+
+	_add_cat_header(_statistik_vbox, "STATISTIK")
+
+	var run_total := 0
+	for i in Economy.TRACK_COUNT:
+		run_total += Economy.get_run_earned(i)
+
+	var rows := [
+		["💰  Aktuelles Guthaben",      Economy.format_currency(Economy.get_currency())],
+		["⭐  Prestige-Punkte",          str(Economy.get_prestige_points())],
+		["📈  Verdient seit Prestige",   Economy.format_currency(Economy.get_prestige_earned())],
+		["🛣  Freigeschaltete Strecken", "%d / %d" % [Economy.get_unlocked_tracks(), Economy.TRACK_COUNT]],
+		["🏎  Autos pro Strecke",        str(Economy.get_car_count())],
+		["▦  Baufeld",                  "%d × %d" % [Economy.get_grid_rows(), Economy.get_grid_cols()]],
+		["🏁  Laufende Runden-Erträge",  Economy.format_currency(run_total)],
+	]
+	for r in rows:
+		_add_stat_row(r[0], r[1])
+
+
+func _add_stat_row(label_txt: String, value_txt: String) -> void:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size = Vector2(0, 46)
+	row.add_child(_hpad(24))
+
+	var l := Label.new()
+	l.text = label_txt
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_color_override("font_color", C_TEXT)
+	row.add_child(l)
+
+	var v := Label.new()
+	v.text = value_txt
+	v.custom_minimum_size = Vector2(240, 0)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	v.add_theme_font_size_override("font_size", 15)
+	v.add_theme_color_override("font_color", C_ACCENT)
+	row.add_child(v)
+	row.add_child(_hpad(24))
+
+	_statistik_vbox.add_child(row)
+
+	var sep := ColorRect.new()
+	sep.custom_minimum_size = Vector2(0, 1)
+	sep.color = C_LINE
+	_statistik_vbox.add_child(sep)
+
+
 # ── Werkstatt (Auto-Konfiguration) ─────────────────────────────────────────────
 # Unter-Tabs: Form · Lackierung · Muster · Reifen · Fähigkeit. Darunter eine
 # 3D-Live-Vorschau (SubViewport). UI-Gerüst: Auswahl wird im Speicher gehalten;
@@ -901,8 +928,8 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	parent.add_child(container)
 	_tab_panels.append(container)
 
-	# Unter-Tab-Leiste
-	const SUB_W   = 168
+	# Unter-Tab-Leiste (Breite an das schmalere Modal angepasst)
+	const SUB_W   = 150
 	const SUB_GAP = 8
 	var total_w = WS_TABS.size() * SUB_W + (WS_TABS.size() - 1) * SUB_GAP
 	var sx = (VW - total_w) / 2.0
@@ -926,9 +953,9 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	_ws_options_box.size     = Vector2(VW, 92)
 	container.add_child(_ws_options_box)
 
-	# Vorschau-Rahmen + 3D-Viewport
-	const PREV_W = 560
-	const PREV_H = 290
+	# Vorschau-Rahmen + 3D-Viewport (kompakter, damit alles über der Run-Bar bleibt)
+	const PREV_W = 480
+	const PREV_H = 252
 	var px = (VW - PREV_W) / 2.0
 	var py = 158
 
@@ -987,14 +1014,15 @@ func _rebuild_ws_options() -> void:
 
 	var id   = WS_TABS[_ws_active_tab].id
 	var opts = _ws_options(id)
-	const OPT_W = 120
+	# 7 Lackfarben müssen ins schmalere Modal passen → kompaktere Karten.
+	const OPT_W = 100
 	const OPT_H = 80
-	const GAP   = 10
+	const GAP   = 8
 	var total_w = opts.size() * OPT_W + max(0, opts.size() - 1) * GAP
 	var sx = (VW - total_w) / 2.0
 	var sel = int(_ws_sel.get(id, 0))
 	for i in opts.size():
-		var card := _make_ws_option(id, opts[i], i, i == sel)
+		var card := _make_ws_option(id, opts[i], i, i == sel, OPT_W)
 		card.position = Vector2(sx + i * (OPT_W + GAP), 6)
 		card.size     = Vector2(OPT_W, OPT_H)
 		_ws_options_box.add_child(card)
@@ -1002,7 +1030,7 @@ func _rebuild_ws_options() -> void:
 	_update_ws_summary()
 
 
-func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool) -> Panel:
+func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float = 120.0) -> Panel:
 	var card := Panel.new()
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
@@ -1015,14 +1043,14 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool) -> 
 
 	if cat == "paint" and opt.has("color"):
 		var sw := ColorRect.new()
-		sw.position = Vector2(12, 10)
-		sw.size     = Vector2(96, 38)
+		sw.position = Vector2(10, 10)
+		sw.size     = Vector2(w - 20, 38)
 		sw.color    = opt.color
 		card.add_child(sw)
 	else:
 		var icon := Label.new()
 		icon.position = Vector2(0, 8)
-		icon.size     = Vector2(120, 40)
+		icon.size     = Vector2(w, 40)
 		icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 		icon.add_theme_font_size_override("font_size", 26)
@@ -1030,8 +1058,8 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool) -> 
 		card.add_child(icon)
 
 	var name_lbl := Label.new()
-	name_lbl.position = Vector2(2, 52)
-	name_lbl.size     = Vector2(116, 22)
+	name_lbl.position = Vector2(0, 52)
+	name_lbl.size     = Vector2(w, 22)
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_lbl.add_theme_font_size_override("font_size", 11)
 	name_lbl.add_theme_color_override("font_color", C_TEXT if selected else C_TEXT_DIM)
@@ -1642,15 +1670,17 @@ func _on_prestige_pressed() -> void:
 
 
 func _build_prestige_confirm(parent: Control) -> void:
+	# Das Modal-Panel beginnt bei y=TOP_H und lässt unten die Run-Bar frei → Overlay daran ausrichten.
+	var ph_area := VH - TOP_H - BOT_H
 	_prestige_confirm = Control.new()
 	_prestige_confirm.position = Vector2(0, 0)
-	_prestige_confirm.size     = Vector2(VW, VH)
+	_prestige_confirm.size     = Vector2(VW, ph_area)
 	_prestige_confirm.visible  = false
 	parent.add_child(_prestige_confirm)
 
 	var dim := ColorRect.new()
 	dim.position     = Vector2(0, 0)
-	dim.size         = Vector2(VW, VH)
+	dim.size         = Vector2(VW, ph_area)
 	dim.color        = Color(0, 0, 0, 0.78)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_prestige_confirm.add_child(dim)
@@ -1658,7 +1688,7 @@ func _build_prestige_confirm(parent: Control) -> void:
 	const PW = 460
 	const PH = 280
 	var panel := Panel.new()
-	panel.position = Vector2((VW - PW) / 2.0, (VH - PH) / 2.0)
+	panel.position = Vector2((VW - PW) / 2.0, (ph_area - PH) / 2.0)
 	panel.size     = Vector2(PW, PH)
 	var psb := StyleBoxFlat.new()
 	psb.bg_color = C_BG
