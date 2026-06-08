@@ -52,8 +52,26 @@ var _tiles_dirty:         bool          = false
 # Freischalt-/Kauf-Buttons (nur noch nicht erworbene) für günstiges Nachfärben bei Geldänderung.
 var _tile_buttons:        Array         = []   # je {btn, key}
 var _tile_upgrade_buttons: Array        = []   # je {btn, id} – Upgrade-Buttons freigeschalteter Tiles
+# Karten mit gestuftem Upgrade: {id, entry, desc, btn} – für In-Place-Aktualisierung beim
+# Kauf, OHNE die rotierende 3D-Vorschau neu zu bauen (sonst springt die Drehung zurück).
+var _tile_upgrade_cards:  Array         = []
 var _upgrade_buttons:     Array         = []   # je {btn, id}
 var _last_currency_seen:  int           = -1
+
+# ── Upgrade-Hinweise (Tooltips) ──────────────────────────────────────────────────
+# Hover über dem Upgrade-„Kästchen" (Name + Stufe, NICHT der Kauf-Button) blendet nach
+# HINT_DELAY Sekunden einen Erklärtext ein (Texte aus dem Lang-Autoload). Erkennung per
+# Polling in _process (get_global_rect), da mouse_entered/exited in den Containern unzuverlässig
+# feuert. Ladekreis am Cursor (HintRing) als visuelles Feedback.
+const HINT_DELAY := 2.5
+var _hint_panel:   Panel    = null
+var _hint_label:   Label    = null
+var _hint_ring:    HintRing = null
+var _hint_targets_upg:  Array = []   # Upgrade-Zeilen (Shop-Kat 1): je {"id": String, "area": Control}
+var _hint_targets_tile: Array = []   # Streckenteil-Karten (Shop-Kat 0): je {"id": String, "area": Control}
+var _hint_id:      String   = ""     # aktuell ANGEZEIGTER Hinweis ("" = keiner)
+var _hover_id:     String   = ""     # aktuell überfahrenes Kästchen (Hover-Akkumulation)
+var _hover_elapsed: float   = 0.0
 
 # ── Prestige-Tab ────────────────────────────────────────────────────────────────
 var _prestige_tree_box:   HBoxContainer = null   # Knoten-Karten (links → rechts), für Neuaufbau
@@ -69,6 +87,7 @@ func _ready() -> void:
 	visible      = false
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_modal()
+	_build_hint_overlay()
 	GameHUD.shop_requested.connect(open)
 	# Beim Wechsel des Speicherstands gelten andere Freischaltungen → Raster neu aufbauen.
 	Economy.slot_changed.connect(_on_slot_changed)
@@ -117,6 +136,7 @@ func _refresh_affordability() -> void:
 
 func close() -> void:
 	visible = false
+	_clear_upgrade_hover()
 	# Seitenleiste (GameHUD) markiert keinen Eintrag mehr als aktiv.
 	GameHUD._on_modal_closed()
 
@@ -141,6 +161,12 @@ func _process(delta: float) -> void:
 		_last_currency_seen = cur
 		_refresh_affordability()
 		_refresh_modal_money()
+
+	# Hinweise: nur im Shop-Tab (Streckenteile = Kat 0, Upgrades = Kat 1). Sonst ausblenden.
+	if _active_modal_tab == 0:
+		_update_upgrade_hint(delta)
+	elif _hint_id != "" or _hover_id != "":
+		_clear_upgrade_hover()
 
 	# Prestige-Tab: Vorschau-Zahl („+N ⭐") live mitziehen, während im Hintergrund Geld reinkommt.
 	if _active_modal_tab == PRESTIGE_TAB:
@@ -203,6 +229,7 @@ func _build_modal() -> void:
 
 func _on_modal_tab(idx: int) -> void:
 	_active_modal_tab = idx
+	_clear_upgrade_hover()   # Tab-Wechsel → offenen Hinweis/Ring sofort ausblenden
 	_show_modal_tab(idx)
 	_refresh_affordability()
 	if idx == PRESTIGE_TAB:
@@ -269,6 +296,7 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 
 func _on_shop_cat(idx: int) -> void:
 	_active_shop_cat = idx
+	_clear_upgrade_hover()   # andere Kategorie → andere Ziel-Liste, offenen Hinweis verwerfen
 	for i in _shop_sidebar_btns.size():
 		_style_sidebar_btn(_shop_sidebar_btns[i], i == idx)
 	_show_shop_cat(idx)
@@ -357,6 +385,10 @@ func _populate_tiles_grid() -> void:
 	_tile_preview_pivots.clear()
 	_tile_buttons.clear()
 	_tile_upgrade_buttons.clear()
+	_tile_upgrade_cards.clear()
+	# Hover-Ziele zeigen auf die gleich freigegebenen Karten → Liste + offenen Hinweis verwerfen.
+	_hint_targets_tile.clear()
+	_clear_upgrade_hover()
 	for c in _tiles_grid.get_children():
 		c.queue_free()
 	for entry in _tile_entries():
@@ -437,45 +469,8 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	desc_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc_lbl.add_theme_font_size_override("font_size", 11)
 	desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	if has_upg and upg_id == "icebonus":
-		# Eisgerade: Speed-Boost (Tempo-Stufen) + Reichweite statt Geld-Ertrag.
-		var ice_lv := Economy.get_upgrade_level(upg_id)
-		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		desc_lbl.text = "❄ +%.1f Lvl · %d Felder%s" % [Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
-	elif has_upg and upg_id == "wallbonus":
-		# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
-		var wall_lv := Economy.get_upgrade_level(upg_id)
-		var wmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		desc_lbl.text = "+%s 💰 · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
-	elif has_upg and upg_id == "loopbonus":
-		# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
-		var loop_lv := Economy.get_upgrade_level(upg_id)
-		var lmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		desc_lbl.text = "×%.1f · andere ×%.1f%s" % [Economy.get_loop_factor(loop_lv), Economy.get_loop_factor(loop_lv), lmax_tag]
-	elif has_upg and upg_id == "portalbonus":
-		# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
-		var p_lv := Economy.get_upgrade_level(upg_id)
-		var pmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		desc_lbl.text = "+%s 💰 /Durchgang%s" % [Economy.format_currency(Economy.get_portal_earn(p_lv)), pmax_tag]
-	elif has_upg and upg_id == "standbonus":
-		# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
-		var s_lv := Economy.get_upgrade_level(upg_id)
-		var smax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		desc_lbl.text = "×%.1f /Nachbarfeld%s" % [Economy.get_effect("standbonus", s_lv), smax_tag]
-	elif has_upg:
-		# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
-		var base_e := int(entry.get("field_earn_base", 0))
-		var lv     := Economy.get_upgrade_level(upg_id)
-		var cur    := base_e + int(round(Economy.get_effect(upg_id, lv)))
-		if Economy.is_maxed(upg_id):
-			desc_lbl.text = "Ertrag/Feld: +%d (MAX)" % cur
-		else:
-			var nxt := base_e + int(round(Economy.get_effect(upg_id, lv + 1)))
-			desc_lbl.text = "Ertrag/Feld: +%d → +%d" % [cur, nxt]
-		# Rampe: zusätzlich den Sprung-Multiplikator (steigt je 5 Stufen) statt "Feld" zeigen.
-		if upg_id == "rampbonus":
-			var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%d" % (base_e + int(round(Economy.get_effect(upg_id, lv + 1))))
-			desc_lbl.text = "+%d%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
+	if has_upg:
+		desc_lbl.text = _tile_upgrade_desc(upg_id, entry)
 	else:
 		desc_lbl.text = entry.get("desc", "")
 	card.add_child(desc_lbl)
@@ -512,7 +507,58 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		_tile_buttons.append({"btn": btn, "key": key})
 	card.add_child(btn)
 
+	# Karte mit gestuftem Upgrade merken → beim Kauf nur Text/Button neu setzen,
+	# statt das ganze Raster (inkl. drehender 3D-Vorschau) neu zu bauen.
+	if has_upg:
+		_tile_upgrade_cards.append({"id": upg_id, "entry": entry, "desc": desc_lbl, "btn": btn})
+
+	# Hover über der ganzen Karte zeigt den Erklär-Hinweis zum Streckenteil (auch vor dem Kauf).
+	if upg_id != "" and Lang.hint(upg_id) != "":
+		_hint_targets_tile.append({"id": upg_id, "area": card})
+
 	return card
+
+
+# Beschreibungstext einer freigeschalteten Tile mit gestuftem Upgrade (aktuelle Stufe/Werte).
+# Eigene Funktion, damit der Text beim Kauf in-place erneuert werden kann.
+func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
+	if upg_id == "icebonus":
+		# Eisgerade: Speed-Boost (Tempo-Stufen) + Reichweite statt Geld-Ertrag.
+		var ice_lv := Economy.get_upgrade_level(upg_id)
+		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		return "❄ +%.1f Lvl · %d Felder%s" % [Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
+	elif upg_id == "wallbonus":
+		# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
+		var wall_lv := Economy.get_upgrade_level(upg_id)
+		var wmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		return "+%s 💰 · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
+	elif upg_id == "loopbonus":
+		# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
+		var loop_lv := Economy.get_upgrade_level(upg_id)
+		var lmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		return "×%.1f · andere ×%.1f%s" % [Economy.get_loop_factor(loop_lv), Economy.get_loop_factor(loop_lv), lmax_tag]
+	elif upg_id == "portalbonus":
+		# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
+		var p_lv := Economy.get_upgrade_level(upg_id)
+		var pmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		return "+%s 💰 /Durchgang%s" % [Economy.format_currency(Economy.get_portal_earn(p_lv)), pmax_tag]
+	elif upg_id == "standbonus":
+		# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
+		var s_lv := Economy.get_upgrade_level(upg_id)
+		var smax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		return "×%.1f /Nachbarfeld%s" % [Economy.get_effect("standbonus", s_lv), smax_tag]
+	# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
+	var base_e := int(entry.get("field_earn_base", 0))
+	var lv     := Economy.get_upgrade_level(upg_id)
+	var cur    := base_e + int(round(Economy.get_effect(upg_id, lv)))
+	# Rampe: zusätzlich den Sprung-Multiplikator (steigt je 5 Stufen) statt "Feld" zeigen.
+	if upg_id == "rampbonus":
+		var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%d" % (base_e + int(round(Economy.get_effect(upg_id, lv + 1))))
+		return "+%d%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
+	if Economy.is_maxed(upg_id):
+		return "Ertrag/Feld: +%d (MAX)" % cur
+	var nxt := base_e + int(round(Economy.get_effect(upg_id, lv + 1)))
+	return "Ertrag/Feld: +%d → +%d" % [cur, nxt]
 
 
 # Färbt einen Freischalt-Button: leistbar = helleres Blau, sonst gedämpft.
@@ -579,7 +625,38 @@ func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
 
 func _on_buy_tile_upgrade(id: String) -> void:
 	if Economy.buy_upgrade(id):
-		_populate_tiles_grid()   # Stufe/Kosten/„von→zu" der Karte aktualisieren
+		# Nur die betroffene Karte (Text + Button) aktualisieren, NICHT das ganze Raster
+		# neu bauen – sonst springt die rotierende 3D-Vorschau bei jedem Kauf zurück.
+		_refresh_tile_upgrade_card(id)
+
+
+# Aktualisiert Beschreibung + Button einer Upgrade-Karte in-place (Stufe/Kosten/„von→zu"),
+# ohne die 3D-Vorschau neu aufzubauen, damit deren Drehung erhalten bleibt.
+func _refresh_tile_upgrade_card(id: String) -> void:
+	for e in _tile_upgrade_cards:
+		if e["id"] != id:
+			continue
+		var desc = e["desc"]
+		if is_instance_valid(desc):
+			desc.text = _tile_upgrade_desc(id, e["entry"])
+		var btn = e["btn"]
+		if is_instance_valid(btn):
+			_refresh_tile_upgrade_btn(btn, id)
+		return
+
+
+# Setzt Text/Optik eines Tile-Upgrade-Buttons neu (gleiche Darstellung wie beim Aufbau in
+# _setup_tile_upgrade_btn). Bei MAX wird der Button grün/deaktiviert; ein deaktivierter
+# Button feuert „pressed" nicht mehr, daher muss das Kauf-Signal nicht getrennt werden.
+func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
+	if Economy.is_maxed(id):
+		btn.text     = "✓ MAX (Stufe %d)" % Economy.get_upgrade_level(id)
+		btn.disabled = true
+		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
+		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
+		return
+	btn.text = "⬆ Stufe %d  ·  %s 💰" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id))]
+	_style_upgrade_btn(btn, Economy.can_buy(id))
 
 
 # Baut eine kleine 3D-Vorschau (eigene SubViewport-Welt) auf und merkt sich den
@@ -1343,6 +1420,9 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 
 func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 	_upgrade_buttons.clear()
+	# Hover-Ziele zeigen auf die gleich freigegebenen Info-Boxen → Liste + offenen Hinweis verwerfen.
+	_hint_targets_upg.clear()
+	_clear_upgrade_hover()
 	# Feste Reihenfolge nach STARTPREIS aufsteigend (niedrigster oben). Hartkodiert – sortiert
 	# sich NICHT bei jeder Preisänderung neu. base_cost: tilebonus 10, speed 50, endmult 500,
 	# drive_time 1000, bonus_plus5 2000, bonus_plus10 4000, bonus_mult15 200k, car_count 1M.
@@ -1396,6 +1476,11 @@ func _make_upgrade_row(id: String, row_w: float) -> Control:
 	l_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	info.add_child(l_lbl)
 
+	# Das Info-„Kästchen" (Name + Stufe) ist der Hover-Bereich für den Erklär-Hinweis –
+	# aber nur, wenn für dieses Upgrade ein Text hinterlegt ist (Erkennung per Polling).
+	if Lang.hint(id) != "":
+		_hint_targets_upg.append({"id": id, "area": info})
+
 	row.add_child(_hpad(12))
 
 	var buy_btn := Button.new()
@@ -1426,6 +1511,106 @@ func _on_buy_upgrade(id: String) -> void:
 			_rebuild_shop_upgrades()
 
 
+# ── Upgrade-Hinweise (Tooltips) ──────────────────────────────────────────────────
+
+# Verborgenes Hinweis-Fenster + Cursor-Ladekreis. Als letzte Kinder angelegt → ganz oben.
+func _build_hint_overlay() -> void:
+	_hint_panel = Panel.new()
+	_hint_panel.size = Vector2(360, 116)
+	_hint_panel.visible = false
+	_hint_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_SURFACE2
+	sb.border_color = C_ACCENT
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(8)
+	_hint_panel.add_theme_stylebox_override("panel", sb)
+	add_child(_hint_panel)
+
+	_hint_label = Label.new()
+	_hint_label.position = Vector2(12, 10)
+	_hint_label.size = Vector2(336, 96)
+	_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint_label.add_theme_font_size_override("font_size", 12)
+	_hint_label.add_theme_color_override("font_color", C_TEXT)
+	_hint_panel.add_child(_hint_label)
+
+	_hint_ring = HintRing.new()
+	_hint_ring.position = Vector2.ZERO
+	_hint_ring.size = Vector2(960, VH)
+	add_child(_hint_ring)
+
+
+# Pro Frame (nur Shop-Tab): Kästchen/Karte unter der Maus suchen, Ring füllen, Hinweis zeigen.
+func _update_upgrade_hint(delta: float) -> void:
+	var target := _hint_target_under_mouse()
+	var id: String = String(target.get("id", ""))
+	if id == "":
+		if _hover_id != "" or _hint_id != "":
+			_clear_upgrade_hover()
+		return
+	if id != _hover_id:
+		_hover_id = id
+		_hover_elapsed = 0.0
+		if _hint_id != "":
+			_hide_hint()
+	if _hint_id == id:
+		_hint_ring.set_progress(0.0)   # bereits sichtbar
+		return
+	_hover_elapsed += delta
+	_hint_ring.set_progress(_hover_elapsed / HINT_DELAY)
+	if _hover_elapsed >= HINT_DELAY:
+		_show_upgrade_hint(id, target["area"])
+		_hint_ring.set_progress(0.0)
+
+
+# Kästchen/Karte, deren Bereich gerade unter der Maus liegt (oder {}). Je nach Shop-Kategorie
+# wird die passende Ziel-Liste durchsucht (0 = Streckenteile, 1 = Upgrades).
+func _hint_target_under_mouse() -> Dictionary:
+	var mouse := _hint_panel.get_global_mouse_position()
+	var targets: Array = _hint_targets_tile if _active_shop_cat == 0 else _hint_targets_upg
+	for t in targets:
+		var area: Control = t["area"]
+		if is_instance_valid(area) and area.get_global_rect().has_point(mouse):
+			return t
+	return {}
+
+
+# Hinweis-Fenster mit dem Text füllen und unter dem Kästchen positionieren.
+func _show_upgrade_hint(id: String, anchor: Control) -> void:
+	if anchor == null or not is_instance_valid(anchor):
+		return
+	_hint_label.text = Lang.hint(id).replace("{value}", _hint_value(id))
+	var r := anchor.get_global_rect()
+	var px := clampf(r.position.x, 8.0, VW - _hint_panel.size.x - 8.0)
+	var py := clampf(r.position.y + r.size.y + 6.0, 8.0, VH - _hint_panel.size.y - 8.0)
+	_hint_panel.position = Vector2(px, py)
+	_hint_panel.visible = true
+	_hint_id = id
+
+
+func _hide_hint() -> void:
+	_hint_id = ""
+	if _hint_panel != null:
+		_hint_panel.visible = false
+
+
+func _clear_upgrade_hover() -> void:
+	_hover_id = ""
+	_hover_elapsed = 0.0
+	if _hint_ring != null:
+		_hint_ring.set_progress(0.0)
+	_hide_hint()
+
+
+# Ersetzt {value} im Hinweistext durch den aktuellen Upgrade-Wert.
+func _hint_value(id: String) -> String:
+	if id == "tilebonus":
+		var v := Economy.get_car_tile_bonus(0)
+		return ("%d" % int(round(v))) if absf(v - round(v)) < 0.001 else ("%.1f" % v)
+	return ""
+
+
 # Super-Auto („Auto 2"): MEHRFACH kaufbar (kein Unlock). Preis steigt je Kauf; kaufbar immer, wenn
 # genug freie Standard-Autos (4 je weiterem Super-Auto) und Tempo ≥ Schwelle vorhanden sind.
 func _make_super_car_row(row_w: float) -> Control:
@@ -1440,6 +1625,10 @@ func _make_super_car_row(row_w: float) -> Control:
 	info.alignment = BoxContainer.ALIGNMENT_CENTER
 	info.add_theme_constant_override("separation", 2)
 	row.add_child(info)
+
+	# Hover-Bereich für den Erklär-Hinweis zum Kombinations-Auto.
+	if Lang.hint("super_car") != "":
+		_hint_targets_upg.append({"id": "super_car", "area": info})
 
 	var n_lbl := Label.new()
 	n_lbl.text = "AUTO 2 (KOMBINATION)  ×%d" % Economy.get_super_car_count()
