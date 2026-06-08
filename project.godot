@@ -23,6 +23,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 Paths="*res://scripts/Paths.gd"
+Localization="*res://scripts/Localization.gd"
 Economy="*res://scripts/Economy.gd"
 GameHUD="*res://scripts/GameHUD.gd"
 GlobalModal="*res://scripts/GlobalModal.gd"
