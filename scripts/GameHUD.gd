@@ -262,10 +262,7 @@ func _build_side_menu() -> void:
 	hdr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hdr.add_theme_font_size_override("font_size", 17)
 	hdr.add_theme_color_override("font_color", C_ACCENT)
-	# Geprägter 3D-Look (dunkler Schlagschatten nach unten-rechts).
-	hdr.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
-	hdr.add_theme_constant_override("shadow_offset_x", 1)
-	hdr.add_theme_constant_override("shadow_offset_y", 2)
+	# Flach (kein 3D-Prägeschatten mehr – der liegt jetzt auf den Nav-Einträgen).
 	hdr.text = Icons.MENU + " Menü"
 	add_child(hdr)
 
@@ -339,37 +336,75 @@ func _notification(what: int) -> void:
 		_refresh_tabs()
 	for e in _nav_btns:
 		if e.has("label") and is_instance_valid(e["btn"]):
-			e["btn"].text = tr(e["label"])
+			var lbl = e["btn"].get_meta("txt_lbl", null)
+			if lbl != null and is_instance_valid(lbl):
+				lbl.text = tr(e["label"])
 	if _pause_nav_btn != null and is_instance_valid(_pause_nav_btn):
-		_pause_nav_btn.text = tr("Pause-Menü")
+		var pl = _pause_nav_btn.get_meta("txt_lbl", null)
+		if pl != null and is_instance_valid(pl):
+			pl.text = tr("Pause-Menü")
 
 
 # Nav-Eintrag = farbiges Tabler-Icon (eigenes Label links) + übersetztes Text-Label.
 # Die Akzentfarbe des Icons ist so unabhängig vom Hover/Aktiv-Zustand des Texts.
 func _make_nav_item(icon_glyph: String, label_key: String, icon_color: Color, pos: Vector2, w: float, h: float) -> Button:
 	var btn := Button.new()
-	btn.text      = tr(label_key)
-	btn.position  = pos
-	btn.size      = Vector2(w, h)
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.position   = pos
+	btn.size       = Vector2(w, h)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	# Text wird selbst per tr() übersetzt → Auto-Übersetzung aus.
-	btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
-	btn.add_theme_stylebox_override("normal",  _nav_sb(C_SURFACE,    false))
-	btn.add_theme_stylebox_override("hover",   _nav_sb(C_SURFACE_HI, false))
-	btn.add_theme_stylebox_override("pressed", _nav_sb(C_SURFACE_HI, true))
-	btn.add_theme_stylebox_override("focus",   _nav_sb(C_SURFACE,    false))
-	btn.add_theme_color_override("font_color",       C_TEXT_DIM)
-	btn.add_theme_color_override("font_hover_color", C_TEXT)
-	btn.add_theme_font_size_override("font_size", 15)
 
+	# Farbiges, geprägtes Icon links (eigene Akzentfarbe, unabhängig vom Aktiv-Zustand).
 	var ico := Icons.label(icon_glyph, 19, icon_color)
 	ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ico.position = Vector2(14, 0)
-	ico.size     = Vector2(22, h)
+	ico.position = Vector2(12, 0)
+	ico.size     = Vector2(24, h)
+	_emboss(ico)
 	btn.add_child(ico)
+
+	# Text als eigenes (geprägtes) Label – Button-Text kann keinen Schatten, daher als Label.
+	# Klicks gehen durch (mouse_filter ignore) an den Button.
+	var lbl := Label.new()
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	lbl.position = Vector2(44, 0)
+	lbl.size     = Vector2(w - 50, h)
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 15)
+	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lbl.text = tr(label_key)
+	_emboss(lbl)
+	btn.add_child(lbl)
+	btn.set_meta("txt_lbl", lbl)
+
+	_style_nav_btn(btn, false)
 	return btn
+
+
+# Geprägter 3D-Look: dunkler Schlagschatten nach unten-rechts.
+func _emboss(lbl: Label) -> void:
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
+	lbl.add_theme_constant_override("shadow_offset_x", 1)
+	lbl.add_theme_constant_override("shadow_offset_y", 2)
+
+
+# Setzt das Aussehen eines Nav-Eintrags je nach Aktiv-Zustand. Das aktive Element trägt
+# IMMER (auch beim Hovern) den Akzent-Balken + die Akzent-Textfarbe → eindeutig markiert.
+func _style_nav_btn(btn: Button, active: bool) -> void:
+	if active:
+		var sb := _nav_sb(C_SURFACE_HI, true)
+		btn.add_theme_stylebox_override("normal",  sb)
+		btn.add_theme_stylebox_override("hover",   _nav_sb(C_SURFACE_HI.lightened(0.05), true))
+		btn.add_theme_stylebox_override("pressed", sb)
+		btn.add_theme_stylebox_override("focus",   sb)
+	else:
+		btn.add_theme_stylebox_override("normal",  _nav_sb(C_SURFACE,    false))
+		btn.add_theme_stylebox_override("hover",   _nav_sb(C_SURFACE_HI, false))
+		btn.add_theme_stylebox_override("pressed", _nav_sb(C_SURFACE_HI, false))
+		btn.add_theme_stylebox_override("focus",   _nav_sb(C_SURFACE,    false))
+	var lbl = btn.get_meta("txt_lbl", null)
+	if lbl != null and is_instance_valid(lbl):
+		lbl.add_theme_color_override("font_color", C_ACCENT if active else C_TEXT_DIM)
 
 
 # Flache, randlose Listen-Optik; aktiver Eintrag bekommt einen Akzent-Balken links.
@@ -418,9 +453,7 @@ func _refresh_nav_highlight() -> void:
 		var btn: Button = e["btn"]
 		if not is_instance_valid(btn):
 			continue
-		var on: bool = (int(e["tab"]) == _active_page)
-		btn.add_theme_stylebox_override("normal", _nav_sb(C_SURFACE_HI if on else C_SURFACE, on))
-		btn.add_theme_color_override("font_color", C_ACCENT if on else C_TEXT_DIM)
+		_style_nav_btn(btn, int(e["tab"]) == _active_page)
 
 
 func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
