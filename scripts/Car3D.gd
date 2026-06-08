@@ -15,29 +15,36 @@ var model: Node3D = null
 var _meshes: Array = []
 var _paint_shader: Shader = null
 
+# Super-Auto („Auto 2"): eigenes Modell (eric_car), KEINE Werkstatt-Lackierung. Von CarController
+# vor dem add_child() gesetzt, damit _load_model() in _ready() schon das richtige Modell wählt.
+var is_super: bool = false
+
 
 func _ready() -> void:
 	_load_model()
-	# Lackierung in der Werkstatt geändert → Auto live umfärben.
-	if not Economy.car_paint_changed.is_connected(_apply_paint):
+	# Lackierung in der Werkstatt geändert → Auto live umfärben (Super-Auto bleibt unlackiert).
+	if not is_super and not Economy.car_paint_changed.is_connected(_apply_paint):
 		Economy.car_paint_changed.connect(_apply_paint)
 
 
 func _load_model() -> void:
-	# Vorerst das Test-Auto (mit Umfärb-Maske) statt default_car – siehe Werkstatt-Lackierung.
-	if ResourceLoader.exists(Paths.MODEL_TEST_CAR):
-		var scene = load(Paths.MODEL_TEST_CAR)
+	# Super-Auto nutzt das eric_car-Modell; normale Autos das Test-Auto (mit Umfärb-Maske).
+	var path := Paths.MODEL_ERIC_CAR if is_super else Paths.MODEL_TEST_CAR
+	if ResourceLoader.exists(path):
+		var scene = load(path)
 		model = scene.instantiate()
 		model.scale = MODEL_SCALE
 		model.position.y = CAR_Y
 		add_child(model)
 		_meshes.clear()
 		_collect_meshes(model)
-		_apply_paint()
-		print("Auto-Modell geladen: ", Paths.MODEL_TEST_CAR)
+		# Nur normale Autos bekommen die Werkstatt-Lackierung; das Super-Auto behält seine Textur.
+		if not is_super:
+			_apply_paint()
+		print("Auto-Modell geladen: ", path)
 	else:
 		# Fallback: einfache Box wenn kein Modell gefunden
-		push_warning("Kein Modell unter '%s' gefunden – nutze Platzhalter-Box." % Paths.MODEL_TEST_CAR)
+		push_warning("Kein Modell unter '%s' gefunden – nutze Platzhalter-Box." % path)
 		_spawn_placeholder()
 
 

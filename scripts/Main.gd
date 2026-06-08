@@ -1115,6 +1115,8 @@ func _on_tile_unlocked(_key: String) -> void:
 func _on_prestige_changed() -> void:
 	_update_build_ui()
 	_update_trash_visibility()
+	# Prestige-Income-Knoten ändert get_prestige_mult() → kombiniertes Start-Tile-Badge live neu.
+	_refresh_mult_markers()
 
 
 # Reaktion auf einen Upgrade-Kauf: Bau-Leiste auffrischen; bei Bonusfeldern (im Shop gekauft)
@@ -3150,7 +3152,7 @@ func _build_drive_state() -> Array:
 			state[cell.x][cell.y]["jump_mult"] = Economy.get_ramp_jump_mult()
 	# Tribüne: multipliziert das/die Nachbarfeld(er) VOR ihr. Tribünen werden SEPARAT von den
 	# Bonusfeldern geführt (stand_mult = Produkt, stand_count = Anzahl), damit ein Looping jede
-	# Tribüne EINZELN mit F skalieren kann (Economy._current_lap_reward: sm·F^sc). Im Schneeball
+	# Tribüne EINZELN mit F skalieren kann (Economy._lap_reward_for_car: sm·F^sc). Im Schneeball
 	# am Fahr-Feld wirkt es weiterhin als ×-Wert (auf Nicht-Loop-Feldern identisch zum Produkt).
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
@@ -3332,7 +3334,7 @@ func _ramp_jump_cells() -> Array:
 
 
 # Zeichnet pro Feld EIN „×x.x"-Badge mit dem TATSÄCHLICHEN Gesamt-Multiplikator dieses Feldes.
-# Multiplikativ kombiniert (genau wie Economy._current_lap_reward faltet): Premium-Default ×1.2,
+# Multiplikativ kombiniert (genau wie Economy._lap_reward_for_car faltet): Premium-Default ×1.2,
 # ×1.5-Bonusfeld, Tribüne(n) (Produkt, stapelbar), Sprung/Rampe ×2 und Looping ×F. Ersetzt die
 # früheren getrennten Sprung- und Tribünen-Marker, sodass auf jedem Feld nur EIN ×-Wert steht.
 func _refresh_mult_markers() -> void:
@@ -3347,9 +3349,15 @@ func _refresh_mult_markers() -> void:
 	_stand_marker_nodes.clear()
 
 	var dstate := _build_drive_state()
+	# Globale End-/Prestige-Mults wirken beim Rundenabschluss (= Überfahren des Start-/Ziel-Tiles)
+	# auf die gesamte Rundensumme – wir zeigen ihr Produkt als kombiniertes Badge auf dem Start-Tile.
+	var global_mult := Economy.get_car_end_mult(0) * Economy.get_prestige_mult()
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
-			var m := _cell_total_mult(dstate[r][c])
+			var sd = dstate[r][c]
+			var m := _cell_total_mult(sd)
+			if typeof(sd) == TYPE_DICTIONARY and bool(sd.get("is_start", false)):
+				m *= global_mult
 			if absf(m - 1.0) < 0.05:
 				continue
 			var marker := _make_mult_marker(m)
@@ -3359,7 +3367,7 @@ func _refresh_mult_markers() -> void:
 			_jump_marker_nodes.append(marker)
 
 
-# Gesamt-×-Faktor eines Feldes – identische Logik wie Economy._current_lap_reward (Schritt 2).
+# Gesamt-×-Faktor eines Feldes – identische Logik wie Economy._lap_reward_for_car (Schritt 2).
 # `sd` ist der Drive-State-Eintrag des Feldes (Dictionary mit bonus_mult/jump_mult oder "" wenn leer).
 func _cell_total_mult(sd) -> float:
 	if typeof(sd) != TYPE_DICTIONARY:
@@ -3379,7 +3387,7 @@ func _cell_total_mult(sd) -> float:
 	var m := 1.0
 	if t == "loop":
 		# Looping: eigener ×F UND jeder andere Multiplikator dieses Feldes mit F skaliert (M·F);
-		# JEDE Tribüne einzeln (sm·F^sc). Spiegelt Economy._current_lap_reward.
+		# JEDE Tribüne einzeln (sm·F^sc). Spiegelt Economy._lap_reward_for_car.
 		var lf := Economy.get_loop_factor()
 		m = lf
 		if fm != 1.0: m *= fm * lf

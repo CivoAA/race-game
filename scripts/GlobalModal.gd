@@ -1355,6 +1355,12 @@ func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 		sep.custom_minimum_size = Vector2(0, 1)
 		sep.color = C_LINE
 		vbox.add_child(sep)
+	# Super-Auto („Auto 2") – Einmal-Unlock (kein gestuftes Upgrade), unten angehängt.
+	vbox.add_child(_make_super_car_row(row_w))
+	var sep2 := ColorRect.new()
+	sep2.custom_minimum_size = Vector2(0, 1)
+	sep2.color = C_LINE
+	vbox.add_child(sep2)
 
 
 func _make_upgrade_row(id: String, row_w: float) -> Control:
@@ -1419,6 +1425,58 @@ func _on_buy_upgrade(id: String) -> void:
 			_rebuild_shop_upgrades()
 
 
+# Super-Auto („Auto 2"): MEHRFACH kaufbar (kein Unlock). Preis steigt je Kauf; kaufbar immer, wenn
+# genug freie Standard-Autos (4 je weiterem Super-Auto) und Tempo ≥ Schwelle vorhanden sind.
+func _make_super_car_row(row_w: float) -> Control:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size = Vector2(row_w, 56)
+	row.add_theme_constant_override("separation", 0)
+	row.add_child(_hpad(16))
+
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_vertical   = Control.SIZE_FILL
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	info.add_theme_constant_override("separation", 2)
+	row.add_child(info)
+
+	var n_lbl := Label.new()
+	n_lbl.text = "AUTO 2 (KOMBINATION)  ×%d" % Economy.get_super_car_count()
+	n_lbl.add_theme_font_size_override("font_size", 13)
+	n_lbl.add_theme_color_override("font_color", C_TEXT)
+	info.add_child(n_lbl)
+
+	var d_lbl := Label.new()
+	d_lbl.text = "%d Autos → 1 Super-Auto  ·  Tempo ≥%d nötig  ·  +%s/Feld · ×%d am Ende · Tempo ÷%d" % [
+		Economy.SUPER_CAR_COST_CARS, Economy.SUPER_CAR_REQ_SPEED,
+		Economy.format_currency(Economy.SUPER_CAR_TILE_BONUS), int(Economy.SUPER_CAR_END_MULT),
+		int(Economy.SUPER_CAR_SPEED_DIV)]
+	d_lbl.add_theme_font_size_override("font_size", 11)
+	d_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	info.add_child(d_lbl)
+
+	row.add_child(_hpad(12))
+
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(130, 40)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_font_size_override("font_size", 12)
+	btn.text = "⬆  %s 💰" % Economy.format_currency(Economy.get_super_car_cost())
+	_style_upgrade_btn(btn, Economy.can_buy_super_car())
+	btn.pressed.connect(_on_buy_super_car)
+	_upgrade_buttons.append({"btn": btn, "id": "super_car"})
+	row.add_child(btn)
+	row.add_child(_hpad(16))
+	return row
+
+
+func _on_buy_super_car() -> void:
+	if Economy.buy_super_car():
+		if _active_modal_tab == 0 and _active_shop_cat == 1:
+			_rebuild_shop_upgrades()
+
+
 # Stil eines Upgrade-Kauf-Buttons (nicht maxed): leistbar = helleres Blau, sonst gedämpft.
 func _style_upgrade_btn(btn: Button, can: bool) -> void:
 	if can:
@@ -1441,6 +1499,10 @@ func _refresh_upgrade_buttons() -> void:
 		if not is_instance_valid(btn):
 			continue
 		var id: String = e["id"]
+		# Super-Auto ist kein gestuftes UPGRADES-Upgrade → eigener Kaufbarkeits-Check.
+		if id == "super_car":
+			_style_upgrade_btn(btn, Economy.can_buy_super_car())
+			continue
 		if Economy.is_maxed(id):
 			continue
 		_style_upgrade_btn(btn, Economy.can_buy(id))

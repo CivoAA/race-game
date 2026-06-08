@@ -28,6 +28,9 @@ const MODEL_DEFAULT_CAR = "res://assets/3D-models/cars/default_car/car.glb"
 
 # Test-Auto mit Umfärb-Maske (Werkstatt-Lackierung). Albedo + Maske teilen sich die UVs.
 const MODEL_TEST_CAR    = "res://assets/3D-models/cars/test_car/car.glb"
+
+# Super-Auto („Auto 2") – eigenes Modell, keine Werkstatt-Lackierung (eigene gebackene Texturen).
+const MODEL_ERIC_CAR    = "res://assets/3D-models/cars/eric_car/Car_eric.glb"
 const TEX_CAR_ALBEDO    = "res://assets/3D-models/cars/test_car/car_0.png"
 const TEX_CAR_MASK      = "res://assets/3D-models/cars/test_car/car_mask.png"
 
