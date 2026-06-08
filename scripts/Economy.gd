@@ -1,4 +1,4 @@
-extends Node
+﻿extends Node
 ## Zentraler, persistenter Spielzustand: Währung + gekaufte Upgrades + 3 Track-Zustände.
 ## Wird als Autoload "Economy" geladen. Speichert in Slot-Dateien (user://savegame_slotN.dat).
 
@@ -23,6 +23,17 @@ const SUPER_CAR_COST_CARS   = 4               # so viele normale Autos werden je
 const SUPER_CAR_SPEED_DIV   = 3.0             # Tempo wird durch diesen Wert geteilt
 const SUPER_CAR_TILE_BONUS  = 10000.0         # zusätzlicher +Ertrag JE Feld (oben drauf)
 const SUPER_CAR_END_MULT    = 25.0            # zusätzlicher ×Faktor ganz am Ende (oben drauf)
+
+# ── Auto-Prestige (Tier) ────────────────────────────────────────────────────────
+# In der Werkstatt (Tab „Autos") kann man ab einer Geld-Schwelle das Auto „upgraden": car_tier += 1,
+# danach Voll-Reset (alles inkl. Prestige-Tree, NUR car_tier + Kosmetik bleiben) und ×4 Prestigepunkte
+# je Stufe. Ab Stufe ≥1 fährt NUR das Tier-Auto (Super-Auto-Ökonomie); 4 normale Autos = 1 fahrendes
+# Tier-Auto, Basis 1 gratis. Modell je Stufe liefert get_car_tier_model() (Paths sind Autoload-Consts,
+# daher kein const-Array hier möglich). CAR_TIER_COUNT = Anzahl definierter Stufen-Modelle.
+const CAR_TIER_COUNT        = 2
+const CAR_ASCEND_BASE       = 100_000_000_000.0  # Geld-Schwelle 1. Aufstieg (100 Mrd)
+const CAR_ASCEND_GROWTH     = 10.0               # Schwelle ×10 je weiterer Stufe
+const CAR_ASCEND_POINT_MULT = 4.0                # ×4 Prestigepunkte je Stufe (stapelt: ×4, ×16, …)
 
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
@@ -260,8 +271,16 @@ var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
 # Kosmetik: Auto-Lackierung (Werkstatt). car_paint_on=false → Originaltextur (keine Umfärbung).
 var car_paint_on:    bool  = false
 var car_paint_color: Color = Color(0.85, 0.15, 0.12)
+# Kosmetik: Muster über die Lack-Maske (0 = keins, 1 = Streifen). pattern_color = Schwarz.
+var car_pattern:       int   = 0
+var car_pattern_color: Color = Color(0.06, 0.06, 0.08)
 
-# Anzahl gekaufter Super-Autos („Auto 2"). Mehrfach kaufbar, überlebt Prestige (slot-gebunden, gespeichert).
+# Auto-Prestige-Stufe (überlebt normales Prestige; nur „Neues Spiel"/reset_slot löscht sie).
+# 0 = Standard-Auto, 1 = eric, … (siehe CAR_TIER_MODELS). Ab Stufe ≥1 fährt NUR das Tier-Auto.
+var car_tier: int = 0
+
+# Anzahl gekaufter Super-Autos („Auto 2"). LEGACY: nicht mehr per Shop kaufbar (durch car_tier ersetzt),
+# Feld bleibt nur für die Save-Migration erhalten.
 var super_car_count: int   = 0
 
 # Prestige-Zustand (überlebt den Prestige-Reset; nur „Neues Spiel"/reset_slot löscht ihn).
@@ -999,6 +1018,57 @@ func buy_super_car() -> bool:
 	return true
 
 
+# ── Auto-Prestige (Tier) ────────────────────────────────────────────────────────
+
+func get_car_tier() -> int:
+	return car_tier
+
+# Modellpfad der aktuellen (oder einer gegebenen) Stufe; über die definierten Stufen hinaus → letztes Modell.
+func get_car_tier_model(tier: int = -1) -> String:
+	var t = car_tier if tier < 0 else tier
+	match clampi(t, 0, CAR_TIER_COUNT - 1):
+		0: return Paths.MODEL_TEST_CAR
+		_: return Paths.MODEL_ERIC_CAR
+
+# Geld-Schwelle für den NÄCHSTEN Aufstieg = Basis · Wachstum^aktuelle_Stufe.
+func get_car_ascend_cost() -> int:
+	return int(round(CAR_ASCEND_BASE * pow(CAR_ASCEND_GROWTH, car_tier)))
+
+func can_ascend_car() -> bool:
+	return _currency >= get_car_ascend_cost()
+
+# Multiplikator auf verdiente Prestigepunkte (stapelt je Auto-Stufe: ×4, ×16, …).
+func get_car_point_mult() -> float:
+	return pow(CAR_ASCEND_POINT_MULT, car_tier)
+
+# Anzahl fahrender Tier-Autos ab Stufe ≥1: Basis 1 + je SUPER_CAR_COST_CARS normale Autos eines mehr.
+func get_tier_car_count() -> int:
+	return 1 + int(get_car_count() / SUPER_CAR_COST_CARS)
+
+# Führt den Auto-Aufstieg aus: car_tier += 1, danach VOLL-Reset (alles inkl. Prestige-Tree; nur
+# car_tier + Kosmetik bleiben). Gibt true zurück, wenn ausgeführt.
+func ascend_car() -> bool:
+	if not can_ascend_car():
+		return false
+	car_tier += 1
+	# Harter Reset – alles außer car_tier + Kosmetik (car_paint_*/car_pattern_*).
+	_currency       = START_CURRENCY
+	upgrade_levels  = {}
+	track           = []
+	unlocked_tiles  = {}
+	prestige_earned = 0
+	prestige_points = 0
+	prestige_nodes  = {}
+	super_car_count = 0
+	_active_track   = 0
+	_init_tracks()
+	save_game()
+	prestige_changed.emit()
+	# Wie ein Upgrade-Kauf → angeschaute 3D-Strecke setzt die Autos (neues Modell) neu auf.
+	emit_signal("upgrade_purchased", "super_car")
+	return true
+
+
 # Freigeschaltete Strecken = Basis + Prestige-Knoten „track" (Obergrenze = TRACK_COUNT-Kapazität).
 func get_unlocked_tracks() -> int:
 	return clampi(PRESTIGE_TRACK_BASE + get_prestige_node_level("track"), 1, TRACK_COUNT)
@@ -1203,11 +1273,12 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 	return str(level)
 
 
-# Punkte, die ein Prestige JETZT einbringen würde: floor(sqrt(prestige_earned / K)).
+# Punkte, die ein Prestige JETZT einbringen würde: floor(sqrt(prestige_earned / K)) · Auto-Stufen-Bonus.
 func prestige_pending_points() -> int:
 	if prestige_earned <= 0:
 		return 0
-	return int(floor(sqrt(float(prestige_earned) / PRESTIGE_K)))
+	var base: float = floor(sqrt(float(prestige_earned) / PRESTIGE_K))
+	return int(base * get_car_point_mult())
 
 
 func can_prestige() -> bool:
@@ -1277,6 +1348,21 @@ func set_car_paint(on: bool, color: Color = Color(0.85, 0.15, 0.12)) -> void:
 	car_paint_changed.emit()
 
 
+# Muster über die Lack-Maske (0 = keins, 1 = Streifen). Nutzt denselben Live-Update-Signalweg.
+func get_car_pattern() -> int:
+	return car_pattern
+
+
+func get_car_pattern_color() -> Color:
+	return car_pattern_color
+
+
+func set_car_pattern(idx: int) -> void:
+	car_pattern = idx
+	save_game()
+	car_paint_changed.emit()
+
+
 # ── Persistenz ──────────────────────────────────────────────────────────────────
 
 # Strecke (Grid-State) merken – wird vom 2D-Bauplan bei Änderungen gesetzt.
@@ -1319,6 +1405,8 @@ func save_game_to_slot(slot: int) -> void:
 		"total_playtime":  total_playtime,
 		"car_paint_on":    car_paint_on,
 		"car_paint_color": car_paint_color,
+		"car_pattern":     car_pattern,
+		"car_tier":        car_tier,
 		"super_car_count": super_car_count,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
 		"name":        _slot_name,
@@ -1344,6 +1432,8 @@ func load_game_from_slot(slot: int) -> void:
 	total_playtime  = 0.0
 	car_paint_on    = false
 	car_paint_color = Color(0.85, 0.15, 0.12)
+	car_pattern     = 0
+	car_tier        = 0
 	super_car_count = 0
 	_slot_name      = ""
 	_init_tracks()
@@ -1371,6 +1461,8 @@ func load_game_from_slot(slot: int) -> void:
 				car_paint_on   = bool(data.get("car_paint_on", false))
 				var cpc        = data.get("car_paint_color", car_paint_color)
 				car_paint_color = cpc if typeof(cpc) == TYPE_COLOR else car_paint_color
+				car_pattern    = int(data.get("car_pattern", 0))
+				car_tier       = int(data.get("car_tier", 0))
 				# Migration: alter Bool-Unlock (super_car_on) → 1 Super-Auto.
 				super_car_count = int(data.get("super_car_count", 1 if bool(data.get("super_car_on", false)) else 0))
 				_slot_name     = String(data.get("name", ""))

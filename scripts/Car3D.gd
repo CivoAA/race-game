@@ -28,8 +28,9 @@ func _ready() -> void:
 
 
 func _load_model() -> void:
-	# Super-Auto nutzt das eric_car-Modell; normale Autos das Test-Auto (mit Umfärb-Maske).
-	var path := Paths.MODEL_ERIC_CAR if is_super else Paths.MODEL_TEST_CAR
+	# Tier-Auto (is_super) nutzt das Modell der aktuellen Auto-Prestige-Stufe; normale Autos
+	# das Test-Auto (mit Umfärb-Maske für die Werkstatt-Lackierung).
+	var path := Economy.get_car_tier_model() if is_super else Paths.MODEL_TEST_CAR
 	if ResourceLoader.exists(path):
 		var scene = load(path)
 		model = scene.instantiate()
@@ -76,6 +77,9 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
 		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
 	mat.set_shader_parameter("paint_color", col)
+	# Muster (0 = keins) nur über die gefärbten Maskenbereiche legen.
+	mat.set_shader_parameter("pattern_mode", Economy.get_car_pattern())
+	mat.set_shader_parameter("pattern_color", Economy.get_car_pattern_color())
 	return mat
 
 

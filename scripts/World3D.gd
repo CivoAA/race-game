@@ -378,11 +378,13 @@ func _respawn_cars() -> void:
 func _start_cars(grid_state: Array) -> void:
 	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
 	var total  = Economy.get_car_count()
-	# Super-Autos („Auto 2"): jeder ersetzt SUPER_CAR_COST_CARS normale Autos durch EIN Super-Auto
-	# (langsamer: Tempo ÷ SUPER_CAR_SPEED_DIV; +SUPER_CAR_TILE_BONUS je Feld; am Ende ×SUPER_CAR_END_MULT,
-	# oben drauf). Es können nie mehr Super-Autos fahren, als 4er-Gruppen an Autos vorhanden sind.
-	var supers: int      = mini(Economy.get_super_car_count(), int(total / Economy.SUPER_CAR_COST_CARS))
-	var normal_cnt: int  = total - Economy.SUPER_CAR_COST_CARS * supers
+	# Auto-Prestige-Stufe entscheidet, WAS fährt:
+	#  Stufe 0 → wie bisher: `total` normale Autos (Test-Modell), keine Tier-Autos.
+	#  Stufe ≥1 → NUR Tier-Autos (Super-Auto-Ökonomie, Modell der Stufe): get_tier_car_count()
+	#            = 1 Basis + je SUPER_CAR_COST_CARS normale Autos eines mehr. Normale Autos fahren nicht.
+	var tier: int        = Economy.get_car_tier()
+	var supers: int      = Economy.get_tier_car_count() if tier >= 1 else 0
+	var normal_cnt: int  = 0 if tier >= 1 else total
 	var spawn_cnt: int   = normal_cnt + supers
 	if spawn_cnt < 1:
 		spawn_cnt = 1
