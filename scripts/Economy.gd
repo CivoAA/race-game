@@ -34,7 +34,7 @@ const UPGRADES = {
 	# Tempo-Stufen 0..25: Tempo = 25 + 5·Level → 25 … 150 (gleicher Top-Speed wie zuvor, nur in
 	# kleineren Schritten = deutlich langsamerer Tempo-Zuwachs). Preis unverändert (steigt steil).
 	"speed": {
-		"category": "general", "name": "Tempo (alle Autos)",
+		"category": "general", "name": "Tempo",
 		"base_cost": 50, "growth": 3.0, "max_level": 25,
 		"base": 25.0, "per_level": 5.0, "unit": " Tempo",
 	},
@@ -58,12 +58,12 @@ const UPGRADES = {
 	},
 	# End-Multiplikator & Tile-Bonus jetzt global (alle Autos), unter "Allgemeines".
 	"endmult": {
-		"category": "general", "name": "End-Multiplikator (alle Autos)",
+		"category": "general", "name": "End-Multiplikator",
 		"base_cost": 500, "growth": 3.5, "max_level": 10,
 		"base": 1.0, "per_level": 0.5, "unit": "×",
 	},
 	"tilebonus": {
-		"category": "general", "name": "Tile-Bonus (+ je Feld, alle Autos)",
+		"category": "general", "name": "Tile-Bonus",
 		"base_cost": 10, "growth": 3.0, "max_level": 14,
 		"base": 0.0, "per_level": 0.5, "unit": " /Feld",
 	},
