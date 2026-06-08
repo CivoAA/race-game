@@ -936,8 +936,9 @@ func _make_stat_column(title: String, groups: Array) -> VBoxContainer:
 	var head := Label.new()
 	head.text = title
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.add_theme_font_size_override("font_size", 18)
+	head.add_theme_font_size_override("font_size", 19)
 	head.add_theme_color_override("font_color", C_TEXT)
+	_emboss(head)
 	col.add_child(head)
 
 	var head_pad := Control.new()
@@ -2031,6 +2032,7 @@ func _build_prestige_confirm(parent: Control) -> void:
 	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_color_override("font_color", C_STAR)
 	title.text = "PRESTIGE?"
+	_emboss(title, 0.7)
 	panel.add_child(title)
 
 	_prestige_confirm_lbl = Label.new()
@@ -2098,8 +2100,9 @@ func _add_cat_header(vbox: VBoxContainer, title: String) -> void:
 	row.add_child(_hpad(16))
 	var lbl := Label.new()
 	lbl.text = title
-	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", C_TEXT)
+	_emboss(lbl)
 	row.add_child(lbl)
 	vbox.add_child(row)
 
@@ -2119,12 +2122,18 @@ func _style_modal_tab(btn: Button, active: bool) -> void:
 	sb.border_width_bottom = 3
 	sb.border_color        = C_ACCENT if active else Color(0, 0, 0, 0)
 	sb.set_corner_radius_all(8)
-	sb.content_margin_left = 10; sb.content_margin_right  = 10
-	sb.content_margin_top  = 4;  sb.content_margin_bottom = 4
+	sb.content_margin_left = 12; sb.content_margin_right  = 12
+	sb.content_margin_top  = 6;  sb.content_margin_bottom = 6
+	# 3D-Effekt: weicher Schlagschatten → angehobener Tab.
+	sb.shadow_color  = Color(0, 0, 0, 0.4)
+	sb.shadow_size   = 3
+	sb.shadow_offset = Vector2(0, 2)
 	for state in ["normal", "hover", "pressed", "focus"]:
 		btn.add_theme_stylebox_override(state, sb)
 	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
-	btn.add_theme_font_size_override("font_size", 14)
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.add_theme_constant_override("outline_size", 1)
+	btn.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
 
 
 func _style_sidebar_btn(btn: Button, active: bool) -> void:
@@ -2155,3 +2164,10 @@ func _hpad(w: float) -> Control:
 	var c := Control.new()
 	c.custom_minimum_size = Vector2(w, 0)
 	return c
+
+
+# Geprägter 3D-Look für Überschriften: dunkler Schlagschatten nach unten-rechts.
+func _emboss(lbl: Label, strength: float = 0.55) -> void:
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, strength))
+	lbl.add_theme_constant_override("shadow_offset_x", 1)
+	lbl.add_theme_constant_override("shadow_offset_y", 2)

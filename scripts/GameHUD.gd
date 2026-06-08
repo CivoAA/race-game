@@ -44,7 +44,7 @@ const V2D_X   = V3D_X - BTN_GAP - VIEW_W                          # 620
 
 # Tab-Block (links)
 const TAB_W   = 108
-const TAB_H   = 36
+const TAB_H   = 42
 const TAB_Y   = (BAR_H - TAB_H) / 2
 const TAB_GAP = 4
 const TAB_X0  = 8
@@ -117,6 +117,8 @@ func _build_bar() -> void:
 		btn.size     = Vector2(TAB_W, TAB_H)
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		# Tab-Text wird in _refresh_tabs selbst per tr() übersetzt → Auto-Übersetzung aus.
+		btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
 		_style_tab_btn(btn, i == 0)
 		btn.pressed.connect(_on_tab_pressed.bind(i))
 		add_child(btn)
@@ -255,8 +257,12 @@ func _build_side_menu() -> void:
 	hdr.position = Vector2(NAV_X + 16, NAV_TOP)
 	hdr.size     = Vector2(NAV_W - 22, NAV_HDR_H)
 	hdr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hdr.add_theme_font_size_override("font_size", 16)
+	hdr.add_theme_font_size_override("font_size", 17)
 	hdr.add_theme_color_override("font_color", C_ACCENT)
+	# Geprägter 3D-Look (dunkler Schlagschatten nach unten-rechts).
+	hdr.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
+	hdr.add_theme_constant_override("shadow_offset_x", 1)
+	hdr.add_theme_constant_override("shadow_offset_y", 2)
 	hdr.text = "◎ Menü"
 	add_child(hdr)
 
@@ -272,10 +278,10 @@ func _build_side_menu() -> void:
 	var y0 := NAV_TOP + NAV_HDR_H + 8
 	_nav_btns.clear()
 	for entry in NAV_PAGES:
-		var btn := _make_nav_btn("%s   %s" % [entry.icon, entry.label], Vector2(NAV_X, y0), NAV_W, ITEM_H)
+		var btn := _make_nav_btn(_nav_text(entry.icon, entry.label), Vector2(NAV_X, y0), NAV_W, ITEM_H)
 		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
 		add_child(btn)
-		_nav_btns.append({"btn": btn, "tab": int(entry.tab)})
+		_nav_btns.append({"btn": btn, "tab": int(entry.tab), "icon": entry.icon, "label": entry.label})
 		y0 += ITEM_H + ITEM_GAP
 
 	# Trenner + „Optionen" (öffnet das Pause-Menü, keine Modal-Seite)
@@ -284,14 +290,14 @@ func _build_side_menu() -> void:
 	sep.size     = Vector2(NAV_W - 24, 1)
 	sep.color    = C_LINE
 	add_child(sep)
-	var opt := _make_nav_btn("⚙   Optionen", Vector2(NAV_X, y0 + 18), NAV_W, ITEM_H)
+	var opt := _make_nav_btn(_nav_text("⚙", "Optionen"), Vector2(NAV_X, y0 + 18), NAV_W, ITEM_H)
 	opt.pressed.connect(_on_nav_page.bind(PAGE_OPTIONS))
 	add_child(opt)
-	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS})
+	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS, "icon": "⚙", "label": "Optionen"})
 
 	# „Pause-Menü" direkt unter Optionen – nur im Mobile-Steuerungsmodus sichtbar,
 	# weil am Handy keine ESC-Taste zum Öffnen des Pause-Menüs existiert.
-	_pause_nav_btn = _make_nav_btn("⏸   Pause-Menü", Vector2(NAV_X, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
+	_pause_nav_btn = _make_nav_btn(_nav_text("⏸", "Pause-Menü"), Vector2(NAV_X, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
 	_pause_nav_btn.pressed.connect(_on_pause_nav_pressed)
 	_pause_nav_btn.visible = _load_mobile_mode()
 	add_child(_pause_nav_btn)
@@ -320,6 +326,25 @@ func _load_mobile_mode() -> bool:
 	return String(cfg.get_value("options", "control_mode", "click")) == "mobile"
 
 
+# Nav-Eintrag = Icon + (übersetztes) Label. Wird auch beim Sprachwechsel neu gebaut.
+func _nav_text(icon: String, label: String) -> String:
+	return "%s   %s" % [icon, tr(label)]
+
+
+# Bei Sprachwechsel (NOTIFICATION_TRANSLATION_CHANGED) die selbst übersetzten Texte
+# der oberen Leiste neu aufbauen: Strecken-Tabs und die Seitennavigation.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_TRANSLATION_CHANGED:
+		return
+	if not _tab_btns.is_empty():
+		_refresh_tabs()
+	for e in _nav_btns:
+		if e.has("label") and is_instance_valid(e["btn"]):
+			e["btn"].text = _nav_text(e["icon"], e["label"])
+	if _pause_nav_btn != null and is_instance_valid(_pause_nav_btn):
+		_pause_nav_btn.text = _nav_text("⏸", "Pause-Menü")
+
+
 func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	var btn := Button.new()
 	btn.text      = txt
@@ -328,6 +353,8 @@ func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	# Text (Icon + Label) wird selbst per tr() übersetzt → Auto-Übersetzung aus.
+	btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
 	btn.add_theme_stylebox_override("normal",  _nav_sb(C_SURFACE,    false))
 	btn.add_theme_stylebox_override("hover",   _nav_sb(C_SURFACE_HI, false))
 	btn.add_theme_stylebox_override("pressed", _nav_sb(C_SURFACE_HI, true))
@@ -450,15 +477,30 @@ func _sb(bg: Color, border: Color) -> StyleBoxFlat:
 	return sb
 
 
+# Normale (nicht-fette) Schrift für die Strecken-Tabs – die globale UI-Schrift ist fett,
+# das wirkt auf den kleinen Tabs zu wuchtig. Einmal gebaut und gecacht.
+var _tab_font_regular: SystemFont = null
+func _regular_tab_font() -> SystemFont:
+	if _tab_font_regular == null:
+		_tab_font_regular = SystemFont.new()
+		_tab_font_regular.font_names = PackedStringArray(["Segoe UI", "Bahnschrift", "Inter", "Roboto", "Arial"])
+		_tab_font_regular.font_weight = 400
+	return _tab_font_regular
+
+
 func _style_tab_btn(btn: Button, active: bool) -> void:
 	# Pillen-Form: aktiver Tab gefüllt mit Akzent (dunkler Text), inaktive dezent.
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_ACCENT if active else C_SURFACE
 	sb.set_corner_radius_all(18)
-	sb.content_margin_left   = 12
-	sb.content_margin_right  = 12
+	sb.content_margin_left   = 10
+	sb.content_margin_right  = 10
 	sb.content_margin_top    = 4
 	sb.content_margin_bottom = 4
+	# 3D-/Pillen-Effekt: weicher Schlagschatten nach unten → angehobene Pille.
+	sb.shadow_color  = Color(0, 0, 0, 0.45)
+	sb.shadow_size   = 3
+	sb.shadow_offset = Vector2(0, 2)
 	btn.add_theme_stylebox_override("normal",  sb)
 	btn.add_theme_stylebox_override("pressed", sb)
 	btn.add_theme_stylebox_override("focus",   sb)
@@ -467,7 +509,10 @@ func _style_tab_btn(btn: Button, active: bool) -> void:
 		sb_h.bg_color = C_SURFACE_HI
 	btn.add_theme_stylebox_override("hover", sb_h)
 	btn.add_theme_color_override("font_color", C_BG if active else C_TEXT_DIM)
-	btn.add_theme_font_size_override("font_size", 12)
+	btn.add_theme_font_size_override("font_size", 13)
+	# Schrift bewusst in normaler Stärke (nicht fett) – wirkt auf den Tabs ruhiger.
+	# Der 3D-Look kommt allein vom Pillen-Schatten oben.
+	btn.add_theme_font_override("font", _regular_tab_font())
 	# Disabled (gesperrte Strecke)
 	var sb_dis := sb.duplicate() as StyleBoxFlat
 	sb_dis.bg_color = C_SURFACE.darkened(0.2)
@@ -485,7 +530,10 @@ func _refresh_tabs() -> void:
 	for i in TRACK_COUNT:
 		var is_locked := i >= unlocked
 		# Gesperrte Strecken (per Prestige „Extra-Strecke" freischaltbar) zeigen ein Schloss.
-		_tab_btns[i].text     = "🔒 Strecke %d" % (i + 1) if is_locked else "Strecke %d" % (i + 1)
+		# tr() übersetzt den Format-String („Strecke %d" → „Track %d") vor dem Einsetzen
+		# der Nummer; auto_translate ist für die Tabs aus (siehe _build_bar).
+		var tab_label := tr("Strecke %d") % (i + 1)
+		_tab_btns[i].text     = ("🔒 " + tab_label) if is_locked else tab_label
 		_style_tab_btn(_tab_btns[i], i == _active_tab)
 		# Tabs bleiben auch in der 3D-Ansicht aktiv – nur gesperrte Strecken sind nicht wählbar.
 		_tab_btns[i].disabled = is_locked

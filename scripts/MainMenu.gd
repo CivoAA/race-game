@@ -2,9 +2,21 @@ extends Control
 
 const LANGUAGES    = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES = ["Fenster", "Rahmenlos", "Vollbild"]
-const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (125%)", 1.25], ["Sehr groß (150%)", 1.5]]
+# Wählbare Bildschirmauflösungen (Label + Fenstergröße). Gängige 16:9-Auflösungen plus
+# Breitbild/Ultrawide, damit das Spiel auf möglichst jedem Monitor passt.
+const RESOLUTIONS = [
+	["1280 × 720", Vector2i(1280, 720)],
+	["1366 × 768", Vector2i(1366, 768)],
+	["1600 × 900", Vector2i(1600, 900)],
+	["1920 × 1080  (Full HD)", Vector2i(1920, 1080)],
+	["2560 × 1440  (2K)", Vector2i(2560, 1440)],
+	["3840 × 2160  (4K)", Vector2i(3840, 2160)],
+	["2560 × 1080  (UltraWide)", Vector2i(2560, 1080)],
+	["3440 × 1440  (UltraWide)", Vector2i(3440, 1440)],
+	["5120 × 1440  (Super UltraWide)", Vector2i(5120, 1440)],
+]
+const DEFAULT_RESOLUTION = Vector2i(1280, 720)
 const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
-const SETTINGS_BASE = Vector2i(960, 540)
 
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
 const C_BG        := Color(0.118, 0.122, 0.133)   # #1e1f22
@@ -47,7 +59,7 @@ var _master_slider:  HSlider
 var _music_slider:   HSlider
 var _sfx_slider:     HSlider
 var _window_option:    OptionButton
-var _ui_scale_option:  OptionButton
+var _res_option:       OptionButton
 var _placement_switch: CheckButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
@@ -102,6 +114,7 @@ func _build_main_panel() -> Control:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	title.add_theme_font_size_override("font_size", 46)
 	title.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(title, 0.7)
 	vbox.add_child(title)
 
 	var subtitle := Label.new()
@@ -215,6 +228,7 @@ func _build_slot_panel() -> Control:
 	_slot_title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_slot_title_lbl.add_theme_font_size_override("font_size", 28)
 	_slot_title_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(_slot_title_lbl)
 	vbox.add_child(_slot_title_lbl)
 
 	_add_hline(vbox)
@@ -578,6 +592,7 @@ func _build_options_panel() -> Control:
 	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title_lbl.add_theme_font_size_override("font_size", 20)
 	title_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(title_lbl)
 	header.add_child(title_lbl)
 	_add_hline(outer_vbox)
 
@@ -639,7 +654,8 @@ func _build_options_panel() -> Control:
 	_sfx_slider = r[0]; _lbl_sfx_val = r[1]
 	_sfx_slider.value_changed.connect(_on_sfx_volume_changed)
 
-	# Kategorie 2 – Anzeige (Modus + UI-Skalierung)
+	# Kategorie 2 – Anzeige: Modus + Bildschirmauflösung zusammen unter einer Überschrift
+	# (untereinander, ohne Trennstriche).
 	var v2 := _new_settings_cat(holder)
 	_add_section_label(v2, "ANZEIGEMODUS")
 	var win_row := _make_hrow(v2)
@@ -652,23 +668,15 @@ func _build_options_panel() -> Control:
 	_window_option.item_selected.connect(_on_window_mode_changed)
 	win_row.add_child(_window_option)
 
-	_add_hline(v2)
-	_add_section_label(v2, "UI-SKALIERUNG")
-	var scale_row := _make_hrow(v2)
-	_make_row_label(scale_row, "Skalierung:")
-	_ui_scale_option = OptionButton.new()
-	_ui_scale_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_style_option_btn(_ui_scale_option)
-	for s in UI_SCALES:
-		_ui_scale_option.add_item(s[0])
-	_ui_scale_option.item_selected.connect(_on_ui_scale_changed)
-	scale_row.add_child(_ui_scale_option)
-	var scale_hint := Label.new()
-	scale_hint.text = "Skaliert das gesamte Fenster (im Vollbild ohne Wirkung)."
-	scale_hint.add_theme_font_size_override("font_size", 11)
-	scale_hint.add_theme_color_override("font_color", C_TEXT_DIM)
-	scale_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	v2.add_child(scale_hint)
+	var res_row := _make_hrow(v2)
+	_make_row_label(res_row, "Bildschirmauflösung:")
+	_res_option = OptionButton.new()
+	_res_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_option_btn(_res_option)
+	for res in RESOLUTIONS:
+		_res_option.add_item(res[0])
+	_res_option.item_selected.connect(_on_resolution_changed)
+	res_row.add_child(_res_option)
 
 	# Kategorie 3 – Steuerung
 	var v3 := _new_settings_cat(holder)
@@ -853,21 +861,20 @@ func _new_settings_cat(holder: Control) -> VBoxContainer:
 	return vbox
 
 
-# ── UI-Skalierung ─────────────────────────────────────────────────────────────
+# ── Bildschirmauflösung ───────────────────────────────────────────────────────
 
-func _on_ui_scale_changed(index: int) -> void:
+func _on_resolution_changed(index: int) -> void:
 	if _loading_settings: return
-	var factor: float = UI_SCALES[index][1]
-	settings.set_value("options", "ui_scale", factor)
-	_apply_ui_scale(factor)
+	var size: Vector2i = RESOLUTIONS[index][1]
+	settings.set_value("options", "resolution", size)
+	_apply_resolution(size)
 	_options_dirty = true
 
 
-func _apply_ui_scale(factor: float) -> void:
+func _apply_resolution(size: Vector2i) -> void:
 	var mode := DisplayServer.window_get_mode()
 	if mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
 		return
-	var size := Vector2i(int(round(SETTINGS_BASE.x * factor)), int(round(SETTINGS_BASE.y * factor)))
 	DisplayServer.window_set_size(size)
 	var screen_id := DisplayServer.window_get_current_screen()
 	var usable := DisplayServer.screen_get_usable_rect(screen_id)
@@ -1011,7 +1018,11 @@ func _make_hrow(parent: VBoxContainer) -> HBoxContainer:
 func _make_row_label(row: HBoxContainer, text: String) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.custom_minimum_size = Vector2(130, 0)
+	# Feste Label-Spalte: alle Bedienelemente (Dropdowns/Schalter) starten so an derselben
+	# x-Position, auch wenn die Beschriftungen unterschiedlich lang sind. Breit genug für
+	# das längste Label („Bildschirmauflösung:"); clip_text verhindert ein Überlaufen.
+	lbl.custom_minimum_size = Vector2(180, 0)
+	lbl.clip_text = true
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	row.add_child(lbl)
@@ -1059,15 +1070,24 @@ func _add_panel_title(parent: VBoxContainer, text: String) -> void:
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	lbl.add_theme_font_size_override("font_size", 28)
 	lbl.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(lbl)
 	parent.add_child(lbl)
 
 
 func _add_section_label(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", C_TEXT)
+	_emboss(lbl)
 	parent.add_child(lbl)
+
+
+# Geprägter 3D-Look für Überschriften: dunkler Schlagschatten nach unten-rechts.
+func _emboss(lbl: Label, strength: float = 0.55) -> void:
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, strength))
+	lbl.add_theme_constant_override("shadow_offset_x", 1)
+	lbl.add_theme_constant_override("shadow_offset_y", 2)
 
 
 func _add_hline(parent: Node) -> void:
@@ -1169,10 +1189,10 @@ func _sync_options_ui() -> void:
 	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
 	_window_option.selected = settings.get_value("options", "window_mode",   0)
 
-	var sf := float(settings.get_value("options", "ui_scale", 1.0))
-	for i in UI_SCALES.size():
-		if abs(float(UI_SCALES[i][1]) - sf) < 0.001:
-			_ui_scale_option.selected = i
+	var res: Vector2i = settings.get_value("options", "resolution", DEFAULT_RESOLUTION)
+	for i in RESOLUTIONS.size():
+		if RESOLUTIONS[i][1] == res:
+			_res_option.selected = i
 			break
 
 	# Platzierung aus der Steuerungsart ableiten (control_mode hat Vorrang vor placement_mode).
@@ -1268,7 +1288,7 @@ func _on_options_discard() -> void:
 	var si := AudioServer.get_bus_index("SFX")
 	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
-	_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+	_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
 	_options_dirty = false
 	_show_main()
@@ -1392,7 +1412,7 @@ func _apply_settings() -> void:
 		AudioServer.set_bus_volume_db(si,
 				_vol_db(settings.get_value("options", "sfx_volume", 100.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
-	_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+	_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
 
 
@@ -1401,11 +1421,11 @@ func _apply_window_mode(index: int) -> void:
 		0:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
-			_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 		1:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
-			_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 		2:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 

@@ -2,7 +2,20 @@ extends CanvasLayer
 
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
 const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
-const UI_SCALES     = [["Klein (80%)", 0.8], ["Normal (100%)", 1.0], ["Groß (125%)", 1.25], ["Sehr groß (150%)", 1.5]]
+# Wählbare Bildschirmauflösungen (Label + Fenstergröße). Gängige 16:9-Auflösungen plus
+# Breitbild/Ultrawide, damit das Spiel auf möglichst jedem Monitor passt.
+const RESOLUTIONS = [
+	["1280 × 720", Vector2i(1280, 720)],
+	["1366 × 768", Vector2i(1366, 768)],
+	["1600 × 900", Vector2i(1600, 900)],
+	["1920 × 1080  (Full HD)", Vector2i(1920, 1080)],
+	["2560 × 1440  (2K)", Vector2i(2560, 1440)],
+	["3840 × 2160  (4K)", Vector2i(3840, 2160)],
+	["2560 × 1080  (UltraWide)", Vector2i(2560, 1080)],
+	["3440 × 1440  (UltraWide)", Vector2i(3440, 1440)],
+	["5120 × 1440  (Super UltraWide)", Vector2i(5120, 1440)],
+]
+const DEFAULT_RESOLUTION = Vector2i(1280, 720)
 # Kategorien der Side-Nav in den Einstellungen
 const SETTINGS_CATS = [["🌐", "Allgemein"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
 # Steuerungsarten der Kategorie „Steuerung" (Pill-/Segment-Auswahl). Reihenfolge = Index.
@@ -13,7 +26,6 @@ const CTRL_DESCS = [
 	"Ziehe Teile direkt aus der Palette auf das Baufeld – beim Loslassen wird gesetzt.",
 	"Touch-Bedienung fürs Handy: Ziehen & Ablegen plus optionaler Drehen-Knopf.",
 ]
-const SETTINGS_BASE = Vector2i(960, 540)   # Basis-Auflösung für UI-Skalierung
 
 # Inhaltsbereich der Einstellungen = links der GameHUD-Seitenleiste, unter der Top-Bar und
 # über der unteren Leiste – damit die rechte Nav (und Top-/Bottom-Bar) sichtbar/bedienbar bleibt.
@@ -53,7 +65,7 @@ var _master_slider:  HSlider
 var _music_slider:   HSlider
 var _sfx_slider:     HSlider
 var _window_option:    OptionButton
-var _ui_scale_option:  OptionButton
+var _res_option:       OptionButton
 var _rotate_switch:    CheckButton
 var _cheat_switch:     CheckButton
 var _lbl_master_val: Label
@@ -69,6 +81,7 @@ var _ctrl_subtab_btns: Array[Button] = []
 var _ctrl_desc_lbl:    Label
 var _ctrl_rotate_label: Label
 var _ctrl_mobile_hint: Label
+var _mobile_settings_box: VBoxContainer   # Container aller Mobile-Optionen (nur im Mobile-Modus sichtbar)
 
 var _loading_settings := false
 
@@ -294,6 +307,7 @@ func _build_settings_panel() -> Control:
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 20)
 	title.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(title)
 	var lpad := Control.new(); lpad.custom_minimum_size = Vector2(24, 0)
 	header.add_child(lpad); header.add_child(title)
 
@@ -354,7 +368,8 @@ func _build_settings_panel() -> Control:
 	_sfx_slider = r[0]; _lbl_sfx_val = r[1]
 	_sfx_slider.value_changed.connect(_on_sfx_volume_changed)
 
-	# Kategorie 2 – Anzeige (Modus + UI-Skalierung)
+	# Kategorie 2 – Anzeige: Modus + Bildschirmauflösung zusammen unter einer Überschrift
+	# (untereinander, ohne Trennstriche).
 	var v2 := _new_settings_cat(holder)
 	_add_section_label(v2, "ANZEIGEMODUS")
 	var win_row := _make_hrow(v2)
@@ -367,23 +382,15 @@ func _build_settings_panel() -> Control:
 	_window_option.item_selected.connect(_on_window_mode_changed)
 	win_row.add_child(_window_option)
 
-	_add_hline(v2)
-	_add_section_label(v2, "UI-SKALIERUNG")
-	var scale_row := _make_hrow(v2)
-	_make_row_label(scale_row, "Skalierung:")
-	_ui_scale_option = OptionButton.new()
-	_ui_scale_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_style_option_btn(_ui_scale_option)
-	for s in UI_SCALES:
-		_ui_scale_option.add_item(s[0])
-	_ui_scale_option.item_selected.connect(_on_ui_scale_changed)
-	scale_row.add_child(_ui_scale_option)
-	var scale_hint := Label.new()
-	scale_hint.text = "Skaliert das gesamte Fenster (im Vollbild ohne Wirkung)."
-	scale_hint.add_theme_font_size_override("font_size", 11)
-	scale_hint.add_theme_color_override("font_color", C_TEXT_DIM)
-	scale_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	v2.add_child(scale_hint)
+	var res_row := _make_hrow(v2)
+	_make_row_label(res_row, "Bildschirmauflösung:")
+	_res_option = OptionButton.new()
+	_res_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_option_btn(_res_option)
+	for res in RESOLUTIONS:
+		_res_option.add_item(res[0])
+	_res_option.item_selected.connect(_on_resolution_changed)
+	res_row.add_child(_res_option)
 
 	# Cheats sind jetzt ein Abschnitt der Anzeige-Kategorie (eigener Tab entfällt).
 	_add_hline(v2)
@@ -406,28 +413,8 @@ func _build_settings_panel() -> Control:
 
 	_show_settings_cat(0)
 
-	# Kein Speichern/Zurück-Button mehr: Änderungen werden automatisch übernommen und beim
-	# Schließen (über die Seitenleiste oder ESC) gespeichert. Nur ein dezenter Hinweis.
-	var bot_line := ColorRect.new()
-	bot_line.custom_minimum_size = Vector2(0, 1)
-	bot_line.color = C_LINE
-	outer_vbox.add_child(bot_line)
-
-	var hint_row := HBoxContainer.new()
-	hint_row.custom_minimum_size = Vector2(0, 40)
-	outer_vbox.add_child(hint_row)
-
-	var hpad := Control.new(); hpad.custom_minimum_size = Vector2(24, 0)
-	hint_row.add_child(hpad)
-
-	var hint := Label.new()
-	hint.text = "✓  Änderungen werden automatisch gespeichert"
-	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.add_theme_color_override("font_color", C_TEXT_DIM)
-	hint_row.add_child(hint)
-
+	# Kein Speichern/Zurück-Button und kein Hinweis-Balken mehr – Änderungen werden
+	# automatisch übernommen und beim Schließen (Seitenleiste oder ESC) gespeichert.
 	return overlay
 
 
@@ -506,7 +493,12 @@ func _build_ghost_btn(txt: String, cb: Callable) -> Button:
 
 func _add_settings_nav(parent: HBoxContainer, idx: int, icon: String, label: String) -> void:
 	var btn := Button.new()
-	btn.text = "%s  %s" % [icon, label]
+	# Label selbst per tr() übersetzen (Icon + Label) → Auto-Übersetzung aus; beim
+	# Sprachwechsel baut _notification den Text neu auf (Icon/Label als Meta gespeichert).
+	btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	btn.set_meta("nav_icon", icon)
+	btn.set_meta("nav_label", label)
+	btn.text = "%s  %s" % [icon, tr(label)]
 	btn.custom_minimum_size = Vector2(0, 34)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -514,6 +506,15 @@ func _add_settings_nav(parent: HBoxContainer, idx: int, icon: String, label: Str
 	btn.pressed.connect(_on_settings_nav.bind(idx))
 	parent.add_child(btn)
 	_settings_nav_btns.append(btn)
+
+
+# Beim Sprachwechsel die selbst übersetzten Kategorie-Tabs (Icon + Label) neu beschriften.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_TRANSLATION_CHANGED:
+		return
+	for btn in _settings_nav_btns:
+		if is_instance_valid(btn) and btn.has_meta("nav_label"):
+			btn.text = "%s  %s" % [btn.get_meta("nav_icon"), tr(btn.get_meta("nav_label"))]
 
 
 # Horizontale Tab-Optik: aktiver Tab mit Akzent-Balken UNTEN + gefüllter Fläche.
@@ -525,6 +526,12 @@ func _style_settings_nav(btn: Button, active: bool) -> void:
 	sb.set_corner_radius_all(8)
 	sb.content_margin_left = 16; sb.content_margin_right = 16
 	sb.content_margin_top  = 6;  sb.content_margin_bottom = 6
+	# 3D-Effekt: Schlagschatten nur auf dem aktiven (gefüllten) Tab –
+	# inaktive Tabs sind transparent, dort würde der Schatten frei „schweben".
+	if active:
+		sb.shadow_color  = Color(0, 0, 0, 0.4)
+		sb.shadow_size   = 3
+		sb.shadow_offset = Vector2(0, 2)
 	var sb_h := sb.duplicate() as StyleBoxFlat
 	if not active:
 		sb_h.bg_color = C_SURFACE
@@ -532,7 +539,9 @@ func _style_settings_nav(btn: Button, active: bool) -> void:
 		btn.add_theme_stylebox_override(state, sb)
 	btn.add_theme_stylebox_override("hover", sb_h)
 	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
-	btn.add_theme_font_size_override("font_size", 14)
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.add_theme_constant_override("outline_size", 1)
+	btn.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
 
 
 func _on_settings_nav(idx: int) -> void:
@@ -578,10 +587,14 @@ func _build_steuerung_cat(parent: VBoxContainer) -> void:
 	_ctrl_desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	parent.add_child(_ctrl_desc_lbl)
 
-	# Mobile-spezifische Einstellungen – nur im Mobile-Modus bedienbar, sonst ausgegraut.
-	_add_hline(parent)
-	_add_section_label(parent, "MOBILE-EINSTELLUNGEN")
-	var rotate_row := _make_hrow(parent)
+	# Mobile-spezifische Einstellungen – komplett in einem eigenen Container, der nur im
+	# Mobile-Modus sichtbar ist (bei Klick/Drag taucht hier gar nichts auf).
+	_mobile_settings_box = VBoxContainer.new()
+	_mobile_settings_box.add_theme_constant_override("separation", 14)
+	parent.add_child(_mobile_settings_box)
+	_add_hline(_mobile_settings_box)
+	_add_section_label(_mobile_settings_box, "MOBILE-EINSTELLUNGEN")
+	var rotate_row := _make_hrow(_mobile_settings_box)
 	_ctrl_rotate_label = _make_row_label(rotate_row, "Drehen-Knopf:")
 	_rotate_switch = _make_placement_switch()
 	_rotate_switch.toggled.connect(_on_rotate_btn_toggled)
@@ -591,7 +604,7 @@ func _build_steuerung_cat(parent: VBoxContainer) -> void:
 	_ctrl_mobile_hint.add_theme_font_size_override("font_size", 11)
 	_ctrl_mobile_hint.add_theme_color_override("font_color", C_TEXT_DIM)
 	_ctrl_mobile_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	parent.add_child(_ctrl_mobile_hint)
+	_mobile_settings_box.add_child(_ctrl_mobile_hint)
 
 	# Anzeige initial setzen (echter Wert kommt aus _sync_settings_ui).
 	_apply_ctrl_mode(0, false)
@@ -638,11 +651,10 @@ func _apply_ctrl_mode(idx: int, persist: bool) -> void:
 	_settings_dirty = true
 
 
-# Aktiviert/Deaktiviert die Mobile-Einstellungen (Drehen-Knopf).
+# Zeigt/versteckt die Mobile-Einstellungen komplett (nur im Mobile-Modus sichtbar).
 func _set_mobile_settings_enabled(enabled: bool) -> void:
-	_rotate_switch.disabled = not enabled
-	_rotate_switch.modulate = Color(1, 1, 1, 1.0 if enabled else 0.45)
-	_ctrl_rotate_label.add_theme_color_override("font_color", C_TEXT_DIM if enabled else C_LINE)
+	if _mobile_settings_box != null:
+		_mobile_settings_box.visible = enabled
 
 
 # Wendet die effektive Drehen-Knopf-Sichtbarkeit an (nur im Mobile-Modus sichtbar).
@@ -696,22 +708,21 @@ func _new_settings_cat(holder: Control) -> VBoxContainer:
 	return vbox
 
 
-# ── UI-Skalierung ─────────────────────────────────────────────────────────────
+# ── Bildschirmauflösung ───────────────────────────────────────────────────────
 
-func _on_ui_scale_changed(index: int) -> void:
+func _on_resolution_changed(index: int) -> void:
 	if _loading_settings: return
-	var factor: float = UI_SCALES[index][1]
-	settings.set_value("options", "ui_scale", factor)
-	_apply_ui_scale(factor)
+	var size: Vector2i = RESOLUTIONS[index][1]
+	settings.set_value("options", "resolution", size)
+	_apply_resolution(size)
 	_settings_dirty = true
 
 
-func _apply_ui_scale(factor: float) -> void:
-	# Wirkt nur im Fenster-/Rahmenlos-Modus; Vollbild skaliert ohnehin auf den Monitor.
+func _apply_resolution(size: Vector2i) -> void:
+	# Wirkt nur im Fenster-/Rahmenlos-Modus; Vollbild nutzt ohnehin die Monitorauflösung.
 	var mode := DisplayServer.window_get_mode()
 	if mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
 		return
-	var size := Vector2i(int(round(SETTINGS_BASE.x * factor)), int(round(SETTINGS_BASE.y * factor)))
 	DisplayServer.window_set_size(size)
 	var screen_id := DisplayServer.window_get_current_screen()
 	var usable := DisplayServer.screen_get_usable_rect(screen_id)
@@ -868,7 +879,11 @@ func _make_hrow(parent: VBoxContainer) -> HBoxContainer:
 func _make_row_label(row: HBoxContainer, text: String) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.custom_minimum_size = Vector2(130, 0)
+	# Feste Label-Spalte: alle Bedienelemente (Dropdowns/Schalter) starten so an derselben
+	# x-Position, auch wenn die Beschriftungen unterschiedlich lang sind. Breit genug für
+	# das längste Label („Bildschirmauflösung:"); clip_text verhindert ein Überlaufen.
+	lbl.custom_minimum_size = Vector2(180, 0)
+	lbl.clip_text = true
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	row.add_child(lbl)
@@ -922,9 +937,17 @@ func _add_panel_title(parent: VBoxContainer, text: String) -> void:
 func _add_section_label(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", C_TEXT)
+	_emboss(lbl)
 	parent.add_child(lbl)
+
+
+# Geprägter 3D-Look für Überschriften: dunkler Schlagschatten nach unten-rechts.
+func _emboss(lbl: Label, strength: float = 0.55) -> void:
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, strength))
+	lbl.add_theme_constant_override("shadow_offset_x", 1)
+	lbl.add_theme_constant_override("shadow_offset_y", 2)
 
 
 func _add_hline(parent: Node) -> void:
@@ -988,10 +1011,10 @@ func _sync_settings_ui() -> void:
 	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
 	_window_option.selected = settings.get_value("options", "window_mode",   0)
 
-	var sf := float(settings.get_value("options", "ui_scale", 1.0))
-	for i in UI_SCALES.size():
-		if abs(float(UI_SCALES[i][1]) - sf) < 0.001:
-			_ui_scale_option.selected = i
+	var res: Vector2i = settings.get_value("options", "resolution", DEFAULT_RESOLUTION)
+	for i in RESOLUTIONS.size():
+		if RESOLUTIONS[i][1] == res:
+			_res_option.selected = i
 			break
 
 	# Steuerungsart (Modus-Auswahl). Fallback: aus altem placement_mode ableiten.
@@ -1108,7 +1131,7 @@ func _on_discard_confirm() -> void:
 	var si := AudioServer.get_bus_index("SFX")
 	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
-	_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+	_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
 	Economy.apply_cheat_mode(bool(settings.get_value("cheats", "enabled", false)))
 	_settings_dirty = false
@@ -1217,11 +1240,11 @@ func _apply_window_mode(index: int) -> void:
 		0:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
-			_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 		1:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
-			_apply_ui_scale(float(settings.get_value("options", "ui_scale", 1.0)))
+			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 		2:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 
