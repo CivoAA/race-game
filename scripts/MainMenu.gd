@@ -16,7 +16,11 @@ const RESOLUTIONS = [
 	["5120 × 1440  (Super UltraWide)", Vector2i(5120, 1440)],
 ]
 const DEFAULT_RESOLUTION = Vector2i(1280, 720)
-const SETTINGS_CATS = [["🌐", "Sprache"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
+
+# Einstellungs-Kategorien [Icon, Label] mit Tabler-Icons. Funktion statt const, weil die
+# Glyphen aus dem Icons-Autoload kommen.
+func _settings_cats() -> Array:
+	return [[Icons.WORLD, "Sprache"], [Icons.VOLUME, "Audio"], [Icons.DESKTOP, "Anzeige"], [Icons.GAMEPAD, "Steuerung"]]
 
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
 const C_BG        := Color(0.118, 0.122, 0.133)   # #1e1f22
@@ -321,13 +325,13 @@ func _build_slot_row(slot: int) -> HBoxContainer:
 	_slot_btns.append(btn)
 
 	# ── Umbenennen-Button ──
-	var ren_btn := _build_action_btn("✎", C_ACCENT_MU)
+	var ren_btn := _build_action_btn(Icons.PENCIL, C_ACCENT_MU)
 	ren_btn.pressed.connect(func(): _show_rename_modal(slot))
 	row.add_child(ren_btn)
 	_slot_rename_btns.append(ren_btn)
 
 	# ── Löschen-Button ──
-	var del_btn := _build_action_btn("✕", C_ACCENT_RD)
+	var del_btn := _build_action_btn(Icons.X, C_ACCENT_RD)
 	del_btn.pressed.connect(func(): _show_delete_modal(slot))
 	row.add_child(del_btn)
 	_slot_delete_btns.append(del_btn)
@@ -617,8 +621,9 @@ func _build_options_panel() -> Control:
 	nav.add_theme_constant_override("separation", 4)
 	sidebar.add_child(nav)
 	_settings_nav_btns.clear()
-	for i in SETTINGS_CATS.size():
-		_add_settings_nav(nav, i, SETTINGS_CATS[i][0], SETTINGS_CATS[i][1])
+	var cats := _settings_cats()
+	for i in cats.size():
+		_add_settings_nav(nav, i, cats[i][0], cats[i][1])
 
 	var holder := Control.new()
 	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -710,7 +715,7 @@ func _build_options_panel() -> Control:
 	var sep := Control.new(); sep.custom_minimum_size = Vector2(14, 0)
 	btn_row.add_child(sep)
 
-	var save_btn := _build_options_footer_btn("💾  Speichern", Color(0.13, 0.45, 0.26), Color(0.30, 0.85, 0.48))
+	var save_btn := _build_options_footer_btn(Icons.FLOPPY + "  Speichern", Color(0.13, 0.45, 0.26), Color(0.30, 0.85, 0.48))
 	save_btn.size_flags_stretch_ratio = 1.7
 	save_btn.add_theme_color_override("font_color", Color(0.88, 1.0, 0.92))
 	save_btn.pressed.connect(_on_options_save)
@@ -936,7 +941,7 @@ func _build_achievements_panel() -> Control:
 		row.add_child(pad)
 
 		var star := Label.new()
-		star.text = "★" if ach[2] else "☆"
+		star.text = Icons.STAR
 		star.custom_minimum_size = Vector2(24, 0)
 		star.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		star.add_theme_font_size_override("font_size", 22)
@@ -1353,7 +1358,7 @@ func _build_options_save_modal() -> Control:
 	vbox.add_child(text_lbl)
 
 	_add_spacer(vbox, 10)
-	vbox.add_child(_build_primary_btn("✓  ÜBERNEHMEN", _on_options_save_confirm))
+	vbox.add_child(_build_primary_btn(Icons.CHECK + "  ÜBERNEHMEN", _on_options_save_confirm))
 	vbox.add_child(_build_ghost_btn("Abbrechen", func():
 		_hide_all()
 		_options_panel.visible = true

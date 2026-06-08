@@ -41,7 +41,7 @@ func _refresh() -> void:
 	if c == _last_shown:
 		return
 	_last_shown = c
-	_label.text = "💰  %s" % Economy.format_currency(c)
+	_label.text = "%s  %s" % [Icons.COIN, Economy.format_currency(c)]
 
 
 func flash() -> void:
@@ -71,7 +71,7 @@ func gain(amount: int) -> void:
 
 	# Aufsteigendes "+N 💰" das ausblendet
 	var fl := Label.new()
-	fl.text = "+%s 💰" % Economy.format_currency(amount)
+	fl.text = "+%s %s" % [Economy.format_currency(amount), Icons.COIN]
 	fl.position = Vector2(VIEWPORT_WIDTH / 2.0 - 60, 46)
 	fl.size = Vector2(120, 28)
 	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

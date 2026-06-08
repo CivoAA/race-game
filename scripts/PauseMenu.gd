@@ -16,8 +16,10 @@ const RESOLUTIONS = [
 	["5120 × 1440  (Super UltraWide)", Vector2i(5120, 1440)],
 ]
 const DEFAULT_RESOLUTION = Vector2i(1280, 720)
-# Kategorien der Side-Nav in den Einstellungen
-const SETTINGS_CATS = [["🌐", "Allgemein"], ["🔊", "Audio"], ["🖥", "Anzeige"], ["🎮", "Steuerung"]]
+# Kategorien der Side-Nav in den Einstellungen [Icon, Label] mit Tabler-Icons.
+# Funktion statt const, weil die Glyphen aus dem Icons-Autoload kommen.
+func _settings_cats() -> Array:
+	return [[Icons.SETTINGS, "Allgemein"], [Icons.VOLUME, "Audio"], [Icons.DESKTOP, "Anzeige"], [Icons.GAMEPAD, "Steuerung"]]
 # Steuerungsarten der Kategorie „Steuerung" (Pill-/Segment-Auswahl). Reihenfolge = Index.
 const CTRL_SUBTABS = ["Klick modus", "Drag & Drop", "Mobile"]
 const CTRL_MODE_IDS = ["click", "drag", "mobile"]
@@ -200,7 +202,7 @@ func _build_pause_panel() -> Control:
 	_add_btn(vbox, "03", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
 
 	_save_status_lbl = Label.new()
-	_save_status_lbl.text = "✓ Gespeichert!"
+	_save_status_lbl.text = Icons.CHECK + " Gespeichert!"
 	_save_status_lbl.visible = false
 	_save_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_save_status_lbl.add_theme_font_size_override("font_size", 12)
@@ -330,8 +332,9 @@ func _build_settings_panel() -> Control:
 	nav.add_theme_constant_override("separation", 6)
 	navbar.add_child(nav)
 	_settings_nav_btns.clear()
-	for i in SETTINGS_CATS.size():
-		_add_settings_nav(nav, i, SETTINGS_CATS[i][0], SETTINGS_CATS[i][1])
+	var cats := _settings_cats()
+	for i in cats.size():
+		_add_settings_nav(nav, i, cats[i][0], cats[i][1])
 
 	# Inhaltsbereich darunter (hält alle Kategorie-Panels, eines sichtbar)
 	var holder := Control.new()
@@ -401,7 +404,7 @@ func _build_settings_panel() -> Control:
 	_cheat_switch.toggled.connect(_on_cheat_toggled)
 	cheat_row.add_child(_cheat_switch)
 	var cheat_hint := Label.new()
-	cheat_hint.text = "Zeigt den Endlos-Modus (∞) und den +1B ⭐ Button in der oberen Leiste an."
+	cheat_hint.text = "Zeigt den Endlos-Modus (%s) und den +1B %s Button in der oberen Leiste an." % [Icons.INFINITY, Icons.STAR]
 	cheat_hint.add_theme_font_size_override("font_size", 11)
 	cheat_hint.add_theme_color_override("font_color", C_TEXT_DIM)
 	cheat_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -1195,7 +1198,7 @@ func _build_save_modal() -> Control:
 	vbox.add_child(text_lbl)
 
 	_add_spacer(vbox, 10)
-	vbox.add_child(_build_primary_btn("✓  ÜBERNEHMEN", _on_save_confirm))
+	vbox.add_child(_build_primary_btn(Icons.CHECK + "  ÜBERNEHMEN", _on_save_confirm))
 	vbox.add_child(_build_ghost_btn("Abbrechen", func():
 		_hide_all()
 		_settings_panel.visible = true

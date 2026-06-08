@@ -198,12 +198,12 @@ const PRESTIGE_NODES = {
 	# Globaler Einkommens-Multiplikator: Mult = 1 + Level (Lv1 ×2, Lv2 ×3, Lv3 ×4 …). Billig & viele
 	# Stufen → der „Brot-und-Butter"-Knoten, in den die ersten Punkte fließen.
 	"income": {
-		"name": "×-Einkommen", "icon": "✖", "base_cost": 1, "growth": 2.0, "max_level": 25,
+		"name": "×-Einkommen", "icon": "", "base_cost": 1, "growth": 2.0, "max_level": 25,
 		"desc": "Multipliziert allen verdienten Lauf-Ertrag (×2, ×3, ×4 …).", "prereq": {},
 	},
 	# Streckengröße: identische Stufen wie GRID_STEPS (4×4 → 4×5 → 4×6 → 5×6). Teuer (nur 3 Stufen).
 	"grid": {
-		"name": "Streckengröße", "icon": "▦", "base_cost": 4, "growth": 4.0, "max_level": 3,
+		"name": "Streckengröße", "icon": "", "base_cost": 4, "growth": 4.0, "max_level": 3,
 		"desc": "Vergrößert das Baufeld aller Strecken.", "prereq": {"income": 1},
 	},
 	# Unlocks behalten: einmaliger Kauf (max_level 1). Danach bleiben ALLE freigeschalteten
@@ -211,7 +211,7 @@ const PRESTIGE_NODES = {
 	# man zahlt die Freischalt-Gebühr nie wieder. Die Tile-UPGRADES bleiben Level 0 (werden
 	# normal zurückgesetzt); nur die einmalige Freischaltung entfällt. Siehe is_tile_unlocked().
 	"keep_unlocks": {
-		"name": "Unlocks behalten", "icon": "🗝", "base_cost": 5, "growth": 1.0, "max_level": 1,
+		"name": "Unlocks behalten", "icon": "", "base_cost": 5, "growth": 1.0, "max_level": 1,
 		"desc": "Freigeschaltete Streckenteile bleiben nach dem Prestige gratis (keine Freischalt-Gebühr mehr).",
 		"prereq": {"grid": 1},
 	},
@@ -219,12 +219,12 @@ const PRESTIGE_NODES = {
 	# (growth 3.0), damit man dauerhaft mehr Autos kaufen kann (Stufe 10 ≈ 118k ⭐). Ermöglicht u. a.
 	# genügend Autos für (mehrere) Super-Autos, siehe SUPER_CAR_*.
 	"car": {
-		"name": "Extra-Auto", "icon": "🚗", "base_cost": 6, "growth": 3.0, "max_level": 10,
+		"name": "Extra-Auto", "icon": "", "base_cost": 6, "growth": 3.0, "max_level": 10,
 		"desc": "Je Stufe ein dauerhaft zusätzliches Auto.", "prereq": {"keep_unlocks": 1},
 	},
 	# Strecken-Freischaltung: Lv1 = Strecke 2, Lv2 = Strecke 3 (Strecke 1 ist immer offen).
 	"track": {
-		"name": "Extra-Strecke", "icon": "🏁", "base_cost": 8, "growth": 8.0, "max_level": 2,
+		"name": "Extra-Strecke", "icon": "", "base_cost": 8, "growth": 8.0, "max_level": 2,
 		"desc": "Schaltet Strecke 2 und 3 frei (eine je Stufe).", "prereq": {"car": 1},
 	},
 	# Gratis-Straßen: mehrfach kaufbar. Je Stufe darf man FREE_ROADS_PER_LEVEL["straight"] Geraden
@@ -233,14 +233,14 @@ const PRESTIGE_NODES = {
 	# get_free_tile_quota() + Main._tile_price (Preis um die Gratis-Menge versetzt). Da der Prestige
 	# alle Strecken leert, erneuert sich das Gratis-Kontingent jede Prestige-Runde automatisch.
 	"free_roads": {
-		"name": "Gratis-Straßen", "icon": "🛣", "base_cost": 5, "growth": 2.0, "max_level": 10,
+		"name": "Gratis-Straßen", "icon": "", "base_cost": 5, "growth": 2.0, "max_level": 10,
 		"desc": "Je Stufe 2 Geraden und 4 Kurven gratis platzierbar, bevor sie etwas kosten.",
 		"prereq": {"track": 1},
 	},
 	# End-Knoten: schaltet die Tribüne ÜBERHAUPT erst frei (15 ⭐, einmalig). Danach muss sie im
 	# Shop trotzdem noch für Geld freigeschaltet werden (is_tile_unlocked + Unlock-Gate auf stand_unlock).
 	"stand_unlock": {
-		"name": "Tribüne", "icon": "🏟", "base_cost": 15, "growth": 1.0, "max_level": 1,
+		"name": "Tribüne", "icon": "", "base_cost": 15, "growth": 1.0, "max_level": 1,
 		"desc": "Schaltet die Tribüne frei (danach im Shop noch für Geld freischaltbar).",
 		"prereq": {"free_roads": 1},
 	},
@@ -873,7 +873,7 @@ func get_effect(id: String, level: int = -1) -> float:
 func effect_text(id: String, level: int) -> String:
 	if id.begins_with("bonus_"):
 		if level <= 0:
-			return "🔒 gesperrt"
+			return Icons.LOCK + " gesperrt"
 		return "%d Feld" % level if level == 1 else "%d Felder" % level
 	if id == "grid_size":
 		var lv = clampi(level, 0, GRID_STEPS.size() - 1)
@@ -885,13 +885,13 @@ func effect_text(id: String, level: int) -> String:
 		return "+%.1f Lvl · %d Felder" % [get_ice_boost_levels(level), get_ice_range(level)]
 	# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 	if id == "wallbonus":
-		return "+%s 💰 · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), get_wall_boost_levels(level), get_wall_range(level)]
+		return "+%s %s · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), Icons.COIN, get_wall_boost_levels(level), get_wall_range(level)]
 	# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
 	if id == "loopbonus":
 		return "×%.1f · andere ×%.1f" % [get_loop_factor(level), get_loop_factor(level)]
 	# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
 	if id == "portalbonus":
-		return "+%s 💰 /Durchgang" % format_currency(get_portal_earn(level))
+		return "+%s %s /Durchgang" % [format_currency(get_portal_earn(level)), Icons.COIN]
 	# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
 	if id == "standbonus":
 		return "×%.1f /Nachbarfeld" % get_effect("standbonus", level)
@@ -1194,9 +1194,9 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 			var n := PRESTIGE_TRACK_BASE + level
 			return "%d Strecke" % n if n == 1 else "%d Strecken" % n
 		"keep_unlocks":
-			return "✓ aktiv" if level >= 1 else "aus"
+			return Icons.CHECK + " aktiv" if level >= 1 else "aus"
 		"stand_unlock":
-			return "✓ freigeschaltet" if level >= 1 else "gesperrt"
+			return Icons.CHECK + " freigeschaltet" if level >= 1 else "gesperrt"
 		"free_roads":
 			return "%d Geraden · %d Kurven" % [
 				FREE_ROADS_PER_LEVEL["straight"] * level, FREE_ROADS_PER_LEVEL["curve"] * level]

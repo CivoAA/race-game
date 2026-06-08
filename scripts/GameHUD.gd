@@ -171,7 +171,7 @@ func _build_bar() -> void:
 
 	# „+1B"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Cheat: +1 Mrd & +100 ⭐)
 	_debug_btn = Button.new()
-	_debug_btn.text     = "+1B ⭐"
+	_debug_btn.text     = "+1B " + Icons.STAR
 	_debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
 	_debug_btn.size     = Vector2(BADGE_W, 32)
 	_debug_btn.focus_mode = Control.FOCUS_NONE
@@ -195,7 +195,7 @@ func _build_bar() -> void:
 	# auch „Optionen" (früher das Zahnrad oben rechts). Siehe _build_side_menu().
 
 	# Endlos-Modus-Toggle (links neben Währungsanzeige)
-	_endless_btn = _make_btn("∞", Vector2(344, BTN_Y), 34, BTN_H)
+	_endless_btn = _make_btn(Icons.INFINITY, Vector2(344, BTN_Y), 34, BTN_H)
 	_endless_btn.pressed.connect(_on_endless_toggled)
 	add_child(_endless_btn)
 	_refresh_endless_btn()
@@ -222,14 +222,17 @@ const PAGE_OPTIONS = -2   # Einstellungen (liegt im PauseMenu)
 
 # "tab" = Index im GlobalModal (MODAL_TABS): Shop0, Erfolge1, Werkstatt2, Statistik3, Prestige4.
 # "Strecke" (tab = -1) ist die Startseite = Modal schließen / zurück zur Strecke.
-const NAV_PAGES = [
-	{"icon": "🏁", "label": "Strecke",   "tab": -1},
-	{"icon": "🏪", "label": "Shop",      "tab": 0},
-	{"icon": "🔧", "label": "Werkstatt", "tab": 2},
-	{"icon": "🏆", "label": "Erfolge",   "tab": 1},
-	{"icon": "📊", "label": "Statistik", "tab": 3},
-	{"icon": "⭐", "label": "Prestige",  "tab": 4},
-]
+# Jeder Menüpunkt hat ein farbiges Tabler-Icon (klare, unterscheidbare Akzentfarben).
+# Als Funktion statt const, weil die Icon-Glyphen aus dem Icons-Autoload kommen.
+func _nav_pages() -> Array:
+	return [
+		{"icon": Icons.FLAG_3,   "label": "Strecke",   "tab": -1, "color": Color(0.32, 0.80, 0.46)},  # grün
+		{"icon": Icons.STORE,    "label": "Shop",      "tab": 0,  "color": Color(0.26, 0.78, 0.85)},  # türkis
+		{"icon": Icons.TOOLS,    "label": "Werkstatt", "tab": 2,  "color": Color(0.96, 0.55, 0.26)},  # orange
+		{"icon": Icons.TROPHY,   "label": "Erfolge",   "tab": 1,  "color": Color(1.00, 0.82, 0.30)},  # gold
+		{"icon": Icons.CHART_BAR,"label": "Statistik", "tab": 3,  "color": Color(0.40, 0.62, 1.00)},  # blau
+		{"icon": Icons.STAR,     "label": "Prestige",  "tab": 4,  "color": Color(0.74, 0.48, 0.97)},  # violett
+	]
 
 var _nav_btns:    Array = []   # je {btn, tab}
 var _active_page: int   = -1   # gerade geöffnete Seite (-1 = Modal geschlossen)
@@ -263,7 +266,7 @@ func _build_side_menu() -> void:
 	hdr.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
 	hdr.add_theme_constant_override("shadow_offset_x", 1)
 	hdr.add_theme_constant_override("shadow_offset_y", 2)
-	hdr.text = "◎ Menü"
+	hdr.text = Icons.MENU + " Menü"
 	add_child(hdr)
 
 	var hline := ColorRect.new()
@@ -277,8 +280,8 @@ func _build_side_menu() -> void:
 	const ITEM_GAP = 2
 	var y0 := NAV_TOP + NAV_HDR_H + 8
 	_nav_btns.clear()
-	for entry in NAV_PAGES:
-		var btn := _make_nav_btn(_nav_text(entry.icon, entry.label), Vector2(NAV_X, y0), NAV_W, ITEM_H)
+	for entry in _nav_pages():
+		var btn := _make_nav_item(entry.icon, entry.label, entry.color, Vector2(NAV_X, y0), NAV_W, ITEM_H)
 		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
 		add_child(btn)
 		_nav_btns.append({"btn": btn, "tab": int(entry.tab), "icon": entry.icon, "label": entry.label})
@@ -290,14 +293,14 @@ func _build_side_menu() -> void:
 	sep.size     = Vector2(NAV_W - 24, 1)
 	sep.color    = C_LINE
 	add_child(sep)
-	var opt := _make_nav_btn(_nav_text("⚙", "Optionen"), Vector2(NAV_X, y0 + 18), NAV_W, ITEM_H)
+	var opt := _make_nav_item(Icons.SETTINGS, "Optionen", C_TEXT_DIM, Vector2(NAV_X, y0 + 18), NAV_W, ITEM_H)
 	opt.pressed.connect(_on_nav_page.bind(PAGE_OPTIONS))
 	add_child(opt)
-	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS, "icon": "⚙", "label": "Optionen"})
+	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS, "icon": Icons.SETTINGS, "label": "Optionen"})
 
 	# „Pause-Menü" direkt unter Optionen – nur im Mobile-Steuerungsmodus sichtbar,
 	# weil am Handy keine ESC-Taste zum Öffnen des Pause-Menüs existiert.
-	_pause_nav_btn = _make_nav_btn(_nav_text("⏸", "Pause-Menü"), Vector2(NAV_X, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
+	_pause_nav_btn = _make_nav_item(Icons.PAUSE, "Pause-Menü", Color(0.92, 0.42, 0.42), Vector2(NAV_X, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
 	_pause_nav_btn.pressed.connect(_on_pause_nav_pressed)
 	_pause_nav_btn.visible = _load_mobile_mode()
 	add_child(_pause_nav_btn)
@@ -326,13 +329,9 @@ func _load_mobile_mode() -> bool:
 	return String(cfg.get_value("options", "control_mode", "click")) == "mobile"
 
 
-# Nav-Eintrag = Icon + (übersetztes) Label. Wird auch beim Sprachwechsel neu gebaut.
-func _nav_text(icon: String, label: String) -> String:
-	return "%s   %s" % [icon, tr(label)]
-
-
 # Bei Sprachwechsel (NOTIFICATION_TRANSLATION_CHANGED) die selbst übersetzten Texte
-# der oberen Leiste neu aufbauen: Strecken-Tabs und die Seitennavigation.
+# der oberen Leiste neu aufbauen: Strecken-Tabs und die Seitennavigation. Die farbigen
+# Icons sind eigene Kind-Labels und bleiben unverändert – nur der Text wird neu übersetzt.
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_TRANSLATION_CHANGED:
 		return
@@ -340,20 +339,22 @@ func _notification(what: int) -> void:
 		_refresh_tabs()
 	for e in _nav_btns:
 		if e.has("label") and is_instance_valid(e["btn"]):
-			e["btn"].text = _nav_text(e["icon"], e["label"])
+			e["btn"].text = tr(e["label"])
 	if _pause_nav_btn != null and is_instance_valid(_pause_nav_btn):
-		_pause_nav_btn.text = _nav_text("⏸", "Pause-Menü")
+		_pause_nav_btn.text = tr("Pause-Menü")
 
 
-func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
+# Nav-Eintrag = farbiges Tabler-Icon (eigenes Label links) + übersetztes Text-Label.
+# Die Akzentfarbe des Icons ist so unabhängig vom Hover/Aktiv-Zustand des Texts.
+func _make_nav_item(icon_glyph: String, label_key: String, icon_color: Color, pos: Vector2, w: float, h: float) -> Button:
 	var btn := Button.new()
-	btn.text      = txt
+	btn.text      = tr(label_key)
 	btn.position  = pos
 	btn.size      = Vector2(w, h)
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	# Text (Icon + Label) wird selbst per tr() übersetzt → Auto-Übersetzung aus.
+	# Text wird selbst per tr() übersetzt → Auto-Übersetzung aus.
 	btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
 	btn.add_theme_stylebox_override("normal",  _nav_sb(C_SURFACE,    false))
 	btn.add_theme_stylebox_override("hover",   _nav_sb(C_SURFACE_HI, false))
@@ -362,6 +363,12 @@ func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	btn.add_theme_color_override("font_color",       C_TEXT_DIM)
 	btn.add_theme_color_override("font_hover_color", C_TEXT)
 	btn.add_theme_font_size_override("font_size", 15)
+
+	var ico := Icons.label(icon_glyph, 19, icon_color)
+	ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ico.position = Vector2(14, 0)
+	ico.size     = Vector2(22, h)
+	btn.add_child(ico)
 	return btn
 
 
@@ -369,7 +376,7 @@ func _make_nav_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 func _nav_sb(bg: Color, active: bool) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.content_margin_left   = 16
+	sb.content_margin_left   = 44   # Platz für das farbige Icon-Label links
 	sb.content_margin_right  = 8
 	sb.content_margin_top    = 4
 	sb.content_margin_bottom = 4
@@ -533,7 +540,7 @@ func _refresh_tabs() -> void:
 		# tr() übersetzt den Format-String („Strecke %d" → „Track %d") vor dem Einsetzen
 		# der Nummer; auto_translate ist für die Tabs aus (siehe _build_bar).
 		var tab_label := tr("Strecke %d") % (i + 1)
-		_tab_btns[i].text     = ("🔒 " + tab_label) if is_locked else tab_label
+		_tab_btns[i].text     = (Icons.LOCK + " " + tab_label) if is_locked else tab_label
 		_style_tab_btn(_tab_btns[i], i == _active_tab)
 		# Tabs bleiben auch in der 3D-Ansicht aktiv – nur gesperrte Strecken sind nicht wählbar.
 		_tab_btns[i].disabled = is_locked
@@ -574,7 +581,7 @@ func _process(_delta: float) -> void:
 		return
 
 	if _currency_lbl != null:
-		_currency_lbl.text = "💰  %s" % Economy.format_currency(Economy.get_currency())
+		_currency_lbl.text = "%s  %s" % [Icons.COIN, Economy.format_currency(Economy.get_currency())]
 	for i in TRACK_COUNT:
 		if i < _run_dot_sbs.size():
 			_set_run_dot(i, Economy.is_run_active(i))
@@ -767,7 +774,7 @@ func gain_currency(amount: int) -> void:
 	tw.parallel().tween_property(_currency_lbl, "modulate", Color(1, 1, 1), 0.25)
 
 	var fl := Label.new()
-	fl.text = "+%s 💰" % Economy.format_currency(amount)
+	fl.text = "+%s %s" % [Economy.format_currency(amount), Icons.COIN]
 	fl.position = Vector2(VIEWPORT_W / 2.0 - 60, BAR_H)
 	fl.size     = Vector2(120, 26)
 	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
