@@ -253,7 +253,7 @@ func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 
 func _update_run_hud() -> void:
 	if _timer_label != null:
-		_timer_label.text = "⏱  ∞" if Economy.endless_mode else "⏱  %.1f s" % _run_time_left
+		_timer_label.text = Icons.CLOCK + "  " + Icons.INFINITY if Economy.endless_mode else Icons.CLOCK + "  %.1f s" % _run_time_left
 
 
 func _show_summary() -> void:
@@ -315,7 +315,7 @@ func _show_summary() -> void:
 
 	# Verdient-Label
 	var earned_lbl := Label.new()
-	earned_lbl.text = "+%s 💰  verdient" % Economy.format_currency(Economy.get_run_earned(_active_track_idx))
+	earned_lbl.text = "+%s %s  verdient" % [Economy.format_currency(Economy.get_run_earned(_active_track_idx)), Icons.COIN]
 	earned_lbl.position = Vector2(0, 72)
 	earned_lbl.size = Vector2(PW, 38)
 	earned_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

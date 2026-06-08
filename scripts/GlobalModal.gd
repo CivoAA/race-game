@@ -25,8 +25,8 @@ const C_LINE      := Color(0.247, 0.255, 0.278)   # #3f4147
 
 # Reifen/Autos/Lackierung sind vorerst ausgeblendet (Platzhalter, noch nicht spielbar).
 const SHOP_CATS = [
-	{"id": "tiles",    "name": "Streckenteile", "icon": "🏎"},
-	{"id": "upgrades", "name": "Upgrades",      "icon": "⬆"},
+	{"id": "tiles",    "name": "Streckenteile", "icon": ""},
+	{"id": "upgrades", "name": "Upgrades",      "icon": ""},
 ]
 const MODAL_TABS = ["Shop", "Archivments", "Werkstatt", "Statistik", "Prestige"]
 const STATISTIK_TAB = 3
@@ -125,7 +125,7 @@ func open_tab(idx: int) -> void:
 # Aktuellen Geldstand in der Tab-Leiste (oben rechts) aktualisieren.
 func _refresh_modal_money() -> void:
 	if _modal_money_lbl != null:
-		_modal_money_lbl.text = "💰  %s" % Economy.format_currency(Economy.get_currency())
+		_modal_money_lbl.text = "%s  %s" % [Icons.COIN, Economy.format_currency(Economy.get_currency())]
 
 
 # Färbt alle noch kaufbaren Buttons (Streckenteile + Upgrades) nach dem aktuellen Geldstand.
@@ -484,7 +484,7 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 	if has_upg:
 		_setup_tile_upgrade_btn(btn, upg_id)
 	elif owned:
-		btn.text     = "✓ Freigeschaltet"
+		btn.text     = Icons.CHECK + " Freigeschaltet"
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
@@ -495,12 +495,12 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	elif not Economy.can_unlock_tile(key):
 		# Tribüne: erst im Prestige-Baum (End-Knoten „Tribüne") freischalten.
-		btn.text     = "🔒 Prestige-Baum nötig"
+		btn.text     = Icons.LOCK + " Prestige-Baum nötig"
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	else:
-		btn.text = "🔒 %s 💰" % Economy.format_currency(Economy.get_tile_unlock_cost(key))
+		btn.text = "%s %s %s" % [Icons.LOCK, Economy.format_currency(Economy.get_tile_unlock_cost(key)), Icons.COIN]
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		_style_unlock_btn(btn, Economy.get_currency() >= Economy.get_tile_unlock_cost(key))
 		btn.pressed.connect(_on_tile_unlock.bind(key))
@@ -526,12 +526,12 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 		# Eisgerade: Speed-Boost (Tempo-Stufen) + Reichweite statt Geld-Ertrag.
 		var ice_lv := Economy.get_upgrade_level(upg_id)
 		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		return "❄ +%.1f Lvl · %d Felder%s" % [Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
+		return "%s +%.1f Lvl · %d Felder%s" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
 	elif upg_id == "wallbonus":
 		# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 		var wall_lv := Economy.get_upgrade_level(upg_id)
 		var wmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		return "+%s 💰 · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
+		return "+%s %s · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Icons.COIN, Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
 	elif upg_id == "loopbonus":
 		# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
 		var loop_lv := Economy.get_upgrade_level(upg_id)
@@ -541,7 +541,7 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 		# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
 		var p_lv := Economy.get_upgrade_level(upg_id)
 		var pmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		return "+%s 💰 /Durchgang%s" % [Economy.format_currency(Economy.get_portal_earn(p_lv)), pmax_tag]
+		return "+%s %s /Durchgang%s" % [Economy.format_currency(Economy.get_portal_earn(p_lv)), Icons.COIN, pmax_tag]
 	elif upg_id == "standbonus":
 		# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
 		var s_lv := Economy.get_upgrade_level(upg_id)
@@ -611,12 +611,12 @@ func _on_tile_unlock(key: String) -> void:
 # Macht den Karten-Button einer freigeschalteten Tile zum Upgrade-Button (Kosten/Stufe).
 func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
 	if Economy.is_maxed(id):
-		btn.text     = "✓ MAX (Stufe %d)" % Economy.get_upgrade_level(id)
+		btn.text     = Icons.CHECK + " MAX (Stufe %d)" % Economy.get_upgrade_level(id)
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
-	btn.text = "⬆ Stufe %d  ·  %s 💰" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id))]
+	btn.text = Icons.ARROW_UP + " Stufe %d  ·  %s %s" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_style_upgrade_btn(btn, Economy.can_buy(id))
 	btn.pressed.connect(_on_buy_tile_upgrade.bind(id))
@@ -650,12 +650,12 @@ func _refresh_tile_upgrade_card(id: String) -> void:
 # Button feuert „pressed" nicht mehr, daher muss das Kauf-Signal nicht getrennt werden.
 func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
 	if Economy.is_maxed(id):
-		btn.text     = "✓ MAX (Stufe %d)" % Economy.get_upgrade_level(id)
+		btn.text     = Icons.CHECK + " MAX (Stufe %d)" % Economy.get_upgrade_level(id)
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
-	btn.text = "⬆ Stufe %d  ·  %s 💰" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id))]
+	btn.text = Icons.ARROW_UP + " Stufe %d  ·  %s %s" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
 	_style_upgrade_btn(btn, Economy.can_buy(id))
 
 
@@ -738,7 +738,7 @@ func _build_cat_placeholder(parent: Control, x: int, h: int, w: int,
 
 	var center_y  = h / 2.0 - 60
 	var icon_lbl := Label.new()
-	icon_lbl.text     = "🔒"
+	icon_lbl.text     = Icons.LOCK
 	icon_lbl.position = Vector2(0, center_y)
 	icon_lbl.size     = Vector2(w, 40)
 	icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -782,75 +782,230 @@ func _build_cat_upgrades(parent: Control, x: int, h: int, w: int) -> void:
 
 # ── Errungenschaften ──────────────────────────────────────────────────────────
 
+# ── Errungenschaften ──────────────────────────────────────────────────────────────
+# Icon-Kachelraster rechts; links eine Spalte, die den angeklickten Erfolg ausführlich
+# beschreibt. Daten sind aktuell statisch (noch nicht an echte Spielereignisse gekoppelt).
+
+const ACH_LEFT_W = 250    # Breite der Beschreibungs-Spalte links
+const ACH_TILE   = 88     # Kachelgröße (quadratisch)
+const ACH_COLS   = 4      # Spalten im Kachelraster
+
+var _ach_data:     Array = []
+var _ach_tiles:    Array = []   # je {"btn": Button, "sb": StyleBoxFlat, "done": bool}
+var _ach_selected: int   = -1
+var _ach_icon_lbl:   Label = null
+var _ach_title_lbl:  Label = null
+var _ach_status_lbl: Label = null
+var _ach_desc_lbl:   Label = null
+var _ach_reward_lbl: Label = null
+
+
 func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
-	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(0, cy)
-	scroll.size     = Vector2(VW, ch)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	parent.add_child(scroll)
-	_tab_panels.append(scroll)
-
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(VW - 20, 0)
-	vbox.add_theme_constant_override("separation", 0)
-	scroll.add_child(vbox)
-
-	_add_cat_header(vbox, "ERRUNGENSCHAFTEN")
-
-	var achievements := [
-		["Erster Start",       "Starte dein erstes Rennen",            false],
-		["Schnellster Fahrer", "Beende ein Rennen unter 60 Sekunden",  false],
-		["Streckenbauer",      "Erstelle 10 verschiedene Strecken",    false],
-		["Unaufhaltsam",       "Gewinne 5 Rennen in Folge",            false],
-		["Vollgas",            "Erreiche die maximale Geschwindigkeit", false],
+	_ach_data = [
+		{"icon": Icons.FLAG_3, "name": "Erster Start",       "desc": "Starte dein allererstes Rennen.",            "reward": "+200 "   + Icons.COIN, "done": false},
+		{"icon": Icons.BOLT,   "name": "Schnellster Fahrer", "desc": "Beende ein Rennen in unter 60 Sekunden.",    "reward": "+500 "   + Icons.COIN, "done": false},
+		{"icon": Icons.TOOLS,  "name": "Streckenbauer",      "desc": "Erstelle 10 verschiedene Strecken.",         "reward": "+1.000 " + Icons.COIN, "done": false},
+		{"icon": Icons.FLAME,  "name": "Unaufhaltsam",       "desc": "Gewinne 5 Rennen in Folge ohne Niederlage.", "reward": "+2.000 " + Icons.COIN, "done": false},
+		{"icon": Icons.WIND,   "name": "Vollgas",            "desc": "Erreiche die maximale Geschwindigkeit.",     "reward": "+750 "   + Icons.COIN, "done": false},
 	]
+	_ach_tiles.clear()
+	_ach_selected = -1
 
-	for ach in achievements:
-		var row := HBoxContainer.new()
-		row.custom_minimum_size = Vector2(0, 54)
-		row.add_theme_constant_override("separation", 12)
+	var root := Control.new()
+	root.position = Vector2(0, cy)
+	root.size     = Vector2(VW, ch)
+	parent.add_child(root)
+	_tab_panels.append(root)
 
-		var bar := ColorRect.new()
-		bar.custom_minimum_size = Vector2(3, 0)
-		bar.color               = C_ACCENT if ach[2] else C_ACCENT_MU
-		bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		row.add_child(bar)
+	var outer := VBoxContainer.new()
+	outer.position = Vector2(16, 0)
+	outer.size     = Vector2(VW - 32, ch)
+	outer.add_theme_constant_override("separation", 8)
+	root.add_child(outer)
 
-		row.add_child(_hpad(16))
+	_add_cat_header(outer, "ERRUNGENSCHAFTEN")
 
-		var star := Label.new()
-		star.text = "★" if ach[2] else "☆"
-		star.custom_minimum_size = Vector2(24, 0)
-		star.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		star.add_theme_font_size_override("font_size", 20)
-		star.add_theme_color_override("font_color", C_ACCENT if ach[2] else C_TEXT_DIM)
-		row.add_child(star)
+	var body := HBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 16)
+	outer.add_child(body)
 
-		var info := VBoxContainer.new()
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		info.size_flags_vertical   = Control.SIZE_EXPAND_FILL
-		info.alignment = BoxContainer.ALIGNMENT_CENTER
-		info.add_theme_constant_override("separation", 2)
-		row.add_child(info)
+	body.add_child(_build_ach_detail_panel())
+	body.add_child(_build_ach_grid())
 
-		var n_lbl := Label.new()
-		n_lbl.text = (ach[0] as String).to_upper()
-		n_lbl.add_theme_font_size_override("font_size", 13)
-		n_lbl.add_theme_color_override("font_color", C_TEXT)
-		info.add_child(n_lbl)
+	_select_achievement(0)
 
-		var d_lbl := Label.new()
-		d_lbl.text = ach[1]
-		d_lbl.add_theme_font_size_override("font_size", 11)
-		d_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-		info.add_child(d_lbl)
 
-		vbox.add_child(row)
+# Linke Spalte: große Detailansicht des aktuell gewählten Erfolgs.
+func _build_ach_detail_panel() -> Control:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(ACH_LEFT_W, 0)
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-		var sep := ColorRect.new()
-		sep.custom_minimum_size = Vector2(0, 1)
-		sep.color = C_LINE
-		vbox.add_child(sep)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color      = C_SURFACE
+	sb.border_color  = C_LINE
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 18; sb.content_margin_right  = 18
+	sb.content_margin_top  = 18; sb.content_margin_bottom = 18
+	panel.add_theme_stylebox_override("panel", sb)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	panel.add_child(v)
+
+	_ach_icon_lbl = Label.new()
+	_ach_icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ach_icon_lbl.add_theme_font_size_override("font_size", 56)
+	if Icons.FONT != null:
+		_ach_icon_lbl.add_theme_font_override("font", Icons.FONT)
+	v.add_child(_ach_icon_lbl)
+
+	_ach_title_lbl = Label.new()
+	_ach_title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ach_title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ach_title_lbl.add_theme_font_size_override("font_size", 18)
+	_ach_title_lbl.add_theme_color_override("font_color", C_TEXT)
+	_emboss(_ach_title_lbl)
+	v.add_child(_ach_title_lbl)
+
+	_ach_status_lbl = Label.new()
+	_ach_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ach_status_lbl.add_theme_font_size_override("font_size", 12)
+	v.add_child(_ach_status_lbl)
+
+	var sep := ColorRect.new()
+	sep.custom_minimum_size = Vector2(0, 1)
+	sep.color = C_LINE
+	v.add_child(sep)
+
+	_ach_desc_lbl = Label.new()
+	_ach_desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ach_desc_lbl.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_ach_desc_lbl.add_theme_font_size_override("font_size", 13)
+	_ach_desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	v.add_child(_ach_desc_lbl)
+
+	# Belohnungs-Box am unteren Rand der Spalte.
+	var reward_box := PanelContainer.new()
+	var rsb := StyleBoxFlat.new()
+	rsb.bg_color = C_BG
+	rsb.set_corner_radius_all(8)
+	rsb.content_margin_left = 12; rsb.content_margin_right  = 12
+	rsb.content_margin_top  = 8;  rsb.content_margin_bottom = 8
+	reward_box.add_theme_stylebox_override("panel", rsb)
+	v.add_child(reward_box)
+
+	_ach_reward_lbl = Label.new()
+	_ach_reward_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ach_reward_lbl.add_theme_font_size_override("font_size", 15)
+	_ach_reward_lbl.add_theme_color_override("font_color", C_TEXT)
+	reward_box.add_child(_ach_reward_lbl)
+
+	return panel
+
+
+# Rechte Seite: scrollbares Raster aus quadratischen Icon-Kacheln.
+func _build_ach_grid() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+
+	var grid := GridContainer.new()
+	grid.columns = ACH_COLS
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	scroll.add_child(grid)
+
+	for i in _ach_data.size():
+		grid.add_child(_make_ach_tile(i))
+
+	return scroll
+
+
+# Eine Kachel: Icon + kurzer Titel, klickbar → wählt den Erfolg in der Detailspalte.
+func _make_ach_tile(idx: int) -> Button:
+	var data: Dictionary = _ach_data[idx]
+	var done: bool = data["done"]
+
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(ACH_TILE, ACH_TILE)
+	btn.focus_mode  = Control.FOCUS_NONE
+	btn.tooltip_text = data["name"]
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = C_SURFACE if done else C_BG
+	sb.border_color = C_LINE
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(st, sb)
+
+	# Inhalt liegt über dem Button und ignoriert Maus-Events → Klick trifft den Button.
+	var v := VBoxContainer.new()
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 2)
+	btn.add_child(v)
+
+	var icon := Label.new()
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 30)
+	if Icons.FONT != null:
+		icon.add_theme_font_override("font", Icons.FONT)
+	icon.text = data["icon"]
+	icon.modulate = Color(1, 1, 1, 1.0 if done else 0.45)
+	v.add_child(icon)
+
+	var name_lbl := Label.new()
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.custom_minimum_size = Vector2(ACH_TILE - 10, 0)
+	name_lbl.add_theme_font_size_override("font_size", 9)
+	name_lbl.add_theme_color_override("font_color", C_TEXT if done else C_TEXT_DIM)
+	name_lbl.text = data["name"]
+	v.add_child(name_lbl)
+
+	btn.pressed.connect(_select_achievement.bind(idx))
+	_ach_tiles.append({"btn": btn, "sb": sb, "done": done})
+	return btn
+
+
+# Markiert die gewählte Kachel und füllt die linke Detailspalte.
+func _select_achievement(idx: int) -> void:
+	if idx < 0 or idx >= _ach_data.size():
+		return
+	_ach_selected = idx
+
+	for i in _ach_tiles.size():
+		var t: Dictionary = _ach_tiles[i]
+		var tsb: StyleBoxFlat = t["sb"]
+		var sel := i == idx
+		var tdone: bool = t["done"]
+		tsb.border_color = C_ACCENT if sel else (C_ACCENT_MU if tdone else C_LINE)
+		tsb.set_border_width_all(2 if sel else 1)
+		tsb.bg_color = C_SURFACE2 if sel else (C_SURFACE if tdone else C_BG)
+		(t["btn"] as Button).queue_redraw()
+
+	var data: Dictionary = _ach_data[idx]
+	var done: bool = data["done"]
+	_ach_icon_lbl.text     = data["icon"]
+	_ach_icon_lbl.modulate = Color(1, 1, 1, 1.0 if done else 0.5)
+	_ach_title_lbl.text    = data["name"]
+	_ach_desc_lbl.text     = data["desc"]
+	_ach_reward_lbl.text   = "Belohnung:  %s" % data["reward"]
+	if done:
+		_ach_status_lbl.text = Icons.CHECK + " Freigeschaltet"
+		_ach_status_lbl.add_theme_color_override("font_color", C_ACCENT)
+	else:
+		_ach_status_lbl.text = Icons.LOCK + " Gesperrt"
+		_ach_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 
 
 # ── Statistik ───────────────────────────────────────────────────────────────────
@@ -1018,12 +1173,15 @@ func _make_stat_dotsep() -> Label:
 # 3D-Live-Vorschau (SubViewport). UI-Gerüst: Auswahl wird im Speicher gehalten;
 # nur die Lackierung wird derzeit direkt auf das Vorschau-Modell angewandt.
 
-const WS_TABS = [
-	{"id": "form",    "name": "Form",      "icon": "🚗"},
-	{"id": "paint",   "name": "Lackierung","icon": "🎨"},
-	{"id": "tires",   "name": "Reifen",    "icon": "⚙"},
-	{"id": "ability", "name": "Fähigkeit", "icon": "✦"},
-]
+# Werkstatt-Unter-Tabs mit Tabler-Icons. Als Funktion (nicht const), weil die Glyphen
+# aus dem Icons-Autoload kommen.
+func _ws_tabs() -> Array:
+	return [
+		{"id": "form",    "name": "Form",       "icon": Icons.CAR},
+		{"id": "paint",   "name": "Lackierung", "icon": Icons.PALETTE},
+		{"id": "tires",   "name": "Reifen",     "icon": Icons.SETTINGS},
+		{"id": "ability", "name": "Fähigkeit",  "icon": Icons.SPARKLES},
+	]
 
 var _ws_active_tab:  int           = 0
 var _ws_sel:         Dictionary    = {"form": 0, "paint": 0, "tires": 0, "ability": 0}
@@ -1042,14 +1200,14 @@ func _ws_options(id: String) -> Array:
 	match id:
 		"form":
 			return [
-				{"name": "Standard", "icon": "🚗"},
-				{"name": "Sport",    "icon": "🏎"},
-				{"name": "Kompakt",  "icon": "🚙"},
-				{"name": "Truck",    "icon": "🚚"},
+				{"name": "Standard", "icon": Icons.CAR},
+				{"name": "Sport",    "icon": Icons.STEERING_WHEEL},
+				{"name": "Kompakt",  "icon": Icons.CAR},
+				{"name": "Truck",    "icon": Icons.TRUCK},
 			]
 		"paint":
 			return [
-				{"name": "Original", "icon": "🚗"},
+				{"name": "Original", "icon": Icons.CAR},
 				{"name": "Rot",      "color": Color(0.85, 0.15, 0.12)},
 				{"name": "Blau",     "color": Color(0.13, 0.40, 0.85)},
 				{"name": "Grün",     "color": Color(0.15, 0.65, 0.30)},
@@ -1059,17 +1217,17 @@ func _ws_options(id: String) -> Array:
 			]
 		"tires":
 			return [
-				{"name": "Standard", "icon": "⚙"},
-				{"name": "Slicks",   "icon": "●"},
-				{"name": "Offroad",  "icon": "◉"},
-				{"name": "Winter",   "icon": "❄"},
+				{"name": "Standard", "icon": Icons.SETTINGS},
+				{"name": "Slicks",   "icon": Icons.CIRCLE},
+				{"name": "Offroad",  "icon": Icons.CIRCLE_DASHED},
+				{"name": "Winter",   "icon": Icons.SNOWFLAKE},
 			]
 		"ability":
 			return [
-				{"name": "Keine",  "icon": "∅"},
-				{"name": "Boost",  "icon": "🚀"},
-				{"name": "Magnet", "icon": "🧲"},
-				{"name": "Schild", "icon": "🛡"},
+				{"name": "Keine",  "icon": Icons.CIRCLE_X},
+				{"name": "Boost",  "icon": Icons.ROCKET},
+				{"name": "Magnet", "icon": Icons.MAGNET},
+				{"name": "Schild", "icon": Icons.SHIELD},
 			]
 	return []
 
@@ -1084,11 +1242,12 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	# Unter-Tab-Leiste (Breite an das schmalere Modal angepasst)
 	const SUB_W   = 150
 	const SUB_GAP = 8
-	var total_w = WS_TABS.size() * SUB_W + (WS_TABS.size() - 1) * SUB_GAP
+	var ws_tabs = _ws_tabs()
+	var total_w = ws_tabs.size() * SUB_W + (ws_tabs.size() - 1) * SUB_GAP
 	var sx = (VW - total_w) / 2.0
 	_ws_tab_btns.clear()
-	for i in WS_TABS.size():
-		var t = WS_TABS[i]
+	for i in ws_tabs.size():
+		var t = ws_tabs[i]
 		var btn := Button.new()
 		btn.text     = "%s  %s" % [t.icon, t.name]
 		btn.position = Vector2(sx + i * (SUB_W + SUB_GAP), 12)
@@ -1165,7 +1324,7 @@ func _rebuild_ws_options() -> void:
 	for c in _ws_options_box.get_children():
 		c.queue_free()
 
-	var id   = WS_TABS[_ws_active_tab].id
+	var id   = _ws_tabs()[_ws_active_tab].id
 	var opts = _ws_options(id)
 	# 7 Lackfarben müssen ins schmalere Modal passen → kompaktere Karten.
 	const OPT_W = 100
@@ -1241,7 +1400,7 @@ func _update_ws_summary() -> void:
 	if _ws_summary_lbl == null:
 		return
 	var parts: Array = []
-	for t in WS_TABS:
+	for t in _ws_tabs():
 		var opts = _ws_options(t.id)
 		var i = int(_ws_sel.get(t.id, 0))
 		var nm = String(opts[i].name) if i < opts.size() else "?"
@@ -1494,7 +1653,7 @@ func _make_upgrade_row(id: String, row_w: float) -> Control:
 		buy_btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		buy_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	else:
-		buy_btn.text = "⬆  %s 💰" % Economy.format_currency(Economy.get_upgrade_cost(id))
+		buy_btn.text = Icons.ARROW_UP + "  %s %s" % [Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
 		_style_upgrade_btn(buy_btn, Economy.can_buy(id))
 		_upgrade_buttons.append({"btn": buy_btn, "id": id})
 	buy_btn.add_theme_font_size_override("font_size", 12)
@@ -1652,7 +1811,7 @@ func _make_super_car_row(row_w: float) -> Control:
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	btn.add_theme_font_size_override("font_size", 12)
-	btn.text = "⬆  %s 💰" % Economy.format_currency(Economy.get_super_car_cost())
+	btn.text = Icons.ARROW_UP + "  %s %s" % [Economy.format_currency(Economy.get_super_car_cost()), Icons.COIN]
 	_style_upgrade_btn(btn, Economy.can_buy_super_car())
 	btn.pressed.connect(_on_buy_super_car)
 	_upgrade_buttons.append({"btn": btn, "id": "super_car"})
@@ -1794,20 +1953,20 @@ func _rebuild_prestige() -> void:
 func _refresh_prestige_action() -> void:
 	if _prestige_points_lbl == null:
 		return
-	_prestige_points_lbl.text = "⭐ %d Prestige-Punkte" % Economy.get_prestige_points()
+	_prestige_points_lbl.text = Icons.STAR + " %d Prestige-Punkte" % Economy.get_prestige_points()
 	var pending := Economy.prestige_pending_points()
-	_prestige_earned_lbl.text = "Seit letztem Prestige verdient: %s 💰   ·   ×-Bonus aktiv: ×%d" % [
-		Economy.format_currency(Economy.get_prestige_earned()), int(Economy.get_prestige_mult())]
+	_prestige_earned_lbl.text = "Seit letztem Prestige verdient: %s %s   ·   ×-Bonus aktiv: ×%d" % [
+		Economy.format_currency(Economy.get_prestige_earned()), Icons.COIN, int(Economy.get_prestige_mult())]
 
 	if pending >= 1:
-		_prestige_btn.text     = "♻  PRESTIGE  →  +%d ⭐" % pending
+		_prestige_btn.text     = "%s  PRESTIGE  →  +%d %s" % [Icons.RECYCLE, pending, Icons.STAR]
 		_prestige_btn.disabled = false
 		_prestige_btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
 		_prestige_btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
 		_prestige_btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
 		_prestige_btn.add_theme_color_override("font_color", C_STAR)
 	else:
-		_prestige_btn.text     = "♻  Noch zu früh für Prestige"
+		_prestige_btn.text     = Icons.RECYCLE + "  Noch zu früh für Prestige"
 		_prestige_btn.disabled = true
 		var sb := _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5))
 		_prestige_btn.add_theme_stylebox_override("normal",   sb)
@@ -1838,6 +1997,20 @@ func _populate_prestige_tree() -> void:
 			_prestige_tree_box.add_child(arrow)
 
 
+# Tabler-Icon je Prestige-Knoten (id → Glyph). Liegt hier statt in PRESTIGE_NODES (const),
+# weil die Glyphen aus dem Icons-Autoload kommen.
+func _prestige_node_icon(id: String) -> String:
+	match id:
+		"income":       return Icons.X
+		"grid":         return Icons.LAYOUT_GRID
+		"keep_unlocks": return Icons.KEY
+		"car":          return Icons.CAR
+		"track":        return Icons.FLAG_3
+		"free_roads":   return Icons.ROAD
+		"stand_unlock": return Icons.STADIUM
+	return Icons.STAR
+
+
 func _make_prestige_card(id: String) -> Panel:
 	const CARD_W = 200
 	const CARD_H = 300
@@ -1866,7 +2039,7 @@ func _make_prestige_card(id: String) -> Panel:
 	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	icon.add_theme_font_size_override("font_size", 38)
 	icon.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
-	icon.text = String(defn.get("icon", "◆"))
+	icon.text = _prestige_node_icon(id)
 	card.add_child(icon)
 
 	# Name
@@ -1938,19 +2111,19 @@ func _make_prestige_card(id: String) -> Panel:
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	elif not unlocked:
-		btn.text     = "🔒 " + _prestige_prereq_text(id)
+		btn.text     = Icons.LOCK + " " + _prestige_prereq_text(id)
 		btn.disabled = true
 		btn.add_theme_font_size_override("font_size", 10)
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	elif maxed:
-		btn.text     = "✓ MAX (Stufe %d)" % level
+		btn.text     = Icons.CHECK + " MAX (Stufe %d)" % level
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 	else:
 		var cost := Economy.get_prestige_node_cost(id)
-		btn.text = "%d ⭐" % cost
+		btn.text = "%d %s" % [cost, Icons.STAR]
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		_style_prestige_buy_btn(btn, Economy.can_buy_prestige_node(id))
 		btn.pressed.connect(_on_buy_prestige_node.bind(id))
@@ -1992,7 +2165,7 @@ func _on_buy_prestige_node(id: String) -> void:
 func _on_prestige_pressed() -> void:
 	if not Economy.can_prestige():
 		return
-	_prestige_confirm_lbl.text = "Du erhältst %d ⭐.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben." % Economy.prestige_pending_points()
+	_prestige_confirm_lbl.text = "Du erhältst %d %s.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben." % [Economy.prestige_pending_points(), Icons.STAR]
 	_prestige_confirm.visible = true
 
 
@@ -2049,7 +2222,7 @@ func _build_prestige_confirm(parent: Control) -> void:
 	yes.focus_mode = Control.FOCUS_NONE
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
-	yes.text = "♻  Prestige"
+	yes.text = Icons.RECYCLE + "  Prestige"
 	yes.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
 	yes.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))

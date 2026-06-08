@@ -26,9 +26,9 @@ key,en
 "←  Zurück","←  Back"
 "← Zurück zum Bauplan","← Back to blueprint"
 "Zurück zum Bauplan","Back to blueprint"
-"✓  ÜBERNEHMEN","✓  APPLY"
-"✓ Gespeichert!","✓ Saved!"
-"✓  Änderungen werden automatisch gespeichert","✓  Changes are saved automatically"
+"  ÜBERNEHMEN","  APPLY"
+" Gespeichert!"," Saved!"
+"  Änderungen werden automatisch gespeichert","  Changes are saved automatically"
 "Dein Spielstand wurde gespeichert.","Your game has been saved."
 "Der Betrag wurde deinem Konto gutgeschrieben.","The amount has been credited to your account."
 
@@ -81,7 +81,7 @@ key,en
 "Langsam","Slow"
 "CHEAT-MODUS","CHEAT MODE"
 "Cheat-Modus:","Cheat mode:"
-"Zeigt den Endlos-Modus (∞) und den +1B ⭐ Button in der oberen Leiste an.","Shows endless mode (∞) and the +1B ⭐ button in the top bar."
+"Zeigt den Endlos-Modus () und den +1B  Button in der oberen Leiste an.","Shows endless mode () and the +1B  button in the top bar."
 "Zeigt im 2D-Bauplan einen ↻-Knopf zum Drehen. Im Mobile-Modus standardmäßig an, in den anderen Modi deaktiviert.","Shows a ↻ rotate button in the 2D blueprint. On by default in mobile mode, off in the other modes."
 "[R] Drehen · [D] Löschen\nKlick-Modus","[R] Rotate · [D] Delete\nClick mode"
 "[R] Drehen\nZiehen & Ablegen","[R] Rotate\nDrag & drop"
@@ -106,8 +106,8 @@ key,en
 "Strecke bauen und Runde prüfen","Build the track and check the lap"
 
 # ── Streckenbauer: Status ─────────────────────────────────────────────────────
-"✓ Strecke gültig","✓ Track valid"
-"✓ Strecke fertig — bereit zum Fahren","✓ Track complete — ready to drive"
+" Strecke gültig"," Track valid"
+" Strecke fertig — bereit zum Fahren"," Track complete — ready to drive"
 "Keine vollständige Runde möglich","No complete lap possible"
 "Kein Platz für Rampe","No room for a ramp"
 "Kein Platz für Rampe (2 freie Felder in einer Richtung nötig)","No room for a ramp (2 free tiles in one direction needed)"
@@ -187,9 +187,9 @@ key,en
 "Gewinne 5 Rennen in Folge","Win 5 races in a row"
 "Beende ein Rennen unter 60 Sekunden","Finish a race in under 60 seconds"
 "Erstelle 10 verschiedene Strecken","Create 10 different tracks"
-"✓ freigeschaltet","✓ unlocked"
-"✓ Freigeschaltet","✓ Unlocked"
-"✓ aktiv","✓ active"
+" freigeschaltet"," unlocked"
+" Freigeschaltet"," Unlocked"
+" aktiv"," active"
 
 # ── Statistik ─────────────────────────────────────────────────────────────────
 "Globale Statistiken","Global statistics"
@@ -202,8 +202,8 @@ key,en
 "von → zu","from → to"
 
 # ── Prestige ──────────────────────────────────────────────────────────────────
-"♻  Prestige","♻  Prestige"
-"♻  Noch zu früh für Prestige","♻  Too early for prestige"
+"  Prestige","  Prestige"
+"  Noch zu früh für Prestige","  Too early for prestige"
 "Prestige","Prestige"
 "Verdient seit Prestige","Earned since prestige"
 "Aktuelles Guthaben","Current balance"

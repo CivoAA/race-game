@@ -164,7 +164,7 @@ func _build_row(id: String) -> Control:
 		btn.text = "MAX"
 		btn.disabled = true
 	else:
-		btn.text = "%s 💰" % Economy.format_currency(Economy.get_upgrade_cost(id))
+		btn.text = "%s %s" % [Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
 		btn.disabled = not Economy.can_buy(id)
 		btn.pressed.connect(func(): _on_buy(id))
 	row.add_child(btn)

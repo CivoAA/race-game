@@ -367,9 +367,9 @@ func _refresh_run_bar() -> void:
 		# (ersetzt den entfernten 3D-Button der Top-Nav).
 		_run_bar_status.text = "Runde läuft für Strecke %d" % (_current_track_idx + 1)
 		_run_bar_status.add_theme_color_override("font_color", Color(0.25, 0.90, 0.45))
-		_set_run_bar_btn_style("🎥  3D-Ansicht", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
+		_set_run_bar_btn_style(Icons.VIDEO + "  3D-Ansicht", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
 	elif _track_valid:
-		_run_bar_status.text = "✓ Strecke fertig — bereit zum Fahren"
+		_run_bar_status.text = Icons.CHECK + " Strecke fertig — bereit zum Fahren"
 		_run_bar_status.add_theme_color_override("font_color", Color(0.35, 0.90, 0.45))
 		_set_run_bar_btn_style("▶  Fahren!", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
 	else:
@@ -423,7 +423,7 @@ func _setup_build_panel() -> void:
 
 	# ── Kopfzeile mit flachem, eckigem ✕ oben rechts ────────────────────────────
 	var mode_lbl := Label.new()
-	mode_lbl.text = "🔨  BAUMODUS"
+	mode_lbl.text = Icons.HAMMER + "  BAUMODUS"
 	mode_lbl.position = Vector2(12, BUILD_PANEL_TOP + 9)
 	mode_lbl.size = Vector2(BUILD_PANEL_W - 48, 22)
 	mode_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -436,7 +436,7 @@ func _setup_build_panel() -> void:
 	var close_btn := Button.new()
 	close_btn.position = Vector2(BUILD_PANEL_W - X_SZ - 8, BUILD_PANEL_TOP + 8)
 	close_btn.size     = Vector2(X_SZ, X_SZ)
-	close_btn.text     = "✕"
+	close_btn.text     = Icons.X
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	close_btn.tooltip_text = "Baumenü schließen"
@@ -544,7 +544,7 @@ func _setup_build_toggle_btn() -> void:
 	_hammer_btn = Button.new()
 	_hammer_btn.position = Vector2(8, BOTTOM_BTN_Y)
 	_hammer_btn.size     = Vector2(BOTTOM_BTN_W, BOTTOM_BTN_H)
-	_hammer_btn.text     = "🔨"
+	_hammer_btn.text     = Icons.HAMMER
 	_hammer_btn.focus_mode = Control.FOCUS_NONE
 	_hammer_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_hammer_btn.tooltip_text = "Baumenü öffnen/schließen"
@@ -706,7 +706,7 @@ func _make_trash_card() -> Panel:
 	card.add_theme_stylebox_override("panel", sb_n)
 
 	var lbl := Label.new()
-	lbl.text = "🗑"
+	lbl.text = Icons.TRASH
 	lbl.size = Vector2(TW, TH)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
@@ -989,17 +989,17 @@ func _update_build_ui() -> void:
 		if item["type"] == "curve":
 			icon_txt = "╰"
 		elif item["tier"] == "ramp":
-			icon_txt = "⛰"
+			icon_txt = Icons.MOUNTAIN
 		elif item["tier"] == "ice":
-			icon_txt = "❄"
+			icon_txt = Icons.SNOWFLAKE
 		elif item["tier"] == "wall":
 			icon_txt = "◗"
 		elif item["tier"] == "loop":
 			icon_txt = "◯"
 		elif item["tier"] == "portal":
-			icon_txt = "⬭"
+			icon_txt = Icons.CIRCLE_DASHED
 		elif item["tier"] == "stand":
-			icon_txt = "🏟"
+			icon_txt = Icons.STADIUM
 		icon_lbl.text = icon_txt
 		name_lbl.text = item["name"]
 
@@ -1034,7 +1034,7 @@ func _update_build_ui() -> void:
 		# Wert- + Preiszeile je Zustand
 		if locked:
 			val_lbl.text   = "Im Shop freischalten"
-			price_lbl.text = "🔒 Gesperrt"
+			price_lbl.text = Icons.LOCK + " Gesperrt"
 			price_lbl.add_theme_color_override("font_color", Color(0.80, 0.64, 0.46))
 		elif item["tier"] == "dirt":
 			val_lbl.text   = "+%d pro Feld" % _tile_field_earn(item)
@@ -1043,27 +1043,27 @@ func _update_build_ui() -> void:
 		elif item["tier"] == "ramp":
 			var dirs = ["→", "↓", "←", "↑"]
 			val_lbl.text   = "Sprung %s  ·  +%d ×%.1f" % [dirs[ramp_preview_rot / 90], int(round(Economy.get_ramp_earn())), Economy.get_ramp_jump_mult()]
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "ice":
-			val_lbl.text   = "❄ +%.1f Lvl Speed · %d Felder" % [Economy.get_ice_boost_levels(), Economy.get_ice_range()]
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			val_lbl.text   = "%s +%.1f Lvl Speed · %d Felder" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(), Economy.get_ice_range()]
+			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "wall":
-			val_lbl.text   = "+%s 💰 · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Economy.get_wall_boost_levels(), Economy.get_wall_range()]
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			val_lbl.text   = "+%s %s · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Icons.COIN, Economy.get_wall_boost_levels(), Economy.get_wall_range()]
+			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "loop":
-			val_lbl.text   = "◯ ×%.1f  ·  andere ×%.1f" % [Economy.get_loop_factor(), Economy.get_loop_factor()]
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			val_lbl.text   = "%s ×%.1f  ·  andere ×%.1f" % [Icons.CIRCLE, Economy.get_loop_factor(), Economy.get_loop_factor()]
+			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "portal":
-			val_lbl.text   = "+%s 💰  ·  %d/%d gesetzt" % [Economy.format_currency(Economy.get_portal_earn()), _count_portals(), PORTAL_MAX]
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			val_lbl.text   = "+%s %s  ·  %d/%d gesetzt" % [Economy.format_currency(Economy.get_portal_earn()), Icons.COIN, _count_portals(), PORTAL_MAX]
+			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		elif item["tier"] == "stand":
 			val_lbl.text   = "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
-			price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 			price_lbl.add_theme_color_override("font_color", C_ACCENT)
 		else:
 			val_lbl.text   = "+%d  ·  ×1.2 pro Feld" % _tile_field_earn(item)
@@ -1074,7 +1074,7 @@ func _update_build_ui() -> void:
 				price_lbl.text = "Gratis (%d übrig)" % (free - placed)
 				price_lbl.add_theme_color_override("font_color", Color(0.64, 0.84, 0.52))
 			else:
-				price_lbl.text = "%s 💰" % Economy.format_currency(_tile_price(item))
+				price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
 				price_lbl.add_theme_color_override("font_color", C_ACCENT)
 
 		# Karten-Rahmen je Zustand
@@ -1139,7 +1139,7 @@ func _on_shop_slot_gui_input(event: InputEvent, idx: int) -> void:
 	var item = SHOP_ITEMS[idx]
 	if not Economy.is_tile_unlocked(item["key"]):
 		# Freischalten passiert jetzt im Shop → Streckenteile, nicht mehr hier.
-		tile_selector.set_status("🔒 %s im Shop → Streckenteile freischalten" % item["name"])
+		tile_selector.set_status(Icons.LOCK + " %s im Shop → Streckenteile freischalten" % item["name"])
 		return
 	if placement_mode == "slow":
 		_begin_shop_drag(idx)
@@ -1291,7 +1291,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		node.modulate = Color(0.62, 0.85, 1.0)
 		var rot_rad = deg_to_rad(data.get("rotation", 0))
 		var ilbl = Label.new()
-		ilbl.text = "❄"
+		ilbl.text = Icons.SNOWFLAKE
 		ilbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-rot_rad)
 		ilbl.rotation_degrees = -data.get("rotation", 0)
 		ilbl.add_theme_color_override("font_color", Color(0.85, 0.96, 1.0))
@@ -1320,7 +1320,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		var rot_rad  = deg_to_rad(data.get("rotation", 0))
 		var slbl     = Label.new()
 		slbl.name    = "StarLabel"
-		slbl.text    = "★".repeat(clvl)
+		slbl.text    = Icons.STAR.repeat(clvl)
 		slbl.position = Vector2(0.0, TILE_SIZE / 2.0 - 14.0).rotated(-rot_rad)
 		slbl.rotation_degrees = -data.get("rotation", 0)
 		slbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -3093,7 +3093,7 @@ func _rebuild_grid_for_size() -> void:
 func _on_pruefen_pressed() -> void:
 	_track_valid = _is_track_valid()
 	if _track_valid:
-		tile_selector.set_status("✓ Strecke gültig")
+		tile_selector.set_status(Icons.CHECK + " Strecke gültig")
 	else:
 		tile_selector.set_status("Keine vollständige Runde möglich")
 	_refresh_run_bar()
