@@ -15,7 +15,7 @@ const RESOLUTIONS = [
 	["3440 × 1440  (UltraWide)", Vector2i(3440, 1440)],
 	["5120 × 1440  (Super UltraWide)", Vector2i(5120, 1440)],
 ]
-const DEFAULT_RESOLUTION = Vector2i(1280, 720)
+const DEFAULT_RESOLUTION = Vector2i(1920, 1080)
 # Kategorien der Side-Nav in den Einstellungen [Icon, Label] mit Tabler-Icons.
 # Funktion statt const, weil die Glyphen aus dem Icons-Autoload kommen.
 func _settings_cats() -> Array:
