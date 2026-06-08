@@ -1,4 +1,4 @@
-extends CanvasLayer
+﻿extends CanvasLayer
 ## Fullscreen-Modal: Shop | Errungenschaften | Werkstatt.
 ## Autoload "GlobalModal" (layer 25, über GameHUD).
 ## process_mode ALWAYS damit es auch bei Pause funktioniert.
@@ -80,6 +80,8 @@ var _prestige_earned_lbl: Label         = null
 var _prestige_btn:        Button        = null   # „PRESTIGE → +N ⭐"
 var _prestige_confirm:    Control       = null   # Bestätigungs-Overlay
 var _prestige_confirm_lbl: Label        = null
+var _ascend_confirm:      Control       = null   # Auto-Prestige-Bestätigung (Werkstatt)
+var _ascend_confirm_lbl:  Label         = null
 
 
 func _ready() -> void:
@@ -112,6 +114,7 @@ func open() -> void:
 	_refresh_affordability()
 	_rebuild_prestige()   # Punkte/Knoten könnten sich seit dem letzten Öffnen geändert haben
 	_refresh_statistik()  # Statistik-Werte (Geld/Prestige/Strecken …) frisch anzeigen
+	_refresh_werkstatt()  # Auto-Stufe/Lack/Muster könnten sich geändert haben (Vorschau ggf. neu)
 	_refresh_modal_money()
 	visible = true
 
@@ -219,6 +222,7 @@ func _build_modal() -> void:
 	_build_prestige_panel(panel,       CONTENT_Y, area_h)
 
 	_build_prestige_confirm(panel)
+	_build_ascend_confirm(panel)
 
 	_show_modal_tab(0)
 
@@ -1177,14 +1181,13 @@ func _make_stat_dotsep() -> Label:
 # aus dem Icons-Autoload kommen.
 func _ws_tabs() -> Array:
 	return [
-		{"id": "form",    "name": "Form",       "icon": Icons.CAR},
+		{"id": "autos",   "name": "Autos",      "icon": Icons.CAR},
 		{"id": "paint",   "name": "Lackierung", "icon": Icons.PALETTE},
-		{"id": "tires",   "name": "Reifen",     "icon": Icons.SETTINGS},
-		{"id": "ability", "name": "Fähigkeit",  "icon": Icons.SPARKLES},
+		{"id": "pattern", "name": "Muster",     "icon": Icons.LAYOUT_GRID},
 	]
 
 var _ws_active_tab:  int           = 0
-var _ws_sel:         Dictionary    = {"form": 0, "paint": 0, "tires": 0, "ability": 0}
+var _ws_sel:         Dictionary    = {"paint": 0, "pattern": 0}
 var _ws_tab_btns:    Array[Button] = []
 var _ws_options_box: Control       = null
 var _ws_summary_lbl: Label         = null
@@ -1194,40 +1197,46 @@ var _preview_pivot:  Node3D    = null
 var _preview_model:  Node3D    = null
 var _preview_cam:    Camera3D  = null
 var _preview_meshes: Array     = []
+var _preview_tier:   int       = -1   # Auto-Stufe, deren Modell aktuell in der Vorschau hängt
 
 
 func _ws_options(id: String) -> Array:
 	match id:
-		"form":
-			return [
-				{"name": "Standard", "icon": Icons.CAR},
-				{"name": "Sport",    "icon": Icons.STEERING_WHEEL},
-				{"name": "Kompakt",  "icon": Icons.CAR},
-				{"name": "Truck",    "icon": Icons.TRUCK},
-			]
 		"paint":
+			# „Original" (kein Override) zuerst, danach eine breite Palette. Mehr Farben = besser.
 			return [
-				{"name": "Original", "icon": Icons.CAR},
-				{"name": "Rot",      "color": Color(0.85, 0.15, 0.12)},
-				{"name": "Blau",     "color": Color(0.13, 0.40, 0.85)},
-				{"name": "Grün",     "color": Color(0.15, 0.65, 0.30)},
-				{"name": "Gelb",     "color": Color(0.95, 0.80, 0.15)},
-				{"name": "Schwarz",  "color": Color(0.08, 0.08, 0.10)},
-				{"name": "Weiß",     "color": Color(0.92, 0.93, 0.96)},
+				{"name": "Original",   "icon": Icons.CAR},
+				{"name": "Rot",        "color": Color(0.85, 0.15, 0.12)},
+				{"name": "Dunkelrot",  "color": Color(0.55, 0.08, 0.10)},
+				{"name": "Orange",     "color": Color(0.95, 0.45, 0.10)},
+				{"name": "Bernstein",  "color": Color(0.90, 0.62, 0.10)},
+				{"name": "Gelb",       "color": Color(0.95, 0.85, 0.15)},
+				{"name": "Limette",    "color": Color(0.65, 0.85, 0.18)},
+				{"name": "Grün",       "color": Color(0.15, 0.65, 0.30)},
+				{"name": "Smaragd",    "color": Color(0.08, 0.50, 0.38)},
+				{"name": "Türkis",     "color": Color(0.12, 0.72, 0.70)},
+				{"name": "Cyan",       "color": Color(0.18, 0.78, 0.92)},
+				{"name": "Hellblau",   "color": Color(0.35, 0.62, 0.95)},
+				{"name": "Blau",       "color": Color(0.13, 0.40, 0.85)},
+				{"name": "Marine",     "color": Color(0.10, 0.16, 0.45)},
+				{"name": "Violett",    "color": Color(0.45, 0.25, 0.80)},
+				{"name": "Lila",       "color": Color(0.62, 0.20, 0.78)},
+				{"name": "Magenta",    "color": Color(0.85, 0.20, 0.62)},
+				{"name": "Pink",       "color": Color(0.95, 0.45, 0.70)},
+				{"name": "Rosa",       "color": Color(0.96, 0.72, 0.78)},
+				{"name": "Braun",      "color": Color(0.42, 0.27, 0.16)},
+				{"name": "Sand",       "color": Color(0.82, 0.72, 0.52)},
+				{"name": "Grau",       "color": Color(0.50, 0.52, 0.56)},
+				{"name": "Anthrazit",  "color": Color(0.18, 0.19, 0.22)},
+				{"name": "Schwarz",    "color": Color(0.06, 0.06, 0.08)},
+				{"name": "Weiß",       "color": Color(0.92, 0.93, 0.96)},
+				{"name": "Gold",       "color": Color(0.83, 0.68, 0.21)},
 			]
-		"tires":
+		"pattern":
+			# Muster über die Lack-Maske. idx = car_pattern (0 = keins, 1 = Streifen). Erweiterbar.
 			return [
-				{"name": "Standard", "icon": Icons.SETTINGS},
-				{"name": "Slicks",   "icon": Icons.CIRCLE},
-				{"name": "Offroad",  "icon": Icons.CIRCLE_DASHED},
-				{"name": "Winter",   "icon": Icons.SNOWFLAKE},
-			]
-		"ability":
-			return [
-				{"name": "Keine",  "icon": Icons.CIRCLE_X},
-				{"name": "Boost",  "icon": Icons.ROCKET},
-				{"name": "Magnet", "icon": Icons.MAGNET},
-				{"name": "Schild", "icon": Icons.SHIELD},
+				{"name": "Keins",    "icon": Icons.CIRCLE_X},
+				{"name": "Streifen", "stripes": true},
 			]
 	return []
 
@@ -1296,8 +1305,9 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	_rebuild_ws_options()
 
 
-# Setzt die markierte Lackierungs-Karte passend zum gespeicherten Economy-Zustand.
+# Setzt die markierte Lackierungs-/Muster-Karte passend zum gespeicherten Economy-Zustand.
 func _sync_paint_selection_from_economy() -> void:
+	_ws_sel["pattern"] = Economy.get_car_pattern()
 	if not Economy.is_car_paint_on():
 		_ws_sel["paint"] = 0
 		return
@@ -1318,31 +1328,63 @@ func _on_ws_tab(idx: int) -> void:
 	_rebuild_ws_options()
 
 
+# Beim Öffnen des Modals: Werkstatt an den aktuellen Economy-Zustand angleichen. Vor allem nach
+# einem Auto-Aufstieg (car_tier geändert) das Vorschau-Modell neu laden; sonst nur Auswahl/Optik.
+func _refresh_werkstatt() -> void:
+	if _preview_pivot == null:
+		return
+	_sync_paint_selection_from_economy()
+	if _preview_tier != Economy.get_car_tier():
+		if _preview_model != null:
+			_preview_model.queue_free()
+			_preview_model = null
+		_load_preview_model()
+		_frame_preview_camera()
+	_apply_ws_config()
+	_rebuild_ws_options()
+
+
 func _rebuild_ws_options() -> void:
 	if _ws_options_box == null:
 		return
 	for c in _ws_options_box.get_children():
 		c.queue_free()
 
-	var id   = _ws_tabs()[_ws_active_tab].id
+	var id = _ws_tabs()[_ws_active_tab].id
+	if id == "autos":
+		_build_autos_options()
+		return
+
 	var opts = _ws_options(id)
-	# 7 Lackfarben müssen ins schmalere Modal passen → kompaktere Karten.
-	const OPT_W = 100
-	const OPT_H = 80
-	const GAP   = 8
-	var total_w = opts.size() * OPT_W + max(0, opts.size() - 1) * GAP
-	var sx = (VW - total_w) / 2.0
 	var sel = int(_ws_sel.get(id, 0))
+	# Kartengröße je Kategorie: viele Lackfarben → kompakte Swatches ohne Label (Name in der
+	# Zusammenfassung); Muster → größere Karten mit Label.
+	var cw := 56.0
+	var ch := 40.0
+	var show_label := false
+	if id == "pattern":
+		cw = 120.0; ch = 78.0; show_label = true
+	const GAP = 6
+	var cols = maxi(1, int((VW + GAP) / (cw + GAP)))
+	cols = mini(cols, opts.size())
+	var rows = int(ceil(float(opts.size()) / float(cols)))
+	var grid_h = rows * ch + max(0, rows - 1) * GAP
+	var oy = maxf(2.0, (_ws_options_box.size.y - grid_h) / 2.0)
 	for i in opts.size():
-		var card := _make_ws_option(id, opts[i], i, i == sel, OPT_W)
-		card.position = Vector2(sx + i * (OPT_W + GAP), 6)
-		card.size     = Vector2(OPT_W, OPT_H)
+		var r = int(i / cols)
+		var in_row = mini(cols, opts.size() - r * cols)
+		var row_w = in_row * cw + max(0, in_row - 1) * GAP
+		var sx = (VW - row_w) / 2.0
+		var ci = i - r * cols
+		var card := _make_ws_option(id, opts[i], i, i == sel, cw, ch, show_label)
+		card.position = Vector2(sx + ci * (cw + GAP), oy + r * (ch + GAP))
+		card.size     = Vector2(cw, ch)
 		_ws_options_box.add_child(card)
 
 	_update_ws_summary()
 
 
-func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float = 120.0) -> Panel:
+func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float, h: float, show_label: bool) -> Panel:
 	var card := Panel.new()
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
@@ -1353,30 +1395,51 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 	sb.set_corner_radius_all(8)
 	card.add_theme_stylebox_override("panel", sb)
 
-	if cat == "paint" and opt.has("color"):
+	var pad := 6.0
+	var content_h := (h - 20.0) if show_label else (h - 2.0 * pad)
+	if opt.has("color"):
 		var sw := ColorRect.new()
-		sw.position = Vector2(10, 10)
-		sw.size     = Vector2(w - 20, 38)
+		sw.position = Vector2(pad, pad)
+		sw.size     = Vector2(w - 2.0 * pad, content_h)
 		sw.color    = opt.color
 		card.add_child(sw)
+	elif opt.get("stripes", false):
+		# Kleine Streifen-Vorschau: aktuelle Lackfarbe mit schwarzen Streifen.
+		var base_col: Color = Economy.get_car_paint_color() if Economy.is_car_paint_on() else Color(0.55, 0.57, 0.62)
+		var bg := ColorRect.new()
+		bg.position = Vector2(pad, pad)
+		bg.size     = Vector2(w - 2.0 * pad, content_h)
+		bg.color    = base_col
+		card.add_child(bg)
+		var stripes := 5
+		var sw_w := (w - 2.0 * pad) / float(stripes * 2 - 1)
+		for s in range(stripes):
+			var st := ColorRect.new()
+			st.position = Vector2(pad + s * 2.0 * sw_w, pad)
+			st.size     = Vector2(sw_w, content_h)
+			st.color    = Economy.get_car_pattern_color()
+			bg.add_child(st)
 	else:
 		var icon := Label.new()
-		icon.position = Vector2(0, 8)
-		icon.size     = Vector2(w, 40)
+		icon.position = Vector2(0, pad)
+		icon.size     = Vector2(w, content_h)
 		icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-		icon.add_theme_font_size_override("font_size", 26)
+		icon.add_theme_font_size_override("font_size", 24 if show_label else 18)
 		icon.text = opt.get("icon", "◆")
 		card.add_child(icon)
 
-	var name_lbl := Label.new()
-	name_lbl.position = Vector2(0, 52)
-	name_lbl.size     = Vector2(w, 22)
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_lbl.add_theme_font_size_override("font_size", 11)
-	name_lbl.add_theme_color_override("font_color", C_TEXT if selected else C_TEXT_DIM)
-	name_lbl.text = opt.name
-	card.add_child(name_lbl)
+	if show_label:
+		var name_lbl := Label.new()
+		name_lbl.position = Vector2(0, h - 20.0)
+		name_lbl.size     = Vector2(w, 18)
+		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_lbl.add_theme_font_size_override("font_size", 11)
+		name_lbl.add_theme_color_override("font_color", C_TEXT if selected else C_TEXT_DIM)
+		name_lbl.text = opt.name
+		card.add_child(name_lbl)
+	else:
+		card.tooltip_text = opt.name
 
 	card.gui_input.connect(func(e: InputEvent):
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
@@ -1387,11 +1450,13 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 
 func _on_ws_option_selected(cat: String, idx: int) -> void:
 	_ws_sel[cat] = idx
-	# Lackierung persistent merken → 3D-Autos (Vorschau wie ingame) übernehmen die Farbe.
+	# Lackierung/Muster persistent merken → 3D-Autos (Vorschau wie ingame) übernehmen es live.
 	if cat == "paint":
 		var opts = _ws_options("paint")
 		var col = opts[idx].get("color", null) if idx >= 0 and idx < opts.size() else null
 		Economy.set_car_paint(col != null, col if col != null else Economy.get_car_paint_color())
+	elif cat == "pattern":
+		Economy.set_car_pattern(idx)
 	_rebuild_ws_options()
 	_apply_ws_config()
 
@@ -1399,13 +1464,64 @@ func _on_ws_option_selected(cat: String, idx: int) -> void:
 func _update_ws_summary() -> void:
 	if _ws_summary_lbl == null:
 		return
-	var parts: Array = []
-	for t in _ws_tabs():
-		var opts = _ws_options(t.id)
-		var i = int(_ws_sel.get(t.id, 0))
-		var nm = String(opts[i].name) if i < opts.size() else "?"
-		parts.append("%s: %s" % [t.name, nm])
-	_ws_summary_lbl.text = "  ·  ".join(parts)
+	var pi = int(_ws_sel.get("paint", 0))
+	var paint_opts = _ws_options("paint")
+	var paint_nm = String(paint_opts[pi].name) if pi < paint_opts.size() else "?"
+	var qi = int(_ws_sel.get("pattern", 0))
+	var pat_opts = _ws_options("pattern")
+	var pat_nm = String(pat_opts[qi].name) if qi < pat_opts.size() else "?"
+	_ws_summary_lbl.text = "Lackierung: %s  ·  Muster: %s" % [paint_nm, pat_nm]
+
+
+# Tab „Autos": Auto-Prestige-Panel (Aufstieg auf die nächste Auto-Stufe gegen Voll-Reset + ×4 ⭐).
+func _build_autos_options() -> void:
+	var tier := Economy.get_car_tier()
+	var cost := Economy.get_car_ascend_cost()
+	var can  := Economy.can_ascend_car()
+
+	var info := Label.new()
+	info.position = Vector2(0, 2)
+	info.size     = Vector2(VW, 40)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	info.add_theme_font_size_override("font_size", 13)
+	info.add_theme_color_override("font_color", C_TEXT)
+	var pts := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
+	info.text = "Aktuelles Auto: %s (Stufe %d)\nUpgrade: %s  →  Reset inkl. Prestige-Baum, danach ×%d %s" % [
+		_car_tier_name(tier), tier, Economy.format_currency(cost), pts, Icons.STAR]
+	_ws_options_box.add_child(info)
+
+	var btn := Button.new()
+	btn.size     = Vector2(300, 36)
+	btn.position = Vector2((VW - 300) / 2.0, 50)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.disabled = not can
+	btn.text = "%s  Auto upgraden" % Icons.ARROW_BIG_UP
+	if can:
+		btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
+		btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
+		btn.add_theme_color_override("font_color", C_STAR)
+		btn.pressed.connect(_on_ascend_pressed)
+	else:
+		btn.add_theme_stylebox_override("normal", _sbf(C_SURFACE, C_LINE))
+		btn.add_theme_color_override("font_color", C_TEXT_DIM)
+		btn.tooltip_text = "Erst genug Guthaben sammeln (%s)" % Economy.format_currency(cost)
+	_ws_options_box.add_child(btn)
+
+	if _ws_summary_lbl != null:
+		if tier >= 1:
+			_ws_summary_lbl.text = "Es fährt nur das %s-Auto · 4 normale Autos = 1 fahrendes Auto (Lack/Muster folgt für dieses Modell)" % _car_tier_name(tier)
+		else:
+			_ws_summary_lbl.text = "Nach dem Upgrade fährt nur noch das neue Auto auf der Strecke."
+
+
+func _car_tier_name(tier: int) -> String:
+	match tier:
+		0: return "Standard"
+		1: return "Eric"
+		_: return "Tier %d" % tier
 
 
 func _style_ws_tab(btn: Button, active: bool) -> void:
@@ -1477,9 +1593,10 @@ func _build_preview_viewport(parent: Control, pos: Vector2, sz: Vector2) -> void
 func _load_preview_model() -> void:
 	_preview_meshes.clear()
 	var model: Node3D = null
-	# Vorerst das Test-Auto (mit Umfärb-Maske) statt default_car laden.
-	if ResourceLoader.exists(Paths.MODEL_TEST_CAR):
-		model = (load(Paths.MODEL_TEST_CAR) as PackedScene).instantiate()
+	# Modell der aktuellen Auto-Prestige-Stufe (Stufe 0 = Test-Auto mit Umfärb-Maske).
+	var mpath := Economy.get_car_tier_model()
+	if ResourceLoader.exists(mpath):
+		model = (load(mpath) as PackedScene).instantiate()
 	else:
 		# Platzhalter-Box falls kein Modell vorhanden
 		model = Node3D.new()
@@ -1490,6 +1607,7 @@ func _load_preview_model() -> void:
 		model.add_child(mi)
 	_preview_pivot.add_child(model)
 	_preview_model = model
+	_preview_tier  = Economy.get_car_tier()
 	_collect_meshes(model)
 
 
@@ -1544,10 +1662,12 @@ func _frame_preview_camera() -> void:
 # gelegt: nur die roten Maskenbereiche (Karosserie) werden umgefärbt, die
 # Hell-Dunkel-Verläufe der Originaltextur bleiben erhalten.
 func _apply_ws_config() -> void:
+	# Lack/Muster brauchen die Umfärb-Maske (nur Test-Auto, Stufe 0). Höhere Tier-Modelle haben
+	# keine Maske → Originaltextur zeigen (kein Override), wie ingame.
 	var opts = _ws_options("paint")
 	var pi = int(_ws_sel.get("paint", 0))
 	var col = null
-	if pi >= 0 and pi < opts.size():
+	if Economy.get_car_tier() == 0 and pi >= 0 and pi < opts.size():
 		col = opts[pi].get("color", null)
 	for m in _preview_meshes:
 		if not is_instance_valid(m):
@@ -1572,6 +1692,9 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
 		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
 	mat.set_shader_parameter("paint_color", col)
+	# Muster (0 = keins) nur über die Maskenbereiche legen.
+	mat.set_shader_parameter("pattern_mode", Economy.get_car_pattern())
+	mat.set_shader_parameter("pattern_color", Economy.get_car_pattern_color())
 	return mat
 
 
@@ -1595,12 +1718,7 @@ func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 		sep.custom_minimum_size = Vector2(0, 1)
 		sep.color = C_LINE
 		vbox.add_child(sep)
-	# Super-Auto („Auto 2") – Einmal-Unlock (kein gestuftes Upgrade), unten angehängt.
-	vbox.add_child(_make_super_car_row(row_w))
-	var sep2 := ColorRect.new()
-	sep2.custom_minimum_size = Vector2(0, 1)
-	sep2.color = C_LINE
-	vbox.add_child(sep2)
+	# Hinweis: Das „Auto 2"-Kombinieren ist in die Werkstatt (Tab „Autos", Auto-Prestige) umgezogen.
 
 
 func _make_upgrade_row(id: String, row_w: float) -> Control:
@@ -2260,6 +2378,108 @@ func _on_prestige_confirmed() -> void:
 	# die frisch erhaltenen ⭐-Punkte und versteht, dass man sie jetzt im Tech-Baum ausgeben kann.
 	open()
 	_on_modal_tab(PRESTIGE_TAB)
+
+
+# ── Auto-Prestige ausführen (mit Bestätigung) ──────────────────────────────────
+
+func _on_ascend_pressed() -> void:
+	if not Economy.can_ascend_car():
+		return
+	var next_tier := Economy.get_car_tier() + 1
+	var pts := int(pow(Economy.CAR_ASCEND_POINT_MULT, next_tier))
+	_ascend_confirm_lbl.text = "Dein Auto wird zu %s aufgewertet (Stufe %d).\n\nGeld, Upgrades, Teile UND der Prestige-Baum\nwerden komplett zurückgesetzt. Danach fährt nur\nnoch dieses Auto und du erhältst ×%d %s pro Prestige." % [
+		_car_tier_name(next_tier), next_tier, pts, Icons.STAR]
+	_ascend_confirm.visible = true
+
+
+func _build_ascend_confirm(parent: Control) -> void:
+	var ph_area := VH - TOP_H - BOT_H
+	_ascend_confirm = Control.new()
+	_ascend_confirm.position = Vector2(0, 0)
+	_ascend_confirm.size     = Vector2(VW, ph_area)
+	_ascend_confirm.visible  = false
+	parent.add_child(_ascend_confirm)
+
+	var dim := ColorRect.new()
+	dim.position     = Vector2(0, 0)
+	dim.size         = Vector2(VW, ph_area)
+	dim.color        = Color(0, 0, 0, 0.78)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_ascend_confirm.add_child(dim)
+
+	const PW = 480
+	const PH = 290
+	var panel := Panel.new()
+	panel.position = Vector2((VW - PW) / 2.0, (ph_area - PH) / 2.0)
+	panel.size     = Vector2(PW, PH)
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = C_BG
+	psb.border_color = C_STAR
+	psb.set_border_width_all(2)
+	psb.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", psb)
+	_ascend_confirm.add_child(panel)
+
+	var title := Label.new()
+	title.position = Vector2(0, 22)
+	title.size     = Vector2(PW, 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", C_STAR)
+	title.text = "AUTO UPGRADEN?"
+	_emboss(title, 0.7)
+	panel.add_child(title)
+
+	_ascend_confirm_lbl = Label.new()
+	_ascend_confirm_lbl.position = Vector2(24, 64)
+	_ascend_confirm_lbl.size     = Vector2(PW - 48, 140)
+	_ascend_confirm_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ascend_confirm_lbl.add_theme_font_size_override("font_size", 13)
+	_ascend_confirm_lbl.add_theme_color_override("font_color", C_TEXT)
+	panel.add_child(_ascend_confirm_lbl)
+
+	var yes := Button.new()
+	yes.position = Vector2(24, PH - 58)
+	yes.size     = Vector2((PW - 60) / 2.0, 40)
+	yes.focus_mode = Control.FOCUS_NONE
+	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	yes.add_theme_font_size_override("font_size", 14)
+	yes.text = Icons.ARROW_BIG_UP + "  Upgraden"
+	yes.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
+	yes.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
+	yes.add_theme_color_override("font_color", C_STAR)
+	yes.pressed.connect(_on_ascend_confirmed)
+	panel.add_child(yes)
+
+	var no := Button.new()
+	no.position = Vector2(36 + (PW - 60) / 2.0, PH - 58)
+	no.size     = Vector2((PW - 60) / 2.0, 40)
+	no.focus_mode = Control.FOCUS_NONE
+	no.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	no.add_theme_font_size_override("font_size", 14)
+	no.text = "Abbrechen"
+	no.add_theme_stylebox_override("normal",  _sbf(C_SURFACE, C_ACCENT_MU))
+	no.add_theme_stylebox_override("hover",   _sbf(C_SURFACE2, C_ACCENT))
+	no.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
+	no.add_theme_color_override("font_color", C_TEXT)
+	no.pressed.connect(func(): _ascend_confirm.visible = false)
+	panel.add_child(no)
+
+
+func _on_ascend_confirmed() -> void:
+	var ok := Economy.ascend_car()
+	_ascend_confirm.visible = false
+	if not ok:
+		return
+	# Voll-Reset (inkl. Prestige-Baum) → Streckenteile + Upgrades beim nächsten Öffnen neu, zurück
+	# auf Strecke 1 im 2D-Bauplan mit frischen, leeren Strecken.
+	_tiles_dirty = true
+	GameHUD.reset_after_prestige()
+	get_tree().change_scene_to_file(Paths.SCENE_BUILDER)
+	# Modal offen lassen, auf dem Werkstatt-Tab (Index 2) mit dem neuen Auto.
+	open()
+	_on_modal_tab(2)
 
 
 # ── UI-Hilfsfunktionen ────────────────────────────────────────────────────────

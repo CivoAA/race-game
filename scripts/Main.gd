@@ -2848,12 +2848,22 @@ func _rotate_active(degrees: int) -> void:
 	var data = grid[row][col]
 	if data == null or data.get("is_start", false):
 		return
+	# Rampen-/Steilwand-Paare immer am Start-Tile greifen, auch wenn das End-Tile
+	# ausgewählt ist – sonst dreht sich nur die einzelne Partner-Kachel.
+	var dtype = data.get("type", "")
+	if dtype in ["ramp_end", "wall_end"]:
+		var spr = int(data.get("ramp_partner_row", -1))
+		var spc = int(data.get("ramp_partner_col", -1))
+		if spr >= 0 and spc >= 0 and grid[spr][spc] != null:
+			row = spr; col = spc
+			data = grid[row][col]
+			dtype = data.get("type", "")
 	# Rampen-Rotation: End-Tile neu platzieren
-	if data.get("type", "") == "ramp_start":
+	if dtype == "ramp_start":
 		_rotate_ramp(row, col, degrees)
 		return
 	# Steilwandkurven-Rotation: Paar neu platzieren
-	if data.get("type", "") == "wall_start":
+	if dtype == "wall_start":
 		_rotate_wall(row, col, degrees)
 		return
 	# Tribüne: Node neu zeichnen, damit Pfeile/×-Marke sauber zur neuen Rotation passen.
