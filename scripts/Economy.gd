@@ -9,6 +9,21 @@ const START_CURRENCY  = 0
 # Basis-Tempo 25 · 0.1 = 2.5 m/s (bewusst langsam); Max-Tempo 150 · 0.1 = 15 m/s.
 const SPEED_SCALE     = 0.1
 
+# ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
+# MEHRFACH kaufbar (super_car_count): jeder Kauf „kombiniert" SUPER_CAR_COST_CARS normale Autos zu
+# EINEM Super-Auto – viel langsamer (Tempo ÷ SUPER_CAR_SPEED_DIV), dafür +SUPER_CAR_TILE_BONUS je
+# Feld und ganz am Ende ×SUPER_CAR_END_MULT (beides OBEN DRAUF auf die globalen Geld-Upgrades).
+# Kaufbar IMMER, wenn man genug FREIE Standard-Autos (SUPER_CAR_COST_CARS je weiteres Super-Auto)
+# und Tempo ≥ SUPER_CAR_REQ_SPEED hat. Preis steigt je Kauf: COST·GROWTH^bereits_gekauft.
+# Beim Streckenstart spawnen pro Super-Auto SUPER_CAR_COST_CARS Autos weniger + 1 Super-Auto.
+const SUPER_CAR_COST        = 1_000_000_000   # Basis-Kaufpreis (1 Mrd); steigt je gekauftem Super-Auto
+const SUPER_CAR_COST_GROWTH = 4.0             # Preis-Faktor je weiterem Super-Auto (1→4→16→64 Mrd …)
+const SUPER_CAR_REQ_SPEED   = 75              # min. Tempo (speed-Effektwert) als Voraussetzung (≥)
+const SUPER_CAR_COST_CARS   = 4               # so viele normale Autos werden je Super-Auto ersetzt
+const SUPER_CAR_SPEED_DIV   = 3.0             # Tempo wird durch diesen Wert geteilt
+const SUPER_CAR_TILE_BONUS  = 10000.0         # zusätzlicher +Ertrag JE Feld (oben drauf)
+const SUPER_CAR_END_MULT    = 25.0            # zusätzlicher ×Faktor ganz am Ende (oben drauf)
+
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
 # Kosten pro Level = round(base_cost * growth^level)
@@ -200,9 +215,11 @@ const PRESTIGE_NODES = {
 		"desc": "Freigeschaltete Streckenteile bleiben nach dem Prestige gratis (keine Freischalt-Gebühr mehr).",
 		"prereq": {"grid": 1},
 	},
-	# Zusätzliche Autos – addiert sich auf das normale Auto-Upgrade.
+	# Zusätzliche Autos – addiert sich auf das normale Auto-Upgrade. max 10 mit flacherer Kurve
+	# (growth 3.0), damit man dauerhaft mehr Autos kaufen kann (Stufe 10 ≈ 118k ⭐). Ermöglicht u. a.
+	# genügend Autos für (mehrere) Super-Autos, siehe SUPER_CAR_*.
 	"car": {
-		"name": "Extra-Auto", "icon": "🚗", "base_cost": 6, "growth": 5.0, "max_level": 3,
+		"name": "Extra-Auto", "icon": "🚗", "base_cost": 6, "growth": 3.0, "max_level": 10,
 		"desc": "Je Stufe ein dauerhaft zusätzliches Auto.", "prereq": {"keep_unlocks": 1},
 	},
 	# Strecken-Freischaltung: Lv1 = Strecke 2, Lv2 = Strecke 3 (Strecke 1 ist immer offen).
@@ -243,6 +260,9 @@ var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
 # Kosmetik: Auto-Lackierung (Werkstatt). car_paint_on=false → Originaltextur (keine Umfärbung).
 var car_paint_on:    bool  = false
 var car_paint_color: Color = Color(0.85, 0.15, 0.12)
+
+# Anzahl gekaufter Super-Autos („Auto 2"). Mehrfach kaufbar, überlebt Prestige (slot-gebunden, gespeichert).
+var super_car_count: int   = 0
 
 # Prestige-Zustand (überlebt den Prestige-Reset; nur „Neues Spiel"/reset_slot löscht ihn).
 var prestige_points: int        = 0   # verfügbare ⭐
@@ -430,15 +450,26 @@ func _credit_laps(i: int) -> void:
 	var cars: Array = _tracks[i].get("run_cars", [])
 	if cars.is_empty():
 		return
-	var laps_total := _laps_total(i)
-	var credited_laps := int(_tracks[i].get("run_credited_laps", 0))
-	var new_laps := laps_total - credited_laps
-	if new_laps <= 0:
+	# PRO AUTO abrechnen: Autos können unterschiedlich schnell sein (Super-Auto) → unterschiedlich
+	# viele Runden UND unterschiedlichen Reward. Jeder Eintrag merkt sich seine schon gezählten
+	# Runden in "credited_laps" (monoton). run_cars wird bei 2D↔3D-Wechsel/Respawn neu gesetzt; dort
+	# snappt set_run_cars die Zähler → keine Doppelzählung, kein rückwirkendes Geld.
+	var elapsed := float(_tracks[i]["run_elapsed"])
+	var gain := 0
+	for car in cars:
+		var lt := float(car.get("lap_time", 0.0))
+		if lt <= 0.0:
+			continue
+		var car_laps := int(floor(maxf(0.0, elapsed - float(car.get("start_delay", 0.0))) / lt))
+		var new_laps := car_laps - int(car.get("credited_laps", 0))
+		if new_laps <= 0:
+			continue
+		gain += new_laps * _lap_reward_for_car(car)
+		car["credited_laps"] = car_laps
+	if gain <= 0:
 		return
-	var gain := new_laps * _current_lap_reward(cars)
 	_currency += gain
 	prestige_earned += gain   # Basis für die nächste Prestige-Punkte-Ausschüttung
-	_tracks[i]["run_credited_laps"] = laps_total
 	_tracks[i]["run_credited"] = int(_tracks[i]["run_credited"]) + gain
 	_tracks[i]["run_earned"]   = int(_tracks[i]["run_credited"])
 	emit_signal("lap_credited", i, gain)
@@ -448,7 +479,7 @@ func _credit_laps(i: int) -> void:
 # zuschauen muss: lap_time = lap_k / aktuelles_Tempo neu berechnen und den Runden-Zähler
 # snappen → kein rückwirkendes Geld, das neue Tempo zählt ab der nächsten Runde. lap_k ist
 # tempo-unabhängig (lap_time·speed). Geld-Upgrades (endmult/tilebonus/tile) wirken ohnehin live
-# über _current_lap_reward; hier geht es nur um die geänderte Rundenzeit durch das Tempo.
+# über _lap_reward_for_car; hier geht es nur um die geänderte Rundenzeit durch das Tempo.
 func _apply_speed_to_active_runs() -> void:
 	var sp := get_car_speed(0)
 	if sp <= 0.0:
@@ -456,11 +487,16 @@ func _apply_speed_to_active_runs() -> void:
 	for i in TRACK_COUNT:
 		if not _tracks[i]["run_active"]:
 			continue
+		var elapsed := float(_tracks[i]["run_elapsed"])
 		for car in _tracks[i].get("run_cars", []):
 			var lk := float(car.get("lap_k", 0.0))
-			if lk > 0.0:
-				car["lap_time"] = lk / sp
-		_tracks[i]["run_credited_laps"] = _laps_total(i)
+			# Auto-eigenes Tempo = globales Tempo ÷ speed_div (Super-Auto: 3; normal: 1).
+			var car_sp := sp / maxf(0.001, float(car.get("speed_div", 1.0)))
+			if lk > 0.0 and car_sp > 0.0:
+				car["lap_time"] = lk / car_sp
+			# Runden-Zähler dieses Autos auf den aktuellen Stand snappen (neues lap_time → future-only).
+			var lt := float(car.get("lap_time", 0.0))
+			car["credited_laps"] = int(floor(maxf(0.0, elapsed - float(car.get("start_delay", 0.0))) / lt)) if lt > 0.0 else 0
 
 
 # Gesamtzahl überfahrener Startlinien (über alle Autos) bei der aktuellen Fahrzeit.
@@ -501,62 +537,63 @@ func _laps_total(i: int) -> int:
 # = Schritt 1; fixed_mult (Premium ×1.2), bonus_mult (×1.5-Feld), jump_mult (NUR is_jump = das
 # übersprungene Mittelfeld zwischen ramp_start/ramp_end; die Rampe SELBST bekommt KEIN ×2)
 # = Schritt 2. Alles aus den AKTUELLEN Upgrade-Werten → wirkt live, auch auf Hintergrund-Strecken.
-# Alle Autos einer Strecke teilen das Layout → einheitlicher Reward; erstes gültiges Auto genügt.
-func _current_lap_reward(cars: Array) -> int:
-	for car in cars:
-		if float(car.get("lap_time", 0.0)) <= 0.0:
-			continue
-		var tiles: Array = car.get("tiles", [])
-		if tiles.is_empty():
-			continue
-		var tilebonus   := get_car_tile_bonus(0)
-		var jump_mult   := get_ramp_jump_mult()
-		var straight_b  := get_effect("straightbonus")
-		var curve_b     := get_effect("curvebonus")
-		var dstraight_b := get_effect("dirtstraightbonus")
-		var dcurve_b    := get_effect("dirtcurvebonus")
-		var ramp_b      := get_effect("rampbonus")
-		var wall_b      := get_wall_earn()
-		var portal_b    := get_portal_earn()
-		var running := 0.0
-		for tile in tiles:
-			# 1. Alle +Werte dieses Feldes.
-			var add: float = float(tile.get("base", 0.0)) + tilebonus + float(tile.get("bonus_points", 0.0))
-			match String(tile.get("kind", "plain")):
-				"pstraight": add += straight_b
-				"pcurve":    add += curve_b
-				"dstraight": add += dstraight_b
-				"dcurve":    add += dcurve_b
-				"ramp":      add += ramp_b
-				"wall":      add += wall_b
-				"portal":    add += portal_b
-			# 2. Alle ×Werte dieses Feldes.
-			var fm: float = float(tile.get("fixed_mult", 1.0))
-			var bm: float = float(tile.get("bonus_mult", 1.0))      # ×1.5-Bonusfeld (OHNE Tribünen)
-			var sm: float = float(tile.get("stand_mult", 1.0))      # Produkt aller Tribünen-Mult.
-			var sc: int   = int(tile.get("stand_count", 0))         # Anzahl wirkender Tribünen
-			# Sprung-×2 NUR auf dem übersprungenen Mittelfeld (is_jump), nicht auf der Rampe selbst.
-			var has_jump: bool = bool(tile.get("is_jump", false))
-			var m: float
-			if bool(tile.get("is_loop", false)):
-				# Looping: eigener ×F UND jeder ANDERE Multiplikator dieses Feldes mit F multipliziert
-				# (M·F). F = get_loop_factor() (Basis 1.5, +0.2 je loopbonus-Stufe). JEDE Tribüne zählt
-				# EINZELN: pro Tribüne ein eigenes ×F (sm·F^sc), nicht nur einmal aufs Produkt. Beispiel
-				# auf Rampen-Sprungfeld bei F=2: ((X+0)·(2·2))·2. Auf ×1.5-Feld: (X·(1.5·2))·2.
-				var lf := get_loop_factor()
-				m = lf
-				if fm != 1.0: m *= fm * lf
-				if bm != 1.0: m *= bm * lf
-				if sc > 0:    m *= sm * pow(lf, sc)
-				if has_jump:  m *= jump_mult * lf
-			else:
-				m = fm * bm * sm
-				if has_jump:
-					m *= jump_mult
-			running = (running + add) * m
-		# End-Multiplikator und globaler Prestige-Multiplikator zum Schluss (live auf allen Strecken).
-		return int(round(running * get_car_end_mult(0) * get_prestige_mult()))
-	return 0
+# Rundenertrag EINES Autos. Alle Autos einer Strecke teilen das Layout (tiles), unterscheiden sich
+# aber ggf. in Pro-Auto-Overrides (Super-Auto): tile_bonus_add = zusätzlicher +Ertrag JE Feld (oben
+# drauf auf den globalen Tile-Bonus, Schritt 1); end_mult_extra = zusätzlicher ×Faktor ganz am Ende
+# (oben drauf auf EndMult × Prestige). Normale Autos haben 0 bzw. 1 → identisch zu vorher.
+func _lap_reward_for_car(car: Dictionary) -> int:
+	if float(car.get("lap_time", 0.0)) <= 0.0:
+		return 0
+	var tiles: Array = car.get("tiles", [])
+	if tiles.is_empty():
+		return 0
+	var tilebonus   := get_car_tile_bonus(0) + float(car.get("tile_bonus_add", 0.0))
+	var jump_mult   := get_ramp_jump_mult()
+	var straight_b  := get_effect("straightbonus")
+	var curve_b     := get_effect("curvebonus")
+	var dstraight_b := get_effect("dirtstraightbonus")
+	var dcurve_b    := get_effect("dirtcurvebonus")
+	var ramp_b      := get_effect("rampbonus")
+	var wall_b      := get_wall_earn()
+	var portal_b    := get_portal_earn()
+	var running := 0.0
+	for tile in tiles:
+		# 1. Alle +Werte dieses Feldes.
+		var add: float = float(tile.get("base", 0.0)) + tilebonus + float(tile.get("bonus_points", 0.0))
+		match String(tile.get("kind", "plain")):
+			"pstraight": add += straight_b
+			"pcurve":    add += curve_b
+			"dstraight": add += dstraight_b
+			"dcurve":    add += dcurve_b
+			"ramp":      add += ramp_b
+			"wall":      add += wall_b
+			"portal":    add += portal_b
+		# 2. Alle ×Werte dieses Feldes.
+		var fm: float = float(tile.get("fixed_mult", 1.0))
+		var bm: float = float(tile.get("bonus_mult", 1.0))      # ×1.5-Bonusfeld (OHNE Tribünen)
+		var sm: float = float(tile.get("stand_mult", 1.0))      # Produkt aller Tribünen-Mult.
+		var sc: int   = int(tile.get("stand_count", 0))         # Anzahl wirkender Tribünen
+		# Sprung-×2 NUR auf dem übersprungenen Mittelfeld (is_jump), nicht auf der Rampe selbst.
+		var has_jump: bool = bool(tile.get("is_jump", false))
+		var m: float
+		if bool(tile.get("is_loop", false)):
+			# Looping: eigener ×F UND jeder ANDERE Multiplikator dieses Feldes mit F multipliziert
+			# (M·F). F = get_loop_factor() (Basis 1.5, +0.2 je loopbonus-Stufe). JEDE Tribüne zählt
+			# EINZELN: pro Tribüne ein eigenes ×F (sm·F^sc), nicht nur einmal aufs Produkt. Beispiel
+			# auf Rampen-Sprungfeld bei F=2: ((X+0)·(2·2))·2. Auf ×1.5-Feld: (X·(1.5·2))·2.
+			var lf := get_loop_factor()
+			m = lf
+			if fm != 1.0: m *= fm * lf
+			if bm != 1.0: m *= bm * lf
+			if sc > 0:    m *= sm * pow(lf, sc)
+			if has_jump:  m *= jump_mult * lf
+		else:
+			m = fm * bm * sm
+			if has_jump:
+				m *= jump_mult
+		running = (running + add) * m
+	# End-Multiplikator, globaler Prestige-Multiplikator und (Super-Auto) der Extra-End-×Faktor zum Schluss.
+	return int(round(running * get_car_end_mult(0) * get_prestige_mult() * float(car.get("end_mult_extra", 1.0))))
 
 
 # ── Multi-Track API ─────────────────────────────────────────────────────────────
@@ -617,17 +654,20 @@ func get_run_elapsed(track_idx: int) -> float:
 
 
 # Auto-Parameter für die Hintergrund-Simulation setzen (von World3D beim Start/Respawn der Autos).
-# cars: Array von {lap_time, lap_k, tiles, start_delay} – tiles = streckenfixe Tile-Reihenfolge,
-# aus der _current_lap_reward den Runden-Ertrag live faltet.
+# cars: Array von {lap_time, lap_k, tiles, start_delay, speed_div, tile_bonus_add, end_mult_extra} –
+# tiles = streckenfixe Tile-Reihenfolge, aus der _lap_reward_for_car den Runden-Ertrag live faltet.
 func set_run_cars(track_idx: int, cars: Array) -> void:
 	if track_idx < 0 or track_idx >= _tracks.size():
 		return
 	_tracks[track_idx]["run_cars"] = cars
 	# lap_time/Autozahl können sich geändert haben (Tempo-/Auto-Upgrade beim Live-Respawn oder
 	# beim Wieder-Betreten der 3D-Ansicht). Bereits gezählte Runden NICHT rückwirkend neu
-	# bewerten: Zähler auf den aktuellen Stand snappen → nur künftige Runden zählen (mit neuem
-	# lap_time/Reward). Im Normalfall (gleiches lap_time) ist das ein No-Op.
-	_tracks[track_idx]["run_credited_laps"] = _laps_total(track_idx)
+	# bewerten: jeden Auto-Zähler auf den aktuellen Stand snappen → nur künftige Runden zählen
+	# (mit neuem lap_time/Reward). Im Normalfall (gleiches lap_time) ist das ein No-Op.
+	var elapsed := float(_tracks[track_idx]["run_elapsed"])
+	for car in cars:
+		var lt := float(car.get("lap_time", 0.0))
+		car["credited_laps"] = int(floor(maxf(0.0, elapsed - float(car.get("start_delay", 0.0))) / lt)) if lt > 0.0 else 0
 
 
 func stop_run(track_idx: int) -> void:
@@ -927,6 +967,36 @@ func get_grid_cols() -> int:
 # Autos = 1 + normales Auto-Upgrade (reset-bar) + Prestige-Extra-Autos (reset-fest).
 func get_car_count() -> int:
 	return 1 + get_upgrade_level("car_count") + get_prestige_node_level("car")
+
+
+# ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
+
+func get_super_car_count() -> int:
+	return super_car_count
+
+# Preis des NÄCHSTEN Super-Autos = Basis · Wachstum^(bereits gekaufte).
+func get_super_car_cost() -> int:
+	return int(round(float(SUPER_CAR_COST) * pow(SUPER_CAR_COST_GROWTH, super_car_count)))
+
+# Voraussetzungen für ein WEITERES Super-Auto erfüllt? Es müssen noch genug FREIE Standard-Autos da
+# sein (SUPER_CAR_COST_CARS je bereits gekauftem + 1 neuem) UND Tempo ≥ Schwelle. (Preis NICHT geprüft.)
+func super_car_prereqs_met() -> bool:
+	return get_car_count() >= SUPER_CAR_COST_CARS * (super_car_count + 1) \
+		and get_effect("speed") >= float(SUPER_CAR_REQ_SPEED)
+
+# Kann JETZT ein weiteres Super-Auto gekauft werden? (Voraussetzungen + Geld da)
+func can_buy_super_car() -> bool:
+	return super_car_prereqs_met() and _currency >= get_super_car_cost()
+
+func buy_super_car() -> bool:
+	if not can_buy_super_car():
+		return false
+	_currency -= get_super_car_cost()
+	super_car_count += 1
+	save_game()
+	# Gleicher Signalweg wie normale Upgrades → World3D setzt die Autos neu auf, Shop aktualisiert sich.
+	emit_signal("upgrade_purchased", "super_car")
+	return true
 
 
 # Freigeschaltete Strecken = Basis + Prestige-Knoten „track" (Obergrenze = TRACK_COUNT-Kapazität).
@@ -1249,6 +1319,7 @@ func save_game_to_slot(slot: int) -> void:
 		"total_playtime":  total_playtime,
 		"car_paint_on":    car_paint_on,
 		"car_paint_color": car_paint_color,
+		"super_car_count": super_car_count,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
 		"name":        _slot_name,
 	}))
@@ -1273,6 +1344,7 @@ func load_game_from_slot(slot: int) -> void:
 	total_playtime  = 0.0
 	car_paint_on    = false
 	car_paint_color = Color(0.85, 0.15, 0.12)
+	super_car_count = 0
 	_slot_name      = ""
 	_init_tracks()
 
@@ -1299,6 +1371,8 @@ func load_game_from_slot(slot: int) -> void:
 				car_paint_on   = bool(data.get("car_paint_on", false))
 				var cpc        = data.get("car_paint_color", car_paint_color)
 				car_paint_color = cpc if typeof(cpc) == TYPE_COLOR else car_paint_color
+				# Migration: alter Bool-Unlock (super_car_on) → 1 Super-Auto.
+				super_car_count = int(data.get("super_car_count", 1 if bool(data.get("super_car_on", false)) else 0))
 				_slot_name     = String(data.get("name", ""))
 				# Multi-Track-Grids laden
 				var tg = data.get("track_grids", [])
@@ -1325,6 +1399,7 @@ func reset_slot(slot: int) -> void:
 	total_playtime  = 0.0
 	car_paint_on    = false
 	car_paint_color = Color(0.85, 0.15, 0.12)
+	super_car_count = 0
 	_slot_name      = ""
 	_init_tracks()
 	save_game_to_slot(slot)

@@ -22,6 +22,14 @@ var end_mult:    float = 1.0   # Multiplikator auf den Rundenertrag
 var tile_bonus:  float = 0.0   # + je überfahrenem Tile
 var start_delay: float = 0.0   # verzögerter Start (gestaffelt bei mehreren Autos)
 
+# Super-Auto („Auto 2"): eigenes Modell + abweichende Ökonomie. is_super wählt das Modell (an Car3D
+# weitergereicht); speed_div/bonus_tile_add/end_mult_extra wandern in das run_cars-Dict und werden
+# von Economy._lap_reward_for_car / _apply_speed_to_active_runs ausgewertet. Normal: 1/0/1.
+var is_super:       bool  = false
+var speed_div:      float = 1.0   # Tempo wird durch diesen Wert geteilt (3 = drittel so schnell)
+var bonus_tile_add: float = 0.0   # zusätzlicher +Ertrag JE Feld (oben drauf auf den globalen Tile-Bonus)
+var end_mult_extra: float = 1.0   # zusätzlicher ×Faktor ganz am Ende (oben drauf auf EndMult × Prestige)
+
 # Tile-Reihenfolge für die Runden-Abrechnung (in _build_waypoints gefüllt). Jeder Eintrag
 # beschreibt ein befahrenes Feld STRECKENFIX (upgrade-unabhängig): {base, kind, fixed_mult,
 # bonus_points, bonus_mult, stand_mult, stand_count, is_jump, is_loop}. Economy faltet daraus pro Runde den Schneeball mit
@@ -90,6 +98,8 @@ func _ready() -> void:
 	var car_script = load(Paths.SCRIPT_CAR_3D)
 	car = Node3D.new()
 	car.set_script(car_script)
+	# Modellauswahl an Car3D durchreichen, BEVOR es zum Baum hinzugefügt wird (dort lädt _ready das Modell).
+	car.is_super = is_super
 	add_child(car)
 
 
@@ -179,12 +189,23 @@ func _face_along_start() -> void:
 # Visuelle Ausrichtung (Yaw) + Kurvenneigung (Roll) + Rampenneigung (Pitch) aus der
 # tatsächlichen Positionsänderung – funktioniert unverändert mit dem Zeit-Sampling.
 func _update_orientation(prev_pos: Vector3, delta: float) -> void:
-	# Looping: explizite Orientierung (pitch um die lokale X, yaw konstant). Die bewegungsbasierte
-	# Yaw/Pitch-Berechnung versagt hier, weil sich die horizontale Fahrtrichtung oben umkehrt.
+	# Looping: explizite Orientierung. Das Auto MUSS sich um seine QUERACHSE überschlagen (Salto),
+	# nicht um die Längsachse rollen. Da das Modell durch MODEL_ROTATION_OFFSET nach vorne entlang
+	# seiner lokalen −X zeigt, würde ein Euler-Pitch (rotation.x) fälschlich um die Fahrtachse drehen
+	# (Fass-Rolle). Darum bauen wir die Basis direkt: erst wie beim Fahren auf die Fahrtrichtung yawen,
+	# dann um die WELT-Querachse (rgt) um den Loop-Winkel th kippen. o = Vector2(th, yaw).
 	if _cur_wp < _wp_orient.size() and _wp_orient[_cur_wp] != null:
 		var o: Vector2 = _wp_orient[_cur_wp]
-		car.rotation = Vector3(o.x, o.y, 0.0)
-		_prev_yaw   = o.y - MODEL_ROTATION_OFFSET
+		var th: float  = o.x
+		var yaw: float = o.y
+		# Fahrtrichtung (horizontal) + Querachse aus dem gespeicherten yaw zurückrechnen
+		# (yaw = atan2(fwd.x, fwd.z) + MODEL_ROTATION_OFFSET).
+		var fwd := Vector3(-cos(yaw), 0.0, sin(yaw))
+		var rgt := Vector3(-fwd.z, 0.0, fwd.x)
+		# Basis: auf fwd ausrichten (Ry(yaw)), dann Salto um die Welt-Querachse rgt (rgt × fwd = up,
+		# also dreht +th die Nase nach oben – passend zum aufsteigenden Looping-Bogen).
+		car.basis = Basis(rgt, th) * Basis(Vector3.UP, yaw)
+		_prev_yaw   = yaw - MODEL_ROTATION_OFFSET
 		_yaw_init   = true
 		_prev_car_y = car.position.y
 		return
@@ -440,9 +461,9 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	print("Route: %d Tiles gefunden" % route.size())
 
 	# Pro befahrenem Feld einen STRECKENFIXEN Ertrags-Eintrag bauen (ohne Upgrade-Werte!).
-	# Economy._current_lap_reward faltet daraus pro Runde live den "Schneeball".
+	# Economy._lap_reward_for_car faltet daraus pro Runde live den "Schneeball".
 	# >>> VERBINDLICHE RECHEN-REGEL (Schritt 1 = alle +Werte, dann Schritt 2 = alle ×Werte je Feld;
-	#     bei Unklarheit über +/× beim Nutzer rückfragen): siehe Block über _current_lap_reward
+	#     bei Unklarheit über +/× beim Nutzer rückfragen): siehe Block über _lap_reward_for_car
 	#     in Economy.gd. Neue tile-bezogene Boni hier als +Wert (base/bonus_points) ODER ×Wert
 	#     (fixed_mult/bonus_mult) einsortieren – passend zu dieser Regel.
 	# kind steuert, welches additive Upgrade Economy auf dieses Feld legt.
@@ -481,7 +502,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				rec["kind"] = "wall"
 			elif t == "loop":
 				# Looping: kein eigener Additiv-Ertrag, aber ×2 + Verdopplung aller anderen Mult.
-				# (Economy._current_lap_reward über is_loop). base/kind bleiben neutral.
+				# (Economy._lap_reward_for_car über is_loop). base/kind bleiben neutral.
 				rec["is_loop"] = true
 			elif t == "portal":
 				# Portal: additiver Geld-Ertrag am Eingangs-Portal (Economy get_portal_earn als kind

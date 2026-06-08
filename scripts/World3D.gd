@@ -377,8 +377,17 @@ func _respawn_cars() -> void:
 
 func _start_cars(grid_state: Array) -> void:
 	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
-	var count  = Economy.get_car_count()
-	for i in range(count):
+	var total  = Economy.get_car_count()
+	# Super-Autos („Auto 2"): jeder ersetzt SUPER_CAR_COST_CARS normale Autos durch EIN Super-Auto
+	# (langsamer: Tempo ÷ SUPER_CAR_SPEED_DIV; +SUPER_CAR_TILE_BONUS je Feld; am Ende ×SUPER_CAR_END_MULT,
+	# oben drauf). Es können nie mehr Super-Autos fahren, als 4er-Gruppen an Autos vorhanden sind.
+	var supers: int      = mini(Economy.get_super_car_count(), int(total / Economy.SUPER_CAR_COST_CARS))
+	var normal_cnt: int  = total - Economy.SUPER_CAR_COST_CARS * supers
+	var spawn_cnt: int   = normal_cnt + supers
+	if spawn_cnt < 1:
+		spawn_cnt = 1
+	var slot := 0
+	for i in range(normal_cnt):
 		var ctrl = Node3D.new()
 		ctrl.set_script(script)
 		ctrl.track_idx   = _active_track_idx
@@ -386,11 +395,25 @@ func _start_cars(grid_state: Array) -> void:
 		ctrl.end_mult    = Economy.get_car_end_mult(i)
 		ctrl.tile_bonus  = Economy.get_car_tile_bonus(i)
 		# Startabstand skaliert invers mit der Auto-Anzahl: je mehr Autos, desto dichter starten
-		# sie hintereinander. Abstand zwischen zwei Autos = CAR_STAGGER/count
+		# sie hintereinander. Abstand zwischen zwei Autos = CAR_STAGGER/spawn_cnt
 		# (2 Autos → 0.25 s, 3 → 0.17 s, 4 → 0.125 s …).
-		ctrl.start_delay = CAR_STAGGER / float(count) * i
+		ctrl.start_delay = CAR_STAGGER / float(spawn_cnt) * slot
 		$CarRoot.add_child(ctrl)
 		car_controllers.append(ctrl)
+		slot += 1
+	for s in range(supers):
+		var sctrl = Node3D.new()
+		sctrl.set_script(script)
+		sctrl.track_idx      = _active_track_idx
+		sctrl.is_super       = true
+		sctrl.speed          = Economy.get_car_speed(0) / Economy.SUPER_CAR_SPEED_DIV
+		sctrl.speed_div      = Economy.SUPER_CAR_SPEED_DIV
+		sctrl.bonus_tile_add = Economy.SUPER_CAR_TILE_BONUS
+		sctrl.end_mult_extra = Economy.SUPER_CAR_END_MULT
+		sctrl.start_delay    = CAR_STAGGER / float(spawn_cnt) * slot
+		$CarRoot.add_child(sctrl)
+		car_controllers.append(sctrl)
+		slot += 1
 	await get_tree().process_frame
 	# Bereits verstrichene Fahrzeit → Autos an die passende Stelle der Strecke setzen
 	# (statt am Start), damit sie nach einem 2D↔3D-Wechsel nahtlos weiterfahren.
@@ -417,6 +440,10 @@ func _start_cars(grid_state: Array) -> void:
 			"lap_k":          float(ctrl.lap_time) * float(ctrl.speed),
 			"tiles":          ctrl.tile_rewards.duplicate(true),
 			"start_delay":    float(ctrl.start_delay),
+			# Pro-Auto-Ökonomie (Super-Auto; normale Autos: 1/0/1 → unverändert).
+			"speed_div":      float(ctrl.speed_div),
+			"tile_bonus_add": float(ctrl.bonus_tile_add),
+			"end_mult_extra": float(ctrl.end_mult_extra),
 		})
 	Economy.set_run_cars(_active_track_idx, cars)
 
