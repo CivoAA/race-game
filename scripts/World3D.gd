@@ -170,19 +170,23 @@ func _setup_hud() -> void:
 	# Untere Leiste (wie im 2D-Bauplan): bleibt während der Fahrt sichtbar und trägt unten
 	# links den "Fahrt beenden"-Button. Geht über die ganze Breite, y = 498..540.
 	const BAR_H = 42
-	var bar_y := 540 - BAR_H
 	_bottom_bar = Control.new()
+	_bottom_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
 	layer.add_child(_bottom_bar)
 
 	var bar_bg := ColorRect.new()
-	bar_bg.position = Vector2(0, bar_y)
-	bar_bg.size     = Vector2(960, BAR_H)
+	bar_bg.anchor_left   = 0.0; bar_bg.offset_left   = 0
+	bar_bg.anchor_right  = 1.0; bar_bg.offset_right  = 0
+	bar_bg.anchor_top    = 1.0; bar_bg.offset_top    = -BAR_H
+	bar_bg.anchor_bottom = 1.0; bar_bg.offset_bottom = 0
 	bar_bg.color    = Color(0.118, 0.122, 0.133)   # Discord-BG (#1e1f22)
 	_bottom_bar.add_child(bar_bg)
 
 	var bar_line := ColorRect.new()
-	bar_line.position = Vector2(0, bar_y)
-	bar_line.size     = Vector2(960, 1)
+	bar_line.anchor_left   = 0.0; bar_line.offset_left   = 0
+	bar_line.anchor_right  = 1.0; bar_line.offset_right  = 0
+	bar_line.anchor_top    = 1.0; bar_line.offset_top    = -BAR_H
+	bar_line.anchor_bottom = 1.0; bar_line.offset_bottom = -BAR_H + 1
 	bar_line.color    = Color(0.247, 0.255, 0.278)  # Discord-Line (#3f4147)
 	_bottom_bar.add_child(bar_line)
 
@@ -191,8 +195,10 @@ func _setup_hud() -> void:
 	# Streckenwechsel weiterhin über die Tabs. Sitzt unten links auf der Leiste.
 	_finish_btn = Button.new()
 	_finish_btn.text     = "⏹  Fahrt beenden"
-	_finish_btn.position = Vector2(8, bar_y + (BAR_H - 34) / 2.0)
-	_finish_btn.size     = Vector2(170, 34)
+	_finish_btn.anchor_left   = 0.0; _finish_btn.offset_left   = 8
+	_finish_btn.anchor_right  = 0.0; _finish_btn.offset_right  = 178
+	_finish_btn.anchor_top    = 1.0; _finish_btn.offset_top    = -(BAR_H + 34) / 2.0
+	_finish_btn.anchor_bottom = 1.0; _finish_btn.offset_bottom = -(BAR_H - 34) / 2.0
 	_finish_btn.focus_mode = Control.FOCUS_NONE
 	_finish_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_finish_btn.tooltip_text = "Lauf jetzt beenden und zur Zusammenfassung"
@@ -218,8 +224,10 @@ func _setup_hud() -> void:
 	# Status-Text rechts neben dem Button (dezent), füllt die Leiste.
 	var bar_status := Label.new()
 	bar_status.text = "Runde läuft – Strecke %d" % (_active_track_idx + 1)
-	bar_status.position = Vector2(192, bar_y)
-	bar_status.size     = Vector2(560, BAR_H)
+	bar_status.anchor_left   = 0.0; bar_status.offset_left   = 192
+	bar_status.anchor_right  = 1.0; bar_status.offset_right  = -8
+	bar_status.anchor_top    = 1.0; bar_status.offset_top    = -BAR_H
+	bar_status.anchor_bottom = 1.0; bar_status.offset_bottom = 0
 	bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bar_status.add_theme_font_size_override("font_size", 12)
 	bar_status.add_theme_color_override("font_color", Color(0.580, 0.608, 0.643))
@@ -241,7 +249,8 @@ func _setup_hud() -> void:
 func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 	var lbl = Label.new()
 	lbl.position = pos
-	lbl.size = Vector2(960, 28)
+	lbl.anchor_left = 0.0; lbl.anchor_right = 1.0; lbl.offset_left = 0; lbl.offset_right = 0
+	lbl.size = Vector2(0, 28)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", font_size)
@@ -269,8 +278,7 @@ func _show_summary() -> void:
 
 	# Abdunkelnder Hintergrund
 	var dim := ColorRect.new()
-	dim.position = Vector2(0, 0)
-	dim.size     = Vector2(960, 540)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.color    = Color(0, 0, 0, 0.55)
 	layer.add_child(dim)
 
@@ -278,8 +286,11 @@ func _show_summary() -> void:
 	const PH = 230
 
 	var panel := Panel.new()
-	panel.size     = Vector2(PW, PH)
-	panel.position = Vector2((960 - PW) / 2.0, (540 - PH) / 2.0)
+	# Zentriert via Ankerpunkt Mitte
+	panel.anchor_left   = 0.5; panel.offset_left   = -PW / 2
+	panel.anchor_right  = 0.5; panel.offset_right  =  PW / 2
+	panel.anchor_top    = 0.5; panel.offset_top    = -PH / 2
+	panel.anchor_bottom = 0.5; panel.offset_bottom =  PH / 2
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.08, 0.09, 0.13, 0.97)
 	style.border_width_left   = 3

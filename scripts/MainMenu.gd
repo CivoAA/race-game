@@ -465,7 +465,7 @@ func _build_credits_modal() -> Control:
 	overlay.add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(540, 0)
+	panel.custom_minimum_size = Vector2(RUI.px(540), 0)
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 

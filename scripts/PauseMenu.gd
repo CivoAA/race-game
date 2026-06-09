@@ -5,6 +5,8 @@ const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
 # Wählbare Bildschirmauflösungen (Label + Fenstergröße). Gängige 16:9-Auflösungen plus
 # Breitbild/Ultrawide, damit das Spiel auf möglichst jedem Monitor passt.
 const RESOLUTIONS = [
+	["480 × 270  (Minimum)", Vector2i(480, 270)],
+	["960 × 540", Vector2i(960, 540)],
 	["1280 × 720", Vector2i(1280, 720)],
 	["1366 × 768", Vector2i(1366, 768)],
 	["1600 × 900", Vector2i(1600, 900)],
@@ -14,6 +16,8 @@ const RESOLUTIONS = [
 	["2560 × 1080  (UltraWide)", Vector2i(2560, 1080)],
 	["3440 × 1440  (UltraWide)", Vector2i(3440, 1440)],
 	["5120 × 1440  (Super UltraWide)", Vector2i(5120, 1440)],
+	["720 × 1280  (Hochformat)", Vector2i(720, 1280)],
+	["1080 × 1920  (Hochformat)", Vector2i(1080, 1920)],
 ]
 const DEFAULT_RESOLUTION = Vector2i(1920, 1080)
 # Kategorien der Side-Nav in den Einstellungen [Icon, Label] mit Tabler-Icons.
@@ -34,8 +38,6 @@ const CTRL_DESCS = [
 const NAV_W  = 150
 const TOP_H  = 50
 const BOT_H  = 42
-const VIEW_W = 960
-const VIEW_H = 540
 
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
 const C_SURFACE   := Color(0.169, 0.176, 0.192)   # #2b2d31
@@ -268,8 +270,10 @@ func _build_settings_panel() -> Control:
 	# Modal NUR über dem Spielbereich links der Seitenleiste, unter der Top-Bar und über der
 	# unteren Leiste – so bleibt die rechte Nav (GameHUD) sichtbar und bedienbar.
 	var overlay := ColorRect.new()
-	overlay.position     = Vector2(0, TOP_H)
-	overlay.size         = Vector2(VIEW_W - NAV_W, VIEW_H - TOP_H - BOT_H)
+	overlay.anchor_left   = 0.0; overlay.offset_left   = 0
+	overlay.anchor_top    = 0.0; overlay.offset_top    = TOP_H
+	overlay.anchor_right  = 1.0; overlay.offset_right  = -RUI.nav_w()
+	overlay.anchor_bottom = 1.0; overlay.offset_bottom = -(BOT_H + RUI.nav_h())
 	overlay.color        = Color(0, 0, 0, 0.82)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(overlay)
@@ -408,6 +412,13 @@ func _build_settings_panel() -> Control:
 		_res_option.add_item(res[0])
 	_res_option.item_selected.connect(_on_resolution_changed)
 	res_row.add_child(_res_option)
+
+	var resize_hint := Label.new()
+	resize_hint.text = "Im Fenstermodus kann die Größe auch frei per Mausziehen verändert werden – die UI passt sich automatisch an."
+	resize_hint.add_theme_font_size_override("font_size", 11)
+	resize_hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	resize_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	v2.add_child(resize_hint)
 
 	# Cheats sind jetzt ein Abschnitt der Anzeige-Kategorie (eigener Tab entfällt).
 	_add_hline(v2)
@@ -1035,7 +1046,9 @@ func _sync_settings_ui() -> void:
 	_master_slider.value    = settings.get_value("options", "master_volume", 100.0)
 	_music_slider.value     = settings.get_value("options", "music_volume",  80.0)
 	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
-	_window_option.selected = settings.get_value("options", "window_mode",   0)
+	var saved_mode: int = settings.get_value("options", "window_mode", 0)
+	_window_option.selected = saved_mode
+	_update_res_option_state(saved_mode)
 
 	var res: Vector2i = settings.get_value("options", "resolution", DEFAULT_RESOLUTION)
 	for i in RESOLUTIONS.size():
@@ -1246,7 +1259,7 @@ func _build_credits_modal() -> Control:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(540, 0)
+	panel.custom_minimum_size = Vector2(RUI.px(540), 0)
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 
@@ -1369,18 +1382,27 @@ func _make_placement_switch() -> CheckButton:
 	return sw
 
 
+func _update_res_option_state(mode_index: int) -> void:
+	if _res_option == null: return
+	# Im Vollbild-Modus nutzt das Spiel immer die native Monitorauflösung –
+	# die Auswahl ist dann bedeutungslos und wird ausgegraut.
+	_res_option.disabled = (mode_index == 2)
+
 func _apply_window_mode(index: int) -> void:
 	match index:
-		0:
+		0: # Fenster – Größenänderung per Mausziehen aktiv (RUI reagiert automatisch)
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
 			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
-		1:
+		1: # Rahmenlos – ebenfalls größenänderbar
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
+			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
 			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
-		2:
+		2: # Vollbild – nutzt Monitorauflösung, Auflösungsauswahl irrelevant
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	_update_res_option_state(index)
 
 
 func _vol_db(percent: float) -> float:

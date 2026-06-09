@@ -27,6 +27,7 @@ Localization="*res://scripts/Localization.gd"
 Lang="*res://scripts/Lang.gd"
 Icons="*res://scripts/Icons.gd"
 Economy="*res://scripts/Economy.gd"
+RUI="*res://scripts/RUI.gd"
 GameHUD="*res://scripts/GameHUD.gd"
 GlobalModal="*res://scripts/GlobalModal.gd"
 PauseMenu="*res://scripts/PauseMenu.gd"
@@ -36,6 +37,9 @@ MusicPlayer="*res://scripts/MusicPlayer.gd"
 
 window/size/viewport_width=960
 window/size/viewport_height=540
+window/size/resizable=true
+window/size/min_width=480
+window/size/min_height=270
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 

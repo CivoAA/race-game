@@ -3,9 +3,7 @@ extends CanvasLayer
 ## Autoload "GameHUD" (layer 20, immer sichtbar).
 
 const TRACK_COUNT  = 3
-const BAR_H        = 50
-const VIEWPORT_W   = 960
-const VIEWPORT_H   = 540
+const BAR_H        = 50   # Design-Wert für 540p (Basishöhe)
 
 # Discord-artige Graupalette (Grau-Abstufungen + Blurple-Akzent). Farbe nur für „Standouts"
 # (Akzente, Zahlen, Geld in Gold). DUPLIZIERT in GameHUD/Main/GlobalModal/MainMenu/PauseMenu/
@@ -22,30 +20,12 @@ const C_LINE       := Color(0.247, 0.255, 0.278)   # #3f4147
 const C_RUN_ON     := Color(0.180, 0.690, 0.400)   # Discord-Grün (läuft)
 const C_RUN_OFF    := Color(0.350, 0.360, 0.400)   # neutrales Grau (aus)
 
-# Rechter Block – von rechts nach links:
-# Der Bauen-Button ist aus der Top-Nav entfernt (jetzt Hammer-Button unten links in Main.gd).
-# Dadurch wird Platz frei für ein großes, auffälliges Upgrade-Center.
-const R_PAD      = 8
-const UC_W       = 196   # Upgrade-Center (großer, beschrifteter Button)
-const UC_H       = 40
-const COG_W      = 40    # Einstellungen-Zahnrad (ganz rechts, neben dem Upgrade-Center)
-const VIEW_W     = 42
-const BTN_GAP    = 4
-const BTN_H      = 34
-const BTN_Y      = (BAR_H - BTN_H) / 2
-const UC_Y       = (BAR_H - UC_H) / 2
-
-# Berechnete x-Positionen (von rechts nach links): ganz rechts der Cog, links daneben das
-# Upgrade-Center.
-const COG_X   = VIEWPORT_W - R_PAD - COG_W                        # 912
-const UC_X    = COG_X - BTN_GAP - UC_W                            # 712
-const V3D_X   = UC_X - BTN_GAP - VIEW_W                           # 666
-const V2D_X   = V3D_X - BTN_GAP - VIEW_W                          # 620
-
-# Tab-Block (links)
+# Design-Konstanten (für 540p ausgelegt – zur Laufzeit mit RUI.vw()/vh() kombiniert)
+const R_PAD   = 8
+const BTN_GAP = 4
+const BTN_H   = 34
 const TAB_W   = 108
 const TAB_H   = 42
-const TAB_Y   = (BAR_H - TAB_H) / 2
 const TAB_GAP = 4
 const TAB_X0  = 8
 
@@ -56,6 +36,10 @@ var _is_3d_view:   bool = false
 # erhalten (GameHUD ist Autoload), damit Strecken gleichzeitig in verschiedenen Ansichten
 # sein können. _is_3d_view spiegelt immer den Modus der gerade gezeigten Strecke (_active_tab).
 var _track_view_3d: Array = []
+
+# Alle dynamisch erzeugten Bar/Nav-Nodes liegen unter diesem Root-Control.
+# Wird bei einem Layout-Wechsel (Portrait ↔ Landscape) komplett neu gebaut.
+var _ui_root: Control = null
 
 var _tab_btns:     Array[Button]    = []
 var _run_dots:     Array[Panel]         = []
@@ -82,7 +66,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_track_view_3d.resize(TRACK_COUNT)
 	_track_view_3d.fill(false)
-	_build_bar()
+	_build_ui()
 	# Runden-Gutschrift (Auto über die Startlinie) – auch im 2D-Hintergrund den "+X"-Effekt zeigen.
 	Economy.lap_credited.connect(_on_lap_credited)
 	# Prestige kann Strecken freischalten → Tabs neu bewerten (Sperre/Beschriftung).
@@ -90,6 +74,47 @@ func _ready() -> void:
 	Economy.slot_changed.connect(func(_s): _refresh_tabs())
 	# Cheat-Modus-Einstellung blendet die Cheat-Buttons (∞ und +1B ⭐) ein/aus.
 	Economy.cheat_mode_changed.connect(_refresh_cheat_visibility)
+	# Bei Layout-Wechsel (Portrait ↔ Landscape) oder Viewport-Resize alles neu aufbauen.
+	RUI.layout_changed.connect(_on_layout_changed)
+	get_viewport().size_changed.connect(_on_viewport_resized)
+
+
+func _on_layout_changed(_layout) -> void:
+	_build_ui()
+
+
+func _on_viewport_resized() -> void:
+	# Nur reagieren wenn kein Layout-Wechsel stattfand (der wird von RUI.layout_changed abgedeckt).
+	# Dennoch neu bauen damit bar/sidebar die korrekte Breite/Position bekommen.
+	_build_ui()
+
+
+## Baut alle dynamischen Bar- und Nav-Nodes neu.
+## Löscht dazu den alten _ui_root vollständig.
+func _build_ui() -> void:
+	# Referenzen zurücksetzen (werden in _build_bar / _build_side_menu / _build_bottom_nav neu gesetzt)
+	_tab_btns.clear()
+	_run_dots.clear()
+	_run_dot_sbs.clear()
+	_currency_lbl = null
+	_endless_btn   = null
+	_debug_btn     = null
+	_nav_btns.clear()
+	_pause_nav_btn = null
+
+	if _ui_root != null and is_instance_valid(_ui_root):
+		_ui_root.queue_free()
+
+	_ui_root = Control.new()
+	_ui_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_ui_root)
+
+	_build_bar()
+	if RUI.is_portrait():
+		_build_bottom_nav()
+	else:
+		_build_side_menu()
 
 
 func _on_lap_credited(_track_idx: int, amount: int) -> void:
@@ -97,23 +122,25 @@ func _on_lap_credited(_track_idx: int, amount: int) -> void:
 
 
 func _build_bar() -> void:
-	# Hintergrund
+	var vw := RUI.vw()
+
+	# Hintergrund – füllt die volle virtuelle Breite (wichtig für Ultrawide)
 	var bg := ColorRect.new()
-	bg.position = Vector2(0, 0)
-	bg.size     = Vector2(VIEWPORT_W, BAR_H)
-	bg.color    = C_BG
-	add_child(bg)
+	bg.size  = Vector2(vw, BAR_H)
+	bg.color = C_BG
+	_ui_root.add_child(bg)
 
 	var line := ColorRect.new()
 	line.position = Vector2(0, BAR_H - 1)
-	line.size     = Vector2(VIEWPORT_W, 1)
+	line.size     = Vector2(vw, 1)
 	line.color    = C_LINE
-	add_child(line)
+	_ui_root.add_child(line)
 
 	# Tabs (links)
+	var tab_y := (BAR_H - TAB_H) / 2.0
 	for i in TRACK_COUNT:
 		var btn := Button.new()
-		btn.position = Vector2(TAB_X0 + i * (TAB_W + TAB_GAP), TAB_Y)
+		btn.position = Vector2(TAB_X0 + i * (TAB_W + TAB_GAP), tab_y)
 		btn.size     = Vector2(TAB_W, TAB_H)
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -121,11 +148,10 @@ func _build_bar() -> void:
 		btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
 		_style_tab_btn(btn, i == 0)
 		btn.pressed.connect(_on_tab_pressed.bind(i))
-		add_child(btn)
+		_ui_root.add_child(btn)
 		_tab_btns.append(btn)
 
-		# Run-Indikator: Kreis mit dunklem Ring (Kontrast auf jedem Tab-BG),
-		# vertikal zentriert und vom rechten Rand eingerückt.
+		# Run-Indikator: Kreis mit dunklem Ring
 		const DOT_SZ = 10
 		var dot := Panel.new()
 		dot.size     = Vector2(DOT_SZ, DOT_SZ)
@@ -137,17 +163,19 @@ func _build_bar() -> void:
 		dot_sb.set_border_width_all(2)
 		dot_sb.border_color = C_BG
 		dot.add_theme_stylebox_override("panel", dot_sb)
-		add_child(dot)
+		_ui_root.add_child(dot)
 		_run_dots.append(dot)
 		_run_dot_sbs.append(dot_sb)
 
-	# Währung (Mitte) – abgerundete Pille + angehängtes „+1M"-Badge (Referenz-Look)
+	# Währung – zentriert im freien Bereich zwischen Tab-Ende und Content-Rechtsrand
 	const MONEY_PILL_W = 116
 	const BADGE_W      = 46
 	const MONEY_GAP    = 4
-	var group_w = MONEY_PILL_W + MONEY_GAP + BADGE_W
-	var group_x = VIEWPORT_W / 2.0 - group_w / 2.0
-	var pill_y  = (BAR_H - 32) / 2.0
+	var group_w    := MONEY_PILL_W + MONEY_GAP + BADGE_W
+	var tabs_right := float(TAB_X0 + TRACK_COUNT * (TAB_W + TAB_GAP))
+	var free_cx    := (tabs_right + 8.0 + RUI.content_w() - 8.0) / 2.0
+	var group_x    := free_cx - group_w / 2.0
+	var pill_y     := (BAR_H - 32) / 2.0
 
 	var cur_box := Panel.new()
 	cur_box.position = Vector2(group_x, pill_y)
@@ -158,7 +186,7 @@ func _build_bar() -> void:
 	cur_sb.border_color = C_LINE
 	cur_sb.set_corner_radius_all(16)
 	cur_box.add_theme_stylebox_override("panel", cur_sb)
-	add_child(cur_box)
+	_ui_root.add_child(cur_box)
 
 	_currency_lbl = Label.new()
 	_currency_lbl.position = Vector2(group_x, 0)
@@ -167,9 +195,9 @@ func _build_bar() -> void:
 	_currency_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	_currency_lbl.add_theme_font_size_override("font_size", 16)
 	_currency_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
-	add_child(_currency_lbl)
+	_ui_root.add_child(_currency_lbl)
 
-	# „+1B"-Badge (amber, abgerundet) – direkt rechts an der Geld-Pille (Cheat: +1 Mrd & +100 ⭐)
+	# „+1B"-Badge (Cheat-Modus)
 	_debug_btn = Button.new()
 	_debug_btn.text     = "+1B " + Icons.STAR
 	_debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
@@ -188,32 +216,27 @@ func _build_bar() -> void:
 	_debug_btn.add_theme_stylebox_override("focus",   badge_n)
 	_debug_btn.add_theme_color_override("font_color", Color(0.20, 0.12, 0.0))
 	_debug_btn.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
-	add_child(_debug_btn)
-
-	# Rechter Block: das Upgrade-Center liegt jetzt als dauerhafte Seitenleiste am rechten
-	# Rand (volle Höhe). Sie ist gleichzeitig die Navigation des Modals und enthält unten
-	# auch „Optionen" (früher das Zahnrad oben rechts). Siehe _build_side_menu().
+	_ui_root.add_child(_debug_btn)
 
 	# Endlos-Modus-Toggle (links neben Währungsanzeige)
-	_endless_btn = _make_btn(Icons.INFINITY, Vector2(344, BTN_Y), 34, BTN_H)
+	var endless_x := group_x - BTN_GAP * 2 - 34
+	_endless_btn = _make_btn_in(Icons.INFINITY, Vector2(endless_x, (BAR_H - BTN_H) / 2.0), 34, BTN_H)
 	_endless_btn.pressed.connect(_on_endless_toggled)
-	add_child(_endless_btn)
+	_ui_root.add_child(_endless_btn)
 	_refresh_endless_btn()
 
 	_refresh_tabs()
 	_refresh_view_buttons()
 	_refresh_cheat_visibility()
-	_build_side_menu()
 
 
 # ── Rechte Seitenleiste / Navigation ────────────────────────────────────────────
 # Dauerhaft sichtbare, durchgezogene Leiste am rechten Rand (volle Höhe bis über die
 # Run-Bar). Sie ist GLEICHZEITIG die Navigation des Upgrade-Centers (GlobalModal):
 # ein Klick öffnet/wechselt die jeweilige Seite, der aktive Eintrag bleibt markiert.
-const NAV_W      = 150
-const NAV_X      = VIEWPORT_W - NAV_W       # 810
-const NAV_TOP    = 0
-const NAV_BOT    = 498                       # endet bündig über der Run-Bar (540-42)
+# Im Portrait-Modus wird stattdessen eine untere Icon-Leiste gebaut (_build_bottom_nav).
+const NAV_W      = 150     # Design-Breite der Seitenleiste (Landscape)
+const BOT_H      = 42      # Höhe der unteren Run-Bar (bleibt frei)
 const NAV_HDR_H  = 52
 
 # Sonder-„tab"-Werte (keine GlobalModal-Seiten):
@@ -241,69 +264,127 @@ var _pause_nav_btn: Button = null   # „Pause-Menü"-Eintrag, nur im Mobile-Ste
 
 
 func _build_side_menu() -> void:
-	var nav_h := NAV_BOT - NAV_TOP
+	var nav_x  := RUI.vw() - NAV_W
+	var nav_top := 0.0
+	var nav_bot := RUI.vh() - BOT_H
+	var nav_h   := nav_bot - nav_top
 
-	# Hintergrund (durchgezogene Fläche)
+	# Hintergrund (durchgezogene Fläche am rechten Rand)
 	var bg := ColorRect.new()
-	bg.position = Vector2(NAV_X, NAV_TOP)
+	bg.position = Vector2(nav_x, nav_top)
 	bg.size     = Vector2(NAV_W, nav_h)
 	bg.color    = C_SURFACE
-	add_child(bg)
+	_ui_root.add_child(bg)
 
 	# Kopf
 	var hdr := Label.new()
-	hdr.position = Vector2(NAV_X + 16, NAV_TOP)
+	hdr.position = Vector2(nav_x + 16, nav_top)
 	hdr.size     = Vector2(NAV_W - 22, NAV_HDR_H)
 	hdr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hdr.add_theme_font_size_override("font_size", 17)
 	hdr.add_theme_color_override("font_color", C_ACCENT)
-	# Flach (kein 3D-Prägeschatten mehr – der liegt jetzt auf den Nav-Einträgen).
 	hdr.text = Icons.MENU + " Menü"
-	add_child(hdr)
+	_ui_root.add_child(hdr)
 
 	var hline := ColorRect.new()
-	hline.position = Vector2(NAV_X, NAV_TOP + NAV_HDR_H)
+	hline.position = Vector2(nav_x, nav_top + NAV_HDR_H)
 	hline.size     = Vector2(NAV_W, 1)
 	hline.color    = C_LINE
-	add_child(hline)
+	_ui_root.add_child(hline)
 
-	# Seiten-Einträge (volle Breite, links ausgerichtet, wie eine Liste)
+	# Seiten-Einträge
 	const ITEM_H = 44
 	const ITEM_GAP = 2
-	var y0 := NAV_TOP + NAV_HDR_H + 8
+	var y0 := nav_top + NAV_HDR_H + 8
 	_nav_btns.clear()
 	for entry in _nav_pages():
-		var btn := _make_nav_item(entry.icon, entry.label, entry.color, Vector2(NAV_X, y0), NAV_W, ITEM_H)
+		var btn := _make_nav_item(entry.icon, entry.label, entry.color, Vector2(nav_x, y0), NAV_W, ITEM_H)
 		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
-		add_child(btn)
+		_ui_root.add_child(btn)
 		_nav_btns.append({"btn": btn, "tab": int(entry.tab), "icon": entry.icon, "label": entry.label})
 		y0 += ITEM_H + ITEM_GAP
 
-	# Trenner + „Optionen" (öffnet das Pause-Menü, keine Modal-Seite)
+	# Trenner + „Optionen"
 	var sep := ColorRect.new()
-	sep.position = Vector2(NAV_X + 12, y0 + 8)
+	sep.position = Vector2(nav_x + 12, y0 + 8)
 	sep.size     = Vector2(NAV_W - 24, 1)
 	sep.color    = C_LINE
-	add_child(sep)
-	var opt := _make_nav_item(Icons.SETTINGS, "Optionen", C_TEXT_DIM, Vector2(NAV_X, y0 + 18), NAV_W, ITEM_H)
+	_ui_root.add_child(sep)
+	var opt := _make_nav_item(Icons.SETTINGS, "Optionen", C_TEXT_DIM, Vector2(nav_x, y0 + 18), NAV_W, ITEM_H)
 	opt.pressed.connect(_on_nav_page.bind(PAGE_OPTIONS))
-	add_child(opt)
+	_ui_root.add_child(opt)
 	_nav_btns.append({"btn": opt, "tab": PAGE_OPTIONS, "icon": Icons.SETTINGS, "label": "Optionen"})
 
-	# „Pause-Menü" direkt unter Optionen – nur im Mobile-Steuerungsmodus sichtbar,
-	# weil am Handy keine ESC-Taste zum Öffnen des Pause-Menüs existiert.
-	_pause_nav_btn = _make_nav_item(Icons.PAUSE, "Pause-Menü", Color(0.92, 0.42, 0.42), Vector2(NAV_X, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
+	# „Pause-Menü" – nur im Mobile-Steuerungsmodus sichtbar
+	_pause_nav_btn = _make_nav_item(Icons.PAUSE, "Pause-Menü", Color(0.92, 0.42, 0.42),
+		Vector2(nav_x, y0 + 18 + ITEM_H + ITEM_GAP), NAV_W, ITEM_H)
 	_pause_nav_btn.pressed.connect(_on_pause_nav_pressed)
 	_pause_nav_btn.visible = _load_mobile_mode()
-	add_child(_pause_nav_btn)
+	_ui_root.add_child(_pause_nav_btn)
 
-	# Linke Trennlinie zuletzt zeichnen, damit sie über den Nav-Einträgen liegt und
-	# durchgezogen bleibt (sonst überdecken die Button-Hintergründe die 1px-Linie).
+	# Linke Trennlinie über allen Nav-Einträgen (damit Button-HGs sie nicht überdecken)
 	var vline := ColorRect.new()
-	vline.position = Vector2(NAV_X, NAV_TOP)
+	vline.position = Vector2(nav_x, nav_top)
 	vline.size     = Vector2(1, nav_h)
 	vline.color    = C_LINE
-	add_child(vline)
+	_ui_root.add_child(vline)
+
+	_refresh_nav_highlight()
+
+
+# ── Portrait-Modus: untere Icon-Leiste ────────────────────────────────────────
+# Im Hochformat-Modus (Handy vertikal) ersetzt eine kompakte Icon-Leiste unten
+# die rechte Seitenleiste. Die Buttons lösen dieselbe Navigation aus.
+func _build_bottom_nav() -> void:
+	var vw   := RUI.vw()
+	var vh   := RUI.vh()
+	var bn_h := RUI.BOTTOM_NAV_H
+	var nav_y := vh - bn_h
+
+	# Hintergrund
+	var bg := ColorRect.new()
+	bg.position = Vector2(0, nav_y)
+	bg.size     = Vector2(vw, bn_h)
+	bg.color    = C_SURFACE
+	_ui_root.add_child(bg)
+
+	var tline := ColorRect.new()
+	tline.position = Vector2(0, nav_y)
+	tline.size     = Vector2(vw, 1)
+	tline.color    = C_LINE
+	_ui_root.add_child(tline)
+
+	# Alle Nav-Seiten als gleichmäßig verteilte Icon-Buttons
+	var pages := _nav_pages()
+	# Einschließlich Optionen
+	pages.append({"icon": Icons.SETTINGS, "label": "Optionen", "tab": PAGE_OPTIONS, "color": C_TEXT_DIM})
+	var btn_w := vw / float(pages.size())
+	_nav_btns.clear()
+
+	for i in pages.size():
+		var entry = pages[i]
+		var btn  := Button.new()
+		btn.position = Vector2(i * btn_w, nav_y)
+		btn.size     = Vector2(btn_w, bn_h)
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+		# Icon als eigenes Label (Farbe unabhängig vom Aktiv-Zustand)
+		var ico := Icons.label(entry.icon, 22, entry.color)
+		ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ico.set_anchors_preset(Control.PRESET_FULL_RECT)
+		ico.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ico.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		btn.add_child(ico)
+		btn.set_meta("txt_lbl", ico)
+
+		_style_nav_btn(btn, false)
+		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
+		_ui_root.add_child(btn)
+		_nav_btns.append({"btn": btn, "tab": int(entry.tab), "icon": entry.icon, "label": entry.label})
+
+	# Pause-Menü-Button ist immer im Portrait-Modus sichtbar (kein ESC auf Handy)
+	_pause_nav_btn = _nav_btns.back()["btn"] if _nav_btns else null
 
 	_refresh_nav_highlight()
 
@@ -459,7 +540,8 @@ func _refresh_nav_highlight() -> void:
 		_style_nav_btn(btn, int(e["tab"]) == _active_page)
 
 
-func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
+## Erzeugt einen kleinen Aktions-Button und fügt ihn zu _ui_root hinzu.
+func _make_btn_in(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	var btn := Button.new()
 	btn.text     = txt
 	btn.position = pos
@@ -473,6 +555,11 @@ func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
 	btn.add_theme_color_override("font_color", C_TEXT)
 	btn.add_theme_font_size_override("font_size", 12)
 	return btn
+
+
+## Ältere Signatur – bleibt für externe Aufrufer erhalten.
+func _make_btn(txt: String, pos: Vector2, w: float, h: float) -> Button:
+	return _make_btn_in(txt, pos, w, h)
 
 
 # Upgrade-Center-Button: gefüllte Akzent-Pille (Cyan) mit dunklem Text – primäre Aktion.
@@ -811,7 +898,7 @@ func gain_currency(amount: int) -> void:
 
 	var fl := Label.new()
 	fl.text = "+%s %s" % [Economy.format_currency(amount), Icons.COIN]
-	fl.position = Vector2(VIEWPORT_W / 2.0 - 60, BAR_H)
+	fl.position = Vector2(RUI.content_w() / 2.0 - 60, BAR_H)
 	fl.size     = Vector2(120, 26)
 	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER

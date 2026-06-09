@@ -29,9 +29,10 @@ const BUILD_PANEL_TOP = 50                       # bündig an der Top-Nav (0–5
 # Gleiche Größe; sitzen über der 42px-Run-Bar.
 const BOTTOM_BTN_W    = 56
 const BOTTOM_BTN_H    = 72
-const BOTTOM_BTN_Y    = 540 - 42 - 4 - BOTTOM_BTN_H   # = 422
-const BUILD_PANEL_BOT = 540 - 42                     # = 498 (Panel reicht bis zum Footer/Run-Bar)
 const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
+# Computed at _ready() — depend on viewport height (RUI.vh()), not hardcoded 540.
+var _bottom_btn_y: float    = 0.0
+var _build_panel_bot: float = 0.0
 
 # Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
 #   tier "dirt"    = kostenlos (Ertrag +1 pro Feld, per Dreck-Ertrag-Upgrade steigerbar)
@@ -149,6 +150,8 @@ var tile_selector = null
 
 
 func _ready() -> void:
+	_bottom_btn_y    = RUI.vh() - RUN_BAR_H - 4 - BOTTOM_BTN_H
+	_build_panel_bot = RUI.vh() - RUN_BAR_H
 	GRID_ROWS = Economy.get_grid_rows()
 	GRID_COLS = Economy.get_grid_cols()
 	_init_grid()
@@ -321,7 +324,6 @@ func _update_camera_limits() -> void:
 
 
 const RUN_BAR_H = 42
-const RUN_BAR_Y = 540 - RUN_BAR_H
 
 func _setup_run_bar() -> void:
 	_run_bar        = CanvasLayer.new()
@@ -329,28 +331,39 @@ func _setup_run_bar() -> void:
 	add_child(_run_bar)
 
 	var bg := ColorRect.new()
-	bg.position = Vector2(0, RUN_BAR_Y)
-	bg.size     = Vector2(960, RUN_BAR_H)
+	bg.anchor_left   = 0.0; bg.offset_left   = 0
+	bg.anchor_right  = 1.0; bg.offset_right  = 0
+	bg.anchor_top    = 1.0; bg.offset_top    = -RUN_BAR_H
+	bg.anchor_bottom = 1.0; bg.offset_bottom = 0
 	bg.color    = Color(0.08, 0.09, 0.13)
 	_run_bar.add_child(bg)
 
 	var top_line := ColorRect.new()
-	top_line.position = Vector2(0, RUN_BAR_Y)
-	top_line.size     = Vector2(960, 1)
+	top_line.anchor_left   = 0.0; top_line.offset_left   = 0
+	top_line.anchor_right  = 1.0; top_line.offset_right  = 0
+	top_line.anchor_top    = 1.0; top_line.offset_top    = -RUN_BAR_H
+	top_line.anchor_bottom = 1.0; top_line.offset_bottom = -RUN_BAR_H + 1
 	top_line.color    = C_LINE
 	_run_bar.add_child(top_line)
 
 	_run_bar_status = Label.new()
-	_run_bar_status.position = Vector2(12, RUN_BAR_Y)
-	_run_bar_status.size     = Vector2(700, RUN_BAR_H)
+	_run_bar_status.anchor_left   = 0.0; _run_bar_status.offset_left   = 12
+	_run_bar_status.anchor_right  = 1.0; _run_bar_status.offset_right  = -(RUI.nav_w() + 12.0 + 228.0 + 8.0)
+	_run_bar_status.anchor_top    = 1.0; _run_bar_status.offset_top    = -RUN_BAR_H
+	_run_bar_status.anchor_bottom = 1.0; _run_bar_status.offset_bottom = 0
 	_run_bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_run_bar_status.add_theme_font_size_override("font_size", 12)
 	_run_bar_status.add_theme_color_override("font_color", C_TEXT_DIM)
 	_run_bar.add_child(_run_bar_status)
 
 	_run_bar_btn = Button.new()
-	_run_bar_btn.position = Vector2(720, RUN_BAR_Y + 4)
-	_run_bar_btn.size     = Vector2(228, RUN_BAR_H - 8)
+	# Rechter Rand: innerhalb des Content-Bereichs (links der Sidebar), nicht am Viewport-Rand.
+	var _btn_right  := -(RUI.nav_w() + 12.0)
+	var _btn_left   := _btn_right - 228.0
+	_run_bar_btn.anchor_left   = 1.0; _run_bar_btn.offset_left   = _btn_left
+	_run_bar_btn.anchor_right  = 1.0; _run_bar_btn.offset_right  = _btn_right
+	_run_bar_btn.anchor_top    = 1.0; _run_bar_btn.offset_top    = -RUN_BAR_H + 4
+	_run_bar_btn.anchor_bottom = 1.0; _run_bar_btn.offset_bottom = -4
 	_run_bar_btn.focus_mode = Control.FOCUS_NONE
 	_run_bar_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_run_bar_btn.pressed.connect(_on_fahren_pressed)
@@ -407,7 +420,7 @@ func _setup_build_panel() -> void:
 	_build_layer.visible = false
 	add_child(_build_layer)
 
-	var panel_h := BUILD_PANEL_BOT - BUILD_PANEL_TOP
+	var panel_h := _build_panel_bot - BUILD_PANEL_TOP
 
 	# Hintergrund – vertikales Panel am linken Rand
 	var bg := Panel.new()
@@ -470,7 +483,7 @@ func _setup_build_panel() -> void:
 	# Oben der aktuelle Status, darunter dauerhaft die Tastenkürzel (Drehen).
 	# Damit es nicht doppelt steht, zeigt die Ziehen-Statuszeile selbst keine Kürzel.
 	const FOOTER_H  = 90
-	var footer_top := BUILD_PANEL_BOT - FOOTER_H
+	var footer_top := _build_panel_bot - FOOTER_H
 	var footer := Panel.new()
 	footer.position = Vector2(6, footer_top)
 	footer.size     = Vector2(BUILD_PANEL_W - 12, FOOTER_H - 6)
@@ -542,7 +555,7 @@ func _setup_build_panel() -> void:
 # Persistenter Hammer-Button unten links (öffnet/schließt das Baumenü).
 func _setup_build_toggle_btn() -> void:
 	_hammer_btn = Button.new()
-	_hammer_btn.position = Vector2(8, BOTTOM_BTN_Y)
+	_hammer_btn.position = Vector2(8, _bottom_btn_y)
 	_hammer_btn.size     = Vector2(BOTTOM_BTN_W, BOTTOM_BTN_H)
 	_hammer_btn.text     = Icons.HAMMER
 	_hammer_btn.focus_mode = Control.FOCUS_NONE
@@ -690,7 +703,7 @@ func _make_trash_card() -> Panel:
 	# Links neben der rechten Seitenleiste (GameHUD-Nav, Breite 150 ab x=810), damit der
 	# Papierkorb nicht von ihr verdeckt wird.
 	const TX  = 810 - 8 - TW          # unten rechts, vor der Nav (= 746)
-	const TY  = BOTTOM_BTN_Y          # gleiche Höhe wie der Hammer-Button
+	var   TY  = _bottom_btn_y          # gleiche Höhe wie der Hammer-Button
 	var card := Panel.new()
 	card.position = Vector2(TX, TY)
 	card.size     = Vector2(TW, TH)
@@ -725,7 +738,7 @@ func _make_rotate_card() -> Button:
 	# Gleiche Spalte wie der Papierkorb (_make_trash_card): vor der rechten GameHUD-Nav (ab x=810),
 	# sonst läge der Knopf hinter der Seitenleiste. Bei Änderung von _make_trash_card hier mitziehen.
 	const TX  = 810 - 8 - TW              # = 746, gleiche Spalte wie der Papierkorb
-	const TY  = BOTTOM_BTN_Y - TH - GAP   # eine Reihe darüber
+	var   TY  = _bottom_btn_y - TH - GAP   # eine Reihe darüber
 	var btn := Button.new()
 	btn.position = Vector2(TX, TY)
 	btn.size     = Vector2(TW, TH)
