@@ -228,10 +228,11 @@ func _nav_pages() -> Array:
 	return [
 		{"icon": Icons.FLAG_3,   "label": "Strecke",   "tab": -1, "color": Color(0.32, 0.80, 0.46)},  # grün
 		{"icon": Icons.STORE,    "label": "Shop",      "tab": 0,  "color": Color(0.26, 0.78, 0.85)},  # türkis
+		{"icon": Icons.STAR,     "label": "Prestige",  "tab": 4,  "color": Color(0.74, 0.48, 0.97)},  # violett
+		{"icon": Icons.GARAGE,   "label": "Garage",    "tab": 5,  "color": Color(0.93, 0.42, 0.66)},  # rosa
 		{"icon": Icons.TOOLS,    "label": "Werkstatt", "tab": 2,  "color": Color(0.96, 0.55, 0.26)},  # orange
 		{"icon": Icons.TROPHY,   "label": "Erfolge",   "tab": 1,  "color": Color(1.00, 0.82, 0.30)},  # gold
 		{"icon": Icons.CHART_BAR,"label": "Statistik", "tab": 3,  "color": Color(0.40, 0.62, 1.00)},  # blau
-		{"icon": Icons.STAR,     "label": "Prestige",  "tab": 4,  "color": Color(0.74, 0.48, 0.97)},  # violett
 	]
 
 var _nav_btns:    Array = []   # je {btn, tab}

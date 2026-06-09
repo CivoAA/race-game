@@ -28,9 +28,11 @@ const SHOP_CATS = [
 	{"id": "tiles",    "name": "Streckenteile", "icon": ""},
 	{"id": "upgrades", "name": "Upgrades",      "icon": ""},
 ]
-const MODAL_TABS = ["Shop", "Archivments", "Werkstatt", "Statistik", "Prestige"]
+const MODAL_TABS = ["Shop", "Archivments", "Werkstatt", "Statistik", "Prestige", "Garage"]
+const WERKSTATT_TAB = 2
 const STATISTIK_TAB = 3
 const PRESTIGE_TAB = 4
+const GARAGE_TAB = 5
 
 var _active_modal_tab: int = 0
 var _active_shop_cat:  int = 0
@@ -148,7 +150,7 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	# Vorschau-Auto langsam drehen, solange die Werkstatt sichtbar ist
-	if _active_modal_tab == 2 and _preview_pivot != null:
+	if (_active_modal_tab == WERKSTATT_TAB or _active_modal_tab == GARAGE_TAB) and _preview_pivot != null:
 		_preview_pivot.rotate_y(delta * 0.6)
 	# Streckenteil-Vorschauen drehen, solange der Streckenteile-Tab sichtbar ist
 	elif _active_modal_tab == 0 and _active_shop_cat == 0:
@@ -215,11 +217,12 @@ func _build_modal() -> void:
 	# Geschlossen wird über „Strecke" in der Nav, erneuten Klick auf die aktive Seite oder ESC.
 	const CONTENT_Y = 0
 
-	_build_shop_panel(panel,           CONTENT_Y, area_h)
-	_build_achievements_panel(panel,   CONTENT_Y, area_h)
-	_build_werkstatt_panel(panel,      CONTENT_Y, area_h)
-	_build_statistik_panel(panel,      CONTENT_Y, area_h)
-	_build_prestige_panel(panel,       CONTENT_Y, area_h)
+	_build_shop_panel(panel,           CONTENT_Y, area_h)   # Tab 0
+	_build_achievements_panel(panel,   CONTENT_Y, area_h)   # Tab 1
+	_build_werkstatt_panel(panel,      CONTENT_Y, area_h)   # Tab 2
+	_build_statistik_panel(panel,      CONTENT_Y, area_h)   # Tab 3
+	_build_prestige_panel(panel,       CONTENT_Y, area_h)   # Tab 4
+	_build_garage_panel(panel,         CONTENT_Y, area_h)   # Tab 5
 
 	_build_prestige_confirm(panel)
 	_build_ascend_confirm(panel)
@@ -245,6 +248,27 @@ func _on_modal_tab(idx: int) -> void:
 func _show_modal_tab(idx: int) -> void:
 	for i in _tab_panels.size():
 		_tab_panels[i].visible = (i == idx)
+	# Die gemeinsame 3D-Auto-Vorschau in den gerade sichtbaren Tab (Werkstatt/Garage) umhängen.
+	if idx == WERKSTATT_TAB:
+		_attach_preview_to(_werkstatt_container)
+		_apply_ws_config()
+	elif idx == GARAGE_TAB:
+		_attach_preview_to(_garage_container)
+		_apply_ws_config()
+
+
+# Hängt das gemeinsame Vorschau-SubViewport in den angegebenen Tab-Container (gleiche Position).
+func _attach_preview_to(container: Control) -> void:
+	if _preview_svc == null or not is_instance_valid(_preview_svc) or container == null:
+		return
+	var cur := _preview_svc.get_parent()
+	if cur == container:
+		return
+	if cur != null:
+		cur.remove_child(_preview_svc)
+	container.add_child(_preview_svc)
+	_preview_svc.position = Vector2(PREVIEW_X, PREVIEW_Y)
+	_preview_svc.size     = Vector2(PREVIEW_W, PREVIEW_H)
 
 
 # ── Shop ──────────────────────────────────────────────────────────────────────
@@ -1173,24 +1197,38 @@ func _make_stat_dotsep() -> Label:
 
 
 # ── Werkstatt (Auto-Konfiguration) ─────────────────────────────────────────────
-# Unter-Tabs: Form · Lackierung · Reifen · Fähigkeit. Darunter eine
-# 3D-Live-Vorschau (SubViewport). UI-Gerüst: Auswahl wird im Speicher gehalten;
-# nur die Lackierung wird derzeit direkt auf das Vorschau-Modell angewandt.
+# Werkstatt = Auto-Aufstieg („Autos"). Garage = Lackierung + Muster. Beide Tabs zeigen
+# dieselbe rotierende 3D-Vorschau: EIN gemeinsames SubViewport, das beim Tab-Wechsel in
+# den jeweils sichtbaren Container umgehängt wird (gleiche Position).
 
-# Werkstatt-Unter-Tabs mit Tabler-Icons. Als Funktion (nicht const), weil die Glyphen
-# aus dem Icons-Autoload kommen.
-func _ws_tabs() -> Array:
+# Garage-Unter-Tabs (Lackierung · Muster). Als Funktion, weil die Glyphen aus dem Icons-Autoload kommen.
+func _garage_tabs() -> Array:
 	return [
-		{"id": "autos",   "name": "Autos",      "icon": Icons.CAR},
 		{"id": "paint",   "name": "Lackierung", "icon": Icons.PALETTE},
 		{"id": "pattern", "name": "Muster",     "icon": Icons.LAYOUT_GRID},
 	]
 
-var _ws_active_tab:  int           = 0
+# Werkstatt
 var _ws_sel:         Dictionary    = {"paint": 0, "pattern": 0}
-var _ws_tab_btns:    Array[Button] = []
-var _ws_options_box: Control       = null
-var _ws_summary_lbl: Label         = null
+var _ws_options_box: Control       = null   # Auto-Aufstieg-Inhalt
+var _ws_summary_lbl: Label         = null   # Auto-Aufstieg-Status
+
+# Garage
+var _garage_active_tab:  int           = 0
+var _garage_tab_btns:    Array[Button] = []
+var _garage_options_box: Control       = null
+var _garage_summary_lbl: Label         = null
+
+# Container beider Tabs (für das Umhängen der gemeinsamen Vorschau) + die Vorschau selbst.
+var _werkstatt_container: Control = null
+var _garage_container:    Control = null
+var _preview_svc:         SubViewportContainer = null
+
+# Gemeinsame Vorschau-Geometrie (in beiden Tabs identisch).
+const PREVIEW_W = 480
+const PREVIEW_H = 252
+const PREVIEW_X = (VW - PREVIEW_W) / 2.0
+const PREVIEW_Y = 158.0
 
 # 3D-Vorschau
 var _preview_pivot:  Node3D    = null
@@ -1247,16 +1285,50 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	container.size     = Vector2(VW, ch)
 	parent.add_child(container)
 	_tab_panels.append(container)
+	_werkstatt_container = container
 
-	# Unter-Tab-Leiste (Breite an das schmalere Modal angepasst)
+	var title := Label.new()
+	title.position = Vector2(0, 14)
+	title.size     = Vector2(VW, 26)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", C_TEXT)
+	title.text = "%s  Auto-Aufstieg" % Icons.CAR
+	container.add_child(title)
+
+	# Auto-Aufstieg-Inhalt
+	_ws_options_box = Control.new()
+	_ws_options_box.position = Vector2(0, 48)
+	_ws_options_box.size     = Vector2(VW, 102)
+	container.add_child(_ws_options_box)
+
+	_build_preview_frame(container)
+	_ws_summary_lbl = _make_preview_summary(container)
+
+	# Gemeinsame 3D-Vorschau (initial in der Werkstatt) – wird beim Tab-Wechsel umgehängt.
+	_sync_paint_selection_from_economy()
+	_build_preview_viewport(container, Vector2(PREVIEW_X, PREVIEW_Y), Vector2(PREVIEW_W, PREVIEW_H))
+	_rebuild_autos_options()
+
+
+# Garage-Tab: Lackierung + Muster (aus der Werkstatt ausgelagert), dieselbe 3D-Vorschau.
+func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
+	var container := Control.new()
+	container.position = Vector2(0, cy)
+	container.size     = Vector2(VW, ch)
+	parent.add_child(container)
+	_tab_panels.append(container)
+	_garage_container = container
+
+	# Unter-Tab-Leiste (Lackierung · Muster)
 	const SUB_W   = 150
 	const SUB_GAP = 8
-	var ws_tabs = _ws_tabs()
-	var total_w = ws_tabs.size() * SUB_W + (ws_tabs.size() - 1) * SUB_GAP
+	var gtabs = _garage_tabs()
+	var total_w = gtabs.size() * SUB_W + (gtabs.size() - 1) * SUB_GAP
 	var sx = (VW - total_w) / 2.0
-	_ws_tab_btns.clear()
-	for i in ws_tabs.size():
-		var t = ws_tabs[i]
+	_garage_tab_btns.clear()
+	for i in gtabs.size():
+		var t = gtabs[i]
 		var btn := Button.new()
 		btn.text     = "%s  %s" % [t.icon, t.name]
 		btn.position = Vector2(sx + i * (SUB_W + SUB_GAP), 12)
@@ -1264,25 +1336,28 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		_style_ws_tab(btn, i == 0)
-		btn.pressed.connect(_on_ws_tab.bind(i))
+		btn.pressed.connect(_on_garage_tab.bind(i))
 		container.add_child(btn)
-		_ws_tab_btns.append(btn)
+		_garage_tab_btns.append(btn)
 
-	# Optionsraster (wird pro Kategorie neu aufgebaut)
-	_ws_options_box = Control.new()
-	_ws_options_box.position = Vector2(0, 58)
-	_ws_options_box.size     = Vector2(VW, 92)
-	container.add_child(_ws_options_box)
+	# Optionsraster (Lack-Swatches / Muster-Karten)
+	_garage_options_box = Control.new()
+	_garage_options_box.position = Vector2(0, 58)
+	_garage_options_box.size     = Vector2(VW, 92)
+	container.add_child(_garage_options_box)
 
-	# Vorschau-Rahmen + 3D-Viewport (kompakter, damit alles über der Run-Bar bleibt)
-	const PREV_W = 480
-	const PREV_H = 252
-	var px = (VW - PREV_W) / 2.0
-	var py = 158
+	_build_preview_frame(container)
+	_garage_summary_lbl = _make_preview_summary(container)
 
+	_sync_paint_selection_from_economy()
+	_rebuild_garage_options()
+
+
+# Bordierter Vorschau-Rahmen (Hintergrund hinter dem 3D-Viewport).
+func _build_preview_frame(container: Control) -> void:
 	var frame := Panel.new()
-	frame.position = Vector2(px - 3, py - 3)
-	frame.size     = Vector2(PREV_W + 6, PREV_H + 6)
+	frame.position = Vector2(PREVIEW_X - 3, PREVIEW_Y - 3)
+	frame.size     = Vector2(PREVIEW_W + 6, PREVIEW_H + 6)
 	var fsb := StyleBoxFlat.new()
 	fsb.bg_color     = C_SURFACE
 	fsb.border_color = C_LINE
@@ -1291,18 +1366,26 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	frame.add_theme_stylebox_override("panel", fsb)
 	container.add_child(frame)
 
-	# Zusammenfassung der aktuellen Auswahl
-	_ws_summary_lbl = Label.new()
-	_ws_summary_lbl.position = Vector2(px, py + PREV_H + 6)
-	_ws_summary_lbl.size     = Vector2(PREV_W, 22)
-	_ws_summary_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ws_summary_lbl.add_theme_font_size_override("font_size", 11)
-	_ws_summary_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	container.add_child(_ws_summary_lbl)
 
-	_sync_paint_selection_from_economy()
-	_build_preview_viewport(container, Vector2(px, py), Vector2(PREV_W, PREV_H))
-	_rebuild_ws_options()
+# Zusammenfassungs-Label unter dem Vorschau-Rahmen.
+func _make_preview_summary(container: Control) -> Label:
+	var lbl := Label.new()
+	lbl.position = Vector2(PREVIEW_X, PREVIEW_Y + PREVIEW_H + 6)
+	lbl.size     = Vector2(PREVIEW_W, 22)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	container.add_child(lbl)
+	return lbl
+
+
+# Auto-Aufstieg-Inhalt der Werkstatt neu aufbauen (Box leeren + Inhalt setzen).
+func _rebuild_autos_options() -> void:
+	if _ws_options_box == null:
+		return
+	for c in _ws_options_box.get_children():
+		c.queue_free()
+	_build_autos_options()
 
 
 # Setzt die markierte Lackierungs-/Muster-Karte passend zum gespeicherten Economy-Zustand.
@@ -1321,40 +1404,37 @@ func _sync_paint_selection_from_economy() -> void:
 	_ws_sel["paint"] = 0
 
 
-func _on_ws_tab(idx: int) -> void:
-	_ws_active_tab = idx
-	for i in _ws_tab_btns.size():
-		_style_ws_tab(_ws_tab_btns[i], i == idx)
-	_rebuild_ws_options()
+func _on_garage_tab(idx: int) -> void:
+	_garage_active_tab = idx
+	for i in _garage_tab_btns.size():
+		_style_ws_tab(_garage_tab_btns[i], i == idx)
+	_rebuild_garage_options()
 
 
-# Beim Öffnen des Modals: Werkstatt an den aktuellen Economy-Zustand angleichen. Vor allem nach
-# einem Auto-Aufstieg (car_tier geändert) das Vorschau-Modell neu laden; sonst nur Auswahl/Optik.
+# Beim Öffnen des Modals: Werkstatt/Garage an den Economy-Zustand angleichen. Nach einem
+# Auto-Aufstieg (car_tier geändert) das gemeinsame Vorschau-Modell neu laden; sonst nur Optik.
 func _refresh_werkstatt() -> void:
 	if _preview_pivot == null:
 		return
-	_sync_paint_selection_from_economy()
 	if _preview_tier != Economy.get_car_tier():
 		if _preview_model != null:
 			_preview_model.queue_free()
 			_preview_model = null
 		_load_preview_model()
 		_frame_preview_camera()
+	_sync_paint_selection_from_economy()
+	_rebuild_autos_options()
+	_rebuild_garage_options()
 	_apply_ws_config()
-	_rebuild_ws_options()
 
 
-func _rebuild_ws_options() -> void:
-	if _ws_options_box == null:
+func _rebuild_garage_options() -> void:
+	if _garage_options_box == null:
 		return
-	for c in _ws_options_box.get_children():
+	for c in _garage_options_box.get_children():
 		c.queue_free()
 
-	var id = _ws_tabs()[_ws_active_tab].id
-	if id == "autos":
-		_build_autos_options()
-		return
-
+	var id = _garage_tabs()[_garage_active_tab].id
 	var opts = _ws_options(id)
 	var sel = int(_ws_sel.get(id, 0))
 	# Kartengröße je Kategorie: viele Lackfarben → kompakte Swatches ohne Label (Name in der
@@ -1369,7 +1449,7 @@ func _rebuild_ws_options() -> void:
 	cols = mini(cols, opts.size())
 	var rows = int(ceil(float(opts.size()) / float(cols)))
 	var grid_h = rows * ch + max(0, rows - 1) * GAP
-	var oy = maxf(2.0, (_ws_options_box.size.y - grid_h) / 2.0)
+	var oy = maxf(2.0, (_garage_options_box.size.y - grid_h) / 2.0)
 	for i in opts.size():
 		var r = int(i / cols)
 		var in_row = mini(cols, opts.size() - r * cols)
@@ -1379,9 +1459,9 @@ func _rebuild_ws_options() -> void:
 		var card := _make_ws_option(id, opts[i], i, i == sel, cw, ch, show_label)
 		card.position = Vector2(sx + ci * (cw + GAP), oy + r * (ch + GAP))
 		card.size     = Vector2(cw, ch)
-		_ws_options_box.add_child(card)
+		_garage_options_box.add_child(card)
 
-	_update_ws_summary()
+	_update_garage_summary()
 
 
 func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float, h: float, show_label: bool) -> Panel:
@@ -1457,12 +1537,12 @@ func _on_ws_option_selected(cat: String, idx: int) -> void:
 		Economy.set_car_paint(col != null, col if col != null else Economy.get_car_paint_color())
 	elif cat == "pattern":
 		Economy.set_car_pattern(idx)
-	_rebuild_ws_options()
+	_rebuild_garage_options()
 	_apply_ws_config()
 
 
-func _update_ws_summary() -> void:
-	if _ws_summary_lbl == null:
+func _update_garage_summary() -> void:
+	if _garage_summary_lbl == null:
 		return
 	var pi = int(_ws_sel.get("paint", 0))
 	var paint_opts = _ws_options("paint")
@@ -1470,7 +1550,7 @@ func _update_ws_summary() -> void:
 	var qi = int(_ws_sel.get("pattern", 0))
 	var pat_opts = _ws_options("pattern")
 	var pat_nm = String(pat_opts[qi].name) if qi < pat_opts.size() else "?"
-	_ws_summary_lbl.text = "Lackierung: %s  ·  Muster: %s" % [paint_nm, pat_nm]
+	_garage_summary_lbl.text = "Lackierung: %s  ·  Muster: %s" % [paint_nm, pat_nm]
 
 
 # Tab „Autos": Auto-Prestige-Panel (Aufstieg auf die nächste Auto-Stufe gegen Voll-Reset + ×4 ⭐).
@@ -1547,6 +1627,7 @@ func _build_preview_viewport(parent: Control, pos: Vector2, sz: Vector2) -> void
 	svc.stretch      = true
 	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(svc)
+	_preview_svc = svc   # gemeinsame Vorschau, wird zwischen Werkstatt/Garage umgehängt
 
 	var sv := SubViewport.new()
 	sv.size           = Vector2i(int(sz.x), int(sz.y))
@@ -1676,7 +1757,7 @@ func _apply_ws_config() -> void:
 			(m as MeshInstance3D).material_override = null
 		else:
 			(m as MeshInstance3D).material_override = _make_paint_material(col)
-	_update_ws_summary()
+	_update_garage_summary()
 
 
 # Shader-Material für die Maskenlackierung (Albedo + Maske gecacht).
