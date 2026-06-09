@@ -57,7 +57,6 @@ var _discard_modal:      Control
 var _save_modal:         Control
 var _credits_modal:      Control
 
-var _save_status_lbl: Label
 var _settings_dirty:  bool = false
 # Wie wurden die Einstellungen geöffnet? true = über das Pause-Menü (Zurück → Pause),
 # false = direkt über „Optionen" in der Seitenleiste (Zurück → zurück ins Spiel).
@@ -200,31 +199,11 @@ func _build_pause_panel() -> Control:
 
 	_add_spacer(vbox, 12)
 
-	_add_btn(vbox, "01", "Weiterspielen",    C_ACCENT,    _resume)
+	_add_btn(vbox, "01", "Weiterspielen", C_ACCENT,    _resume)
 	_add_spacer(vbox, 10)
-	_add_btn(vbox, "02", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
-
-	_save_status_lbl = Label.new()
-	_save_status_lbl.text = Icons.CHECK + " Gespeichert!"
-	_save_status_lbl.visible = false
-	_save_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_save_status_lbl.add_theme_font_size_override("font_size", 12)
-	_save_status_lbl.add_theme_color_override("font_color", Color(0.4, 0.85, 0.4))
-	vbox.add_child(_save_status_lbl)
-
-	_add_btn(vbox, "03", "Spiel beenden",    C_ACCENT_RD, _on_quit_pressed)
+	_add_btn(vbox, "02", "Spiel beenden", C_ACCENT_RD, _on_quit_pressed)
 
 	return center
-
-
-func _on_save_pressed() -> void:
-	Economy.save_game()
-	_save_status_lbl.visible = true
-	get_tree().create_timer(2.0).timeout.connect(
-		func():
-			if is_instance_valid(_save_status_lbl):
-				_save_status_lbl.visible = false
-	)
 
 
 func _on_quit_pressed() -> void:
@@ -270,6 +249,10 @@ func _build_quit_modal() -> Control:
 
 
 func _go_main_menu() -> void:
+	# Spielstand IMMER sichern (egal ob aus Pause-Menü oder Einstellungen aufgerufen);
+	# offene Einstellungsänderungen ebenfalls speichern.
+	_autosave_settings()
+	Economy.save_game()
 	get_tree().paused = false
 	visible = false
 	# GlobalModal ist ein Autoload und überlebt den Szenenwechsel – offen gelassen würde
@@ -368,13 +351,25 @@ func _build_settings_panel() -> Control:
 	_add_hline(v0)
 	_add_spacer(v0, 2)
 	# „Spielstand löschen" gibt es nur im Hauptmenü (im Spiel ergäbe das Löschen des
-	# laufenden Profils keinen Sinn). Hier nur der Credits-Button.
+	# laufenden Profils keinen Sinn). Hier: Credits + „Zurück zum Hauptmenü".
+	var v0_btns := HBoxContainer.new()
+	v0_btns.add_theme_constant_override("separation", 10)
+	v0.add_child(v0_btns)
+
 	var credits_btn := _build_settings_btn("", C_SURFACE, C_ACCENT_MU)
 	credits_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	credits_btn.custom_minimum_size = Vector2(200, 46)
+	credits_btn.custom_minimum_size = Vector2(180, 46)
 	_set_icon_btn_text(credits_btn, Icons.SPARKLES, "Credits")
 	credits_btn.pressed.connect(_show_credits_modal)
-	v0.add_child(credits_btn)
+	v0_btns.add_child(credits_btn)
+
+	# Speichert den Spielstand und kehrt ins Hauptmenü zurück (siehe _go_main_menu).
+	var home_btn := _build_settings_btn("", C_SURFACE, C_ACCENT_MU)
+	home_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	home_btn.custom_minimum_size = Vector2(240, 46)
+	_set_icon_btn_text(home_btn, Icons.HOME, "Zurück zum Hauptmenü")
+	home_btn.pressed.connect(_go_main_menu)
+	v0_btns.add_child(home_btn)
 
 	# Kategorie 1 – Audio
 	var v1 := _new_settings_cat(holder)
