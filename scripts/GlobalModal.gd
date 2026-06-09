@@ -142,7 +142,7 @@ func _do_rebuild() -> void:
 	_tile_upgrade_cards.clear();     _upgrade_buttons.clear()
 	_ach_data.clear();      _ach_tiles.clear();       _ach_selected = -1
 	_ach_icon_lbl = null;   _ach_title_lbl = null;   _ach_status_lbl = null
-	_ach_desc_lbl = null;   _ach_reward_lbl = null
+	_ach_desc_lbl = null;   _ach_reward_lbl = null;  _ach_progress_lbl = null
 	_hint_panel = null;     _hint_label = null;      _hint_ring = null
 	_hint_targets_upg.clear();       _hint_targets_tile.clear()
 	_hint_id = "";          _hover_id = "";           _hover_elapsed = 0.0
@@ -887,6 +887,7 @@ var _ach_title_lbl:  Label = null
 var _ach_status_lbl: Label = null
 var _ach_desc_lbl:   Label = null
 var _ach_reward_lbl: Label = null
+var _ach_progress_lbl: Label = null   # „% erreicht" in der Kopfzeile
 
 
 func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
@@ -911,7 +912,14 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 	outer.add_theme_constant_override("separation", 8)
 	root.add_child(outer)
 
-	_add_cat_header(outer, "ERRUNGENSCHAFTEN")
+	var head_row := _add_cat_header(outer, "ERRUNGENSCHAFTEN")
+	# Fortschritt in Prozent – rechts neben dem Titel, aktualisiert sich live.
+	head_row.add_child(_hpad(12))
+	_ach_progress_lbl = Label.new()
+	_ach_progress_lbl.add_theme_font_size_override("font_size", 13)
+	_ach_progress_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(_ach_progress_lbl)
+	head_row.add_child(_ach_progress_lbl)
 
 	var body := HBoxContainer.new()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -922,6 +930,7 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 	body.add_child(_build_ach_detail_panel())
 	body.add_child(_build_ach_grid())
 
+	_update_ach_progress()
 	_select_achievement(0)
 
 
@@ -1061,7 +1070,7 @@ func _make_ach_tile(idx: int) -> Button:
 	v.add_child(name_lbl)
 
 	btn.pressed.connect(_select_achievement.bind(idx))
-	_ach_tiles.append({"btn": btn, "sb": sb, "done": done})
+	_ach_tiles.append({"btn": btn, "sb": sb, "done": done, "icon": icon, "name_lbl": name_lbl})
 	return btn
 
 
@@ -1094,6 +1103,42 @@ func _select_achievement(idx: int) -> void:
 	else:
 		_ach_status_lbl.text = Icons.LOCK + " Gesperrt"
 		_ach_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+
+
+# Berechnet den Anteil freigeschalteter Erfolge und schreibt ihn in die Kopfzeile.
+func _update_ach_progress() -> void:
+	if _ach_progress_lbl == null:
+		return
+	var total := _ach_data.size()
+	var done := 0
+	for d in _ach_data:
+		if d.get("done", false):
+			done += 1
+	var pct := 0
+	if total > 0:
+		pct = int(round(100.0 * float(done) / float(total)))
+	_ach_progress_lbl.text = "%d %% (%d/%d)" % [pct, done, total]
+
+
+# Schaltet einen Erfolg frei (per Name) und aktualisiert Kacheln, Detailspalte und die
+# Prozentanzeige live. Mehrfaches Freischalten desselben Erfolgs bleibt wirkungslos.
+# Aufruf z. B.: GlobalModal.unlock_achievement("Erster Start")
+func unlock_achievement(ach_name: String) -> void:
+	for i in _ach_data.size():
+		if _ach_data[i].get("name", "") == ach_name:
+			if _ach_data[i].get("done", false):
+				return
+			_ach_data[i]["done"] = true
+			if i < _ach_tiles.size():
+				var t: Dictionary = _ach_tiles[i]
+				t["done"] = true
+				(t["icon"] as Label).modulate = Color(1, 1, 1, 1.0)
+				(t["name_lbl"] as Label).add_theme_color_override("font_color", C_TEXT)
+			_update_ach_progress()
+			# Detailspalte/Kachel-Optik neu zeichnen (greift nur, wenn das Panel gebaut ist).
+			if _ach_progress_lbl != null:
+				_select_achievement(_ach_selected if _ach_selected >= 0 else i)
+			return
 
 
 # ── Statistik ───────────────────────────────────────────────────────────────────
@@ -2629,7 +2674,7 @@ func _on_ascend_confirmed() -> void:
 
 # ── UI-Hilfsfunktionen ────────────────────────────────────────────────────────
 
-func _add_cat_header(vbox: VBoxContainer, title: String) -> void:
+func _add_cat_header(vbox: VBoxContainer, title: String) -> HBoxContainer:
 	var pad := Control.new()
 	pad.custom_minimum_size = Vector2(0, 10)
 	vbox.add_child(pad)
@@ -2643,6 +2688,7 @@ func _add_cat_header(vbox: VBoxContainer, title: String) -> void:
 	_emboss(lbl)
 	row.add_child(lbl)
 	vbox.add_child(row)
+	return row
 
 	var line := ColorRect.new()
 	line.custom_minimum_size = Vector2(0, 1)

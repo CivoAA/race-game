@@ -197,6 +197,9 @@ func _ready() -> void:
 	GameHUD.view_changed_to_3d.connect(_on_view_3d_requested)
 	GameHUD.set_view_3d(false)
 
+	# „Multiplikator anzeigen"-Einstellung (Anzeige-Tab) → ×-Marker live umschalten.
+	Display.multiplier_mode_changed.connect(func(_m): _refresh_mult_markers())
+
 	Economy.run_ended.connect(_on_run_ended_background)
 	# Im Shop (Streckenteile) freigeschaltete Tiles sofort in der Bau-Leiste spiegeln.
 	Economy.tile_unlocked.connect(_on_tile_unlocked)
@@ -3371,6 +3374,11 @@ func _refresh_mult_markers() -> void:
 			n.queue_free()
 	_stand_marker_nodes.clear()
 
+	# Anzeige-Einstellung: nichts / nur betroffene Felder / alle Felder.
+	var mode: int = Display.multiplier_mode
+	if mode == Display.MultiplierMode.NONE:
+		return
+
 	var dstate := _build_drive_state()
 	# Globale End-/Prestige-Mults wirken beim Rundenabschluss (= Überfahren des Start-/Ziel-Tiles)
 	# auf die gesamte Rundensumme – wir zeigen ihr Produkt als kombiniertes Badge auf dem Start-Tile.
@@ -3378,10 +3386,14 @@ func _refresh_mult_markers() -> void:
 	for r in range(GRID_ROWS):
 		for c in range(GRID_COLS):
 			var sd = dstate[r][c]
+			# Leere Zellen tragen keinen Marker (egal in welchem Modus).
+			if typeof(sd) != TYPE_DICTIONARY:
+				continue
 			var m := _cell_total_mult(sd)
-			if typeof(sd) == TYPE_DICTIONARY and bool(sd.get("is_start", false)):
+			if bool(sd.get("is_start", false)):
 				m *= global_mult
-			if absf(m - 1.0) < 0.05:
+			# „Nur betroffene": Felder ohne Abweichung (×1.0) auslassen.
+			if mode == Display.MultiplierMode.AFFECTED and absf(m - 1.0) < 0.05:
 				continue
 			var marker := _make_mult_marker(m)
 			marker.position = _grid_to_world(r, c)

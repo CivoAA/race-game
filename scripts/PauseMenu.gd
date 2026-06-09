@@ -72,9 +72,17 @@ var _window_option:    OptionButton
 var _res_option:       OptionButton
 var _rotate_switch:    CheckButton
 var _cheat_switch:     CheckButton
+var _music_min_switch:  CuteToggle
+var _fps_switch:        CuteToggle
+var _colorblind_switch: CuteToggle
+var _darkmode_switch:   CuteToggle
+var _mult_option:       OptionButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
+
+# Reihenfolge entspricht Display.MultiplierMode (ALL, AFFECTED, NONE).
+const MULT_DISPLAY_OPTIONS := ["Alles anzeigen", "Nur betroffene Felder", "Nichts"]
 
 var _settings_nav_btns:   Array[Button]  = []
 var _settings_cat_panels: Array[Control] = []
@@ -389,6 +397,13 @@ func _build_settings_panel() -> Control:
 	_sfx_slider = r[0]; _lbl_sfx_val = r[1]
 	_sfx_slider.value_changed.connect(_on_sfx_volume_changed)
 
+	_add_spacer(v1, 8)
+	_add_hline(v1)
+	_add_section_label(v1, "HINTERGRUND")
+	_music_min_switch = _add_toggle_row(v1, "Musik bei Minimierung:")
+	_music_min_switch.toggled.connect(_on_music_min_toggled)
+	_add_setting_hint(v1, "Spielt die Musik weiter, wenn das Fenster minimiert oder im Hintergrund ist.")
+
 	# Kategorie 2 – Anzeige: Modus + Bildschirmauflösung zusammen unter einer Überschrift
 	# (untereinander, ohne Trennstriche).
 	var v2 := _new_settings_cat(holder)
@@ -419,6 +434,30 @@ func _build_settings_panel() -> Control:
 	resize_hint.add_theme_color_override("font_color", C_TEXT_DIM)
 	resize_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	v2.add_child(resize_hint)
+
+	_add_hline(v2)
+	_add_section_label(v2, "DARSTELLUNG")
+
+	_fps_switch = _add_toggle_row(v2, "FPS anzeigen:")
+	_fps_switch.toggled.connect(_on_fps_toggled)
+
+	_darkmode_switch = _add_toggle_row(v2, "Dark Mode:")
+	_darkmode_switch.toggled.connect(_on_darkmode_toggled)
+
+	_colorblind_switch = _add_toggle_row(v2, "Farbenblind-Modus:")
+	_colorblind_switch.toggled.connect(_on_colorblind_toggled)
+	_add_setting_hint(v2, "Passt die Farben für eine Rot-Grün-Sehschwäche an.")
+
+	var mult_row := _make_hrow(v2)
+	_make_row_label(mult_row, "Multiplikatoren zeigen:")
+	_mult_option = OptionButton.new()
+	_mult_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_option_btn(_mult_option)
+	for opt in MULT_DISPLAY_OPTIONS:
+		_mult_option.add_item(opt)
+	_mult_option.item_selected.connect(_on_mult_display_changed)
+	mult_row.add_child(_mult_option)
+	_add_setting_hint(v2, "Steuert die ×-Werte auf den Baufeldern (z. B. ×5).")
 
 	# Cheats sind jetzt ein Abschnitt der Anzeige-Kategorie (eigener Tab entfällt).
 	_add_hline(v2)
@@ -962,6 +1001,28 @@ func _add_slider_row(parent: VBoxContainer, label_text: String) -> Array:
 	return [slider, val_lbl]
 
 
+# Beschriftete Zeile mit einem niedlichen, abgerundeten 3D-Toggle rechts.
+func _add_toggle_row(parent: VBoxContainer, label_text: String) -> CuteToggle:
+	var row := _make_hrow(parent)
+	_make_row_label(row, label_text)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	var sw := CuteToggle.new()
+	row.add_child(sw)
+	return sw
+
+
+# Kleiner, gedämpfter Hinweistext unter einer Einstellung.
+func _add_setting_hint(parent: VBoxContainer, text: String) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	parent.add_child(lbl)
+
+
 func _add_panel_title(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
@@ -1071,6 +1132,12 @@ func _sync_settings_ui() -> void:
 	_cheat_switch.button_pressed = cheat
 	_cheat_switch.text = "An" if cheat else "Aus"
 
+	_music_min_switch.button_pressed  = bool(settings.get_value("options", "music_on_minimize", true))
+	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
+	_darkmode_switch.button_pressed   = bool(settings.get_value("options", "dark_mode", false))
+	_colorblind_switch.button_pressed = bool(settings.get_value("options", "colorblind", false))
+	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
+
 	_loading_settings = false
 
 
@@ -1137,6 +1204,41 @@ func _on_cheat_toggled(pressed: bool) -> void:
 	settings.set_value("cheats", "enabled", pressed)
 	# Live anwenden, damit die Cheat-Buttons (∞ / +1B ⭐) sofort ein-/ausblenden.
 	Economy.apply_cheat_mode(pressed)
+	_settings_dirty = true
+
+
+func _on_music_min_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "music_on_minimize", pressed)
+	MusicPlayer.set_music_on_minimize(pressed)
+	_settings_dirty = true
+
+
+func _on_fps_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "show_fps", pressed)
+	Display.set_fps_visible(pressed)
+	_settings_dirty = true
+
+
+func _on_darkmode_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "dark_mode", pressed)
+	Display.set_dark_mode(pressed)
+	_settings_dirty = true
+
+
+func _on_colorblind_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "colorblind", pressed)
+	Display.set_colorblind(pressed)
+	_settings_dirty = true
+
+
+func _on_mult_display_changed(index: int) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "show_multiplier", index)
+	Display.set_multiplier_mode(index)
 	_settings_dirty = true
 
 
@@ -1281,9 +1383,17 @@ func _build_credits_modal() -> Control:
 	_add_spacer(vbox, 4)
 	var audio_lbl := Label.new()
 	audio_lbl.text = "Audio: Tessemi"
+	audio_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	audio_lbl.add_theme_font_size_override("font_size", 17)
 	audio_lbl.add_theme_color_override("font_color", C_TEXT)
 	vbox.add_child(audio_lbl)
+
+	var visuals_lbl := Label.new()
+	visuals_lbl.text = "Visuals: RaccoonDog"
+	visuals_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	visuals_lbl.add_theme_font_size_override("font_size", 17)
+	visuals_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(visuals_lbl)
 
 	_credits_big_div(vbox)
 

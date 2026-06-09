@@ -50,6 +50,31 @@ const C_TEXT      := Color(0.859, 0.871, 0.882)   # #dbdee1
 const C_TEXT_DIM  := Color(0.580, 0.608, 0.643)   # #949ba4
 const C_LINE      := Color(0.247, 0.255, 0.278)   # #3f4147
 
+# ── Design „Road Tycoon" (Hauptmenü-Optik aus Claude-Design-Handoff) ──
+const D_BOX_BG     := Color(0.149, 0.169, 0.200)  # #262b33 Profil/Box-Flächen
+const D_BOX_BORDER := Color(0.078, 0.086, 0.106)  # #14161b dunkler Rahmen
+const D_BOX_LEDGE  := Color(0.059, 0.067, 0.082)  # #0f1115 3D-Sockel
+const D_MENU_BG    := Color(0.118, 0.133, 0.165)  # #1e222a Menü-Box
+const D_MENU_LEDGE := Color(0.051, 0.059, 0.071)  # #0d0f12
+const D_TITLE_BLUE := Color(0.490, 0.588, 1.000)  # #7d96ff ROAD
+const D_TITLE_BLUE_OUT := Color(0.106, 0.137, 0.314) # #1b2350
+const D_TITLE_CREAM := Color(0.953, 0.933, 0.882) # #f3eee1 TYCOON
+const D_TITLE_CREAM_OUT := Color(0.165, 0.184, 0.239) # #2a2f3d
+const D_LINE_BLUE  := Color(0.435, 0.545, 1.000)  # #6f8bff Trennstrich/Glow
+# Candy-Buttons: Fläche / Rahmen / Sockel / Text
+const D_BTN_BLUE      := Color(0.435, 0.545, 1.000)  # #6f8bff
+const D_BTN_BLUE_BRD  := Color(0.231, 0.337, 0.769)  # #3b56c4
+const D_BTN_BLUE_LDG  := Color(0.184, 0.278, 0.659)  # #2f47a8
+const D_BTN_BLUE_TXT  := Color(0.957, 0.965, 1.000)  # #f4f6ff
+const D_BTN_GREEN     := Color(0.318, 0.824, 0.486)  # #51d27c
+const D_BTN_GREEN_BRD := Color(0.173, 0.561, 0.302)  # #2c8f4d
+const D_BTN_GREEN_LDG := Color(0.137, 0.478, 0.247)  # #237a3f
+const D_BTN_GREEN_TXT := Color(0.055, 0.188, 0.098)  # #0e3019
+const D_BTN_RED       := Color(0.937, 0.408, 0.365)  # #ef685d
+const D_BTN_RED_BRD   := Color(0.749, 0.247, 0.216)  # #bf3f37
+const D_BTN_RED_LDG   := Color(0.620, 0.208, 0.180)  # #9e352e
+const D_BTN_RED_TXT   := Color(1.000, 0.953, 0.945)  # #fff3f1
+
 var settings := ConfigFile.new()
 
 var _main_panel:    Control
@@ -64,6 +89,8 @@ var _delete_text_lbl: Label
 # Leer lassen = Senden deaktiviert (zeigt einen Hinweis). Achtung: Die URL steckt im Client und ist damit auslesbar.
 const BUG_WEBHOOK_URL := "https://discord.com/api/webhooks/1513832862019879052/DsbkeRXKj0zDzZ4UU31VLcCuS5_v2RFGzTTNLU12ktLdpx0DHBDI_jzWq02QvDidb8sZ"
 const BUG_MAX_CHARS   := 1000
+const BUG_NAME_MAX    := 64
+var _bug_name_edit:  LineEdit
 var _bug_text_edit:  TextEdit
 var _bug_counter:    Label
 var _bug_send_btn:   Button
@@ -86,9 +113,17 @@ var _window_option: OptionButton
 var _res_option:    OptionButton
 var _rotate_switch: CheckButton
 var _cheat_switch:  CheckButton
+var _music_min_switch: CuteToggle
+var _fps_switch:       CuteToggle
+var _colorblind_switch: CuteToggle
+var _darkmode_switch:   CuteToggle
+var _mult_option:       OptionButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
+
+# Reihenfolge entspricht Display.MultiplierMode (ALL, AFFECTED, NONE).
+const MULT_DISPLAY_OPTIONS := ["Alles anzeigen", "Nur betroffene Felder", "Nichts"]
 
 var _settings_nav_btns:   Array[Button]  = []
 var _settings_cat_panels: Array[Control] = []
@@ -129,7 +164,13 @@ func _ready() -> void:
 func _build_background() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = C_BG
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.color = C_BG   # Fallback, falls der Shader nicht lädt
+	var sh := load(Paths.SHADER_MAINMENU_BG)
+	if sh != null:
+		var mat := ShaderMaterial.new()
+		mat.shader = sh
+		bg.material = mat
 	add_child(bg)
 
 
@@ -141,73 +182,59 @@ func _build_main_panel() -> Control:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# ── Titel (mittig) ──
-	var title_center := CenterContainer.new()
-	title_center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	title_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(title_center)
+	# ── Version-Badge (oben rechts) ──
+	var ver_box := PanelContainer.new()
+	ver_box.add_theme_stylebox_override("panel", _design_box_style(Color(0.125, 0.141, 0.169), Color(0.082, 0.090, 0.110), D_BOX_LEDGE, 11, 4))
+	root.add_child(ver_box)
+	var ver_lbl := Label.new()
+	ver_lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	ver_lbl.text = "v" + str(ProjectSettings.get_setting("application/config/version", ""))
+	ver_lbl.add_theme_font_size_override("font_size", 15)
+	ver_lbl.add_theme_color_override("font_color", Color(0.510, 0.545, 0.600))
+	ver_box.add_child(ver_lbl)
+	ver_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 30)
 
-	var tvb := VBoxContainer.new()
-	tvb.alignment = BoxContainer.ALIGNMENT_CENTER
-	tvb.add_theme_constant_override("separation", 0)
-	tvb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_center.add_child(tvb)
+	# ── Titel „ROAD TYCOON" (Sticker-Look, leicht schwebend) ──
+	var title_vb := VBoxContainer.new()
+	title_vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	title_vb.add_theme_constant_override("separation", 2)
+	title_vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(title_vb)
 
-	var line1 := Label.new()
-	line1.text = "RACE"
-	line1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	line1.add_theme_font_size_override("font_size", 62)
-	line1.add_theme_color_override("font_color", C_ACCENT)
-	_emboss(line1, 0.7)
-	tvb.add_child(line1)
+	var line1 := _sticker_label("ROAD", D_TITLE_BLUE, D_TITLE_BLUE_OUT)
+	title_vb.add_child(line1)
+	var line2 := _sticker_label("TYCOON", D_TITLE_CREAM, D_TITLE_CREAM_OUT)
+	title_vb.add_child(line2)
 
-	var line2 := Label.new()
-	line2.text = "ROGUE"
-	line2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	line2.add_theme_font_size_override("font_size", 62)
-	line2.add_theme_color_override("font_color", C_TEXT)
-	_emboss(line2, 0.7)
-	tvb.add_child(line2)
+	_add_spacer(title_vb, 22)
 
-	_add_spacer(tvb, 12)
+	var blue_line := TextureRect.new()
+	blue_line.texture = _blue_line_tex(560, 3)
+	blue_line.custom_minimum_size = Vector2(560, 3)
+	blue_line.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	blue_line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	title_vb.add_child(blue_line)
 
-	var divider := ColorRect.new()
-	divider.custom_minimum_size = Vector2(220, 2)
-	divider.color = C_ACCENT
-	tvb.add_child(divider)
+	title_vb.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 0)
+	title_vb.position.y = 118
+	# sanftes Schweben (±7 px), wie im Design
+	var float_tw := create_tween().set_loops()
+	float_tw.tween_property(title_vb, "position:y", 111.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	float_tw.tween_property(title_vb, "position:y", 118.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
-	_add_spacer(tvb, 10)
-
-	var subtitle := Label.new()
-	subtitle.text = "ROGUELIKE RENNSPIEL"
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 13)
-	subtitle.add_theme_color_override("font_color", C_TEXT_DIM)
-	tvb.add_child(subtitle)
-
-	# ── Profil-Auswahl (oben links) ──
-	var prof_vb := VBoxContainer.new()
-	prof_vb.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	prof_vb.position = Vector2(28, 24)
-	prof_vb.add_theme_constant_override("separation", 4)
-	root.add_child(prof_vb)
-
-	var prof_cap := Label.new()
-	prof_cap.text = "PROFIL"
-	prof_cap.add_theme_font_size_override("font_size", 11)
-	prof_cap.add_theme_color_override("font_color", C_TEXT_DIM)
-	prof_vb.add_child(prof_cap)
-
+	# ── Profil-Auswahl (oben links, ohne Label) ──
 	var prof_row := HBoxContainer.new()
-	prof_row.add_theme_constant_override("separation", 6)
-	prof_vb.add_child(prof_row)
+	prof_row.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	prof_row.position = Vector2(38, 34)
+	prof_row.add_theme_constant_override("separation", 11)
+	root.add_child(prof_row)
 
 	_profile_option = OptionButton.new()
-	_profile_option.custom_minimum_size = Vector2(190, 40)
+	_profile_option.custom_minimum_size = Vector2(248, 52)
 	_profile_option.focus_mode = Control.FOCUS_NONE
 	_profile_option.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_profile_option.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
-	_style_option_btn(_profile_option)
+	_style_profile_box(_profile_option)
 	for i in PROFILE_COUNT:
 		_profile_option.add_item(_profile_label(i))
 	_profile_option.item_selected.connect(_on_profile_selected)
@@ -215,42 +242,50 @@ func _build_main_panel() -> Control:
 
 	var ren_btn := Button.new()
 	ren_btn.text = Icons.PENCIL
-	ren_btn.custom_minimum_size = Vector2(40, 40)
+	ren_btn.custom_minimum_size = Vector2(52, 52)
 	ren_btn.focus_mode = Control.FOCUS_NONE
 	ren_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	ren_btn.tooltip_text = "Profil umbenennen"
-	ren_btn.add_theme_stylebox_override("normal",  _btn_style(C_SURFACE,                 C_ACCENT_MU))
-	ren_btn.add_theme_stylebox_override("hover",   _btn_style(C_SURFACE.lightened(0.05), C_ACCENT))
-	ren_btn.add_theme_stylebox_override("pressed", _btn_style(C_SURFACE2,                C_ACCENT))
-	ren_btn.add_theme_stylebox_override("focus",   _btn_style(C_SURFACE,                 C_ACCENT_MU))
-	ren_btn.add_theme_color_override("font_color", C_TEXT)
-	ren_btn.add_theme_font_size_override("font_size", 16)
+	var ren_sb := _design_box_style(D_BOX_BG, D_BOX_BORDER, D_BOX_LEDGE, 14, 4)
+	var ren_sb_h := _design_box_style(D_BOX_BG.lightened(0.10), D_BOX_BORDER, D_BOX_LEDGE, 14, 4)
+	ren_btn.add_theme_stylebox_override("normal",  ren_sb)
+	ren_btn.add_theme_stylebox_override("hover",   ren_sb_h)
+	ren_btn.add_theme_stylebox_override("pressed", ren_sb)
+	ren_btn.add_theme_stylebox_override("focus",   ren_sb)
+	ren_btn.add_theme_color_override("font_color", Color(0.761, 0.784, 0.824))
+	ren_btn.add_theme_font_size_override("font_size", 18)
 	ren_btn.pressed.connect(func(): _show_rename_modal(_active_profile))
 	prof_row.add_child(ren_btn)
 
-	# ── Aktions-Buttons (untere Mitte) ──
-	var bottom_wrap := CenterContainer.new()
-	bottom_wrap.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom_wrap.offset_top    = -140
-	bottom_wrap.offset_bottom = -56
-	root.add_child(bottom_wrap)
+	# ── Menü-Box unten: Optionen · SPIELEN · Beenden ──
+	var menu_wrap := CenterContainer.new()
+	menu_wrap.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	menu_wrap.offset_top    = -210
+	menu_wrap.offset_bottom = -44
+	root.add_child(menu_wrap)
+
+	var menu_box := PanelContainer.new()
+	menu_box.add_theme_stylebox_override("panel", _design_box_style(D_MENU_BG, D_BOX_BORDER, D_MENU_LEDGE, 26, 4, 22, 26))
+	menu_wrap.add_child(menu_box)
 
 	var brow := HBoxContainer.new()
 	brow.alignment = BoxContainer.ALIGNMENT_CENTER
-	brow.add_theme_constant_override("separation", 18)
-	bottom_wrap.add_child(brow)
+	brow.add_theme_constant_override("separation", 22)
+	menu_box.add_child(brow)
 
-	var opt_btn := _main_action_btn("Optionen", Vector2(176, 60), C_SURFACE, C_ACCENT_MU, C_TEXT, _show_options)
+	var opt_btn := _candy_btn("Optionen", D_BTN_BLUE, D_BTN_BLUE_BRD, D_BTN_BLUE_LDG, D_BTN_BLUE_TXT, 27, 16, 24, _show_options)
+	opt_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	brow.add_child(opt_btn)
 
-	var play_btn := _main_action_btn("SPIELEN", Vector2(260, 72), C_GREEN, C_GREEN.lightened(0.2), C_BG, _on_play_pressed)
-	play_btn.add_theme_font_size_override("font_size", 26)
+	var play_btn := _candy_btn("SPIELEN", D_BTN_GREEN, D_BTN_GREEN_BRD, D_BTN_GREEN_LDG, D_BTN_GREEN_TXT, 40, 28, 34, _on_play_pressed)
+	play_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	brow.add_child(play_btn)
 
-	var quit_btn := _main_action_btn("Beenden", Vector2(176, 60), C_SURFACE, C_ACCENT_RD, Color(1.0, 0.6, 0.58), _on_quit)
+	var quit_btn := _candy_btn("Beenden", D_BTN_RED, D_BTN_RED_BRD, D_BTN_RED_LDG, D_BTN_RED_TXT, 27, 16, 24, _on_quit)
+	quit_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	brow.add_child(quit_btn)
 
-	# „Report a bug" – dezenter Link unten rechts (Text + Käfer-Icon rechts daneben).
+	# „Fehler melden" – dezenter Link unten rechts (Text + Käfer-Icon rechts daneben).
 	var bug_btn := Button.new()
 	bug_btn.focus_mode = Control.FOCUS_NONE
 	bug_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -259,16 +294,135 @@ func _build_main_panel() -> Control:
 	bug_btn.add_theme_stylebox_override("hover",   empty)
 	bug_btn.add_theme_stylebox_override("pressed", empty)
 	bug_btn.add_theme_stylebox_override("focus",   empty)
-	bug_btn.add_theme_color_override("font_color",       C_TEXT_DIM)
+	bug_btn.add_theme_color_override("font_color",       Color(0.420, 0.451, 0.502))
 	bug_btn.add_theme_color_override("font_hover_color", C_TEXT)
-	bug_btn.add_theme_font_size_override("font_size", 14)
+	bug_btn.add_theme_font_size_override("font_size", 16)
 	_set_icon_btn_text(bug_btn, Icons.BUG, "Fehler melden", true)
 	bug_btn.pressed.connect(_show_bug_modal)
 	root.add_child(bug_btn)
-	# Auf Mindestgröße verkleinert und mit 16px Abstand in der unteren rechten Ecke verankert.
-	bug_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+	bug_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 24)
 
 	return root
+
+
+# ── Design-Helfer „Road Tycoon" ───────────────────────────────────────────────
+
+# Box-Stylebox mit dunklem Rahmen und 3D-Sockel (dicker unterer Rand).
+func _design_box_style(bg: Color, border: Color, ledge: Color, radius: int, border_w: int,
+		pad_v: int = 8, pad_h: int = 14) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(radius)
+	sb.border_width_left   = border_w
+	sb.border_width_top     = border_w
+	sb.border_width_right  = border_w
+	sb.border_width_bottom = border_w + 4   # dickerer Boden = 3D-Sockel
+	sb.border_color = border
+	sb.shadow_color  = ledge
+	sb.shadow_size   = 0
+	sb.shadow_offset = Vector2(0, 5)
+	sb.content_margin_left   = pad_h
+	sb.content_margin_right  = pad_h
+	sb.content_margin_top    = pad_v
+	sb.content_margin_bottom = pad_v
+	return sb
+
+
+# Sticker-Titel-Label: dicke Outline + dunkler Schlagschatten (3D-Aufkleber-Look).
+func _sticker_label(text: String, col: Color, outline: Color) -> Label:
+	var lbl := Label.new()
+	lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	lbl.text = text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 92)
+	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_constant_override("outline_size", 12)
+	lbl.add_theme_color_override("font_outline_color", outline)
+	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.45))
+	lbl.add_theme_constant_override("shadow_offset_x", 0)
+	lbl.add_theme_constant_override("shadow_offset_y", 8)
+	return lbl
+
+
+# Horizontaler Blauverlauf-Strich (an den Enden transparent, mittig leuchtend).
+func _blue_line_tex(w: int, h: int) -> GradientTexture2D:
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.24, 0.5, 0.76, 1.0])
+	g.colors = PackedColorArray([
+		Color(D_LINE_BLUE.r, D_LINE_BLUE.g, D_LINE_BLUE.b, 0.0),
+		D_LINE_BLUE, D_TITLE_BLUE, D_LINE_BLUE,
+		Color(D_LINE_BLUE.r, D_LINE_BLUE.g, D_LINE_BLUE.b, 0.0),
+	])
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.width = w
+	tex.height = h
+	tex.fill_from = Vector2(0, 0)
+	tex.fill_to   = Vector2(1, 0)
+	return tex
+
+
+# Knubbeliger Candy-Button mit 3D-Sockel und taktilem Druck-Feedback.
+func _candy_btn(text: String, face: Color, border: Color, ledge: Color, fg: Color,
+		font_size: int, pad_v: int, pad_h: int, cb: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.add_theme_stylebox_override("normal",  _candy_sb(face,                 border, ledge, pad_v, pad_h, false))
+	btn.add_theme_stylebox_override("hover",   _candy_sb(face.lightened(0.06), border, ledge, pad_v, pad_h, false))
+	btn.add_theme_stylebox_override("pressed", _candy_sb(face.darkened(0.04),  border, ledge, pad_v, pad_h, true))
+	btn.add_theme_stylebox_override("focus",   _candy_sb(face,                 border, ledge, pad_v, pad_h, false))
+	btn.add_theme_color_override("font_color",       fg)
+	btn.add_theme_color_override("font_hover_color", fg)
+	btn.add_theme_color_override("font_pressed_color", fg)
+	btn.add_theme_font_size_override("font_size", font_size)
+	btn.pressed.connect(cb)
+	return btn
+
+
+func _candy_sb(face: Color, border: Color, ledge: Color, pad_v: int, pad_h: int, pressed: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = face
+	sb.set_corner_radius_all(16)
+	sb.border_color = border
+	sb.border_width_left  = 4
+	sb.border_width_right = 4
+	sb.border_width_top    = 4
+	# Gedrückt: Sockel schrumpft, Inhalt rutscht nach unten → Button „sinkt".
+	sb.border_width_bottom = 4 if pressed else 9
+	sb.shadow_color  = ledge
+	sb.shadow_size   = 0
+	sb.shadow_offset = Vector2(0, 3 if pressed else 7)
+	sb.content_margin_left   = pad_h
+	sb.content_margin_right  = pad_h
+	sb.content_margin_top    = (pad_v + 5) if pressed else pad_v
+	sb.content_margin_bottom = pad_v
+	return sb
+
+
+# Profil-Auswahl (OptionButton) im „Road Tycoon"-Box-Look.
+func _style_profile_box(opt: OptionButton) -> void:
+	var sb   := _design_box_style(D_BOX_BG, D_BOX_BORDER, D_BOX_LEDGE, 14, 4, 11, 18)
+	var sb_h := _design_box_style(D_BOX_BG.lightened(0.10), D_BOX_BORDER, D_BOX_LEDGE, 14, 4, 11, 18)
+	opt.add_theme_stylebox_override("normal",  sb)
+	opt.add_theme_stylebox_override("hover",   sb_h)
+	opt.add_theme_stylebox_override("pressed", sb_h)
+	opt.add_theme_stylebox_override("focus",   sb)
+	opt.add_theme_color_override("font_color",       Color(0.933, 0.941, 0.953))
+	opt.add_theme_color_override("font_hover_color", Color(0.984, 0.992, 1.0))
+	opt.add_theme_font_size_override("font_size", 21)
+	# Popup-Liste passend einfärben.
+	var pop := opt.get_popup()
+	pop.add_theme_color_override("font_color", Color(0.839, 0.855, 0.882))
+	var pop_sb := StyleBoxFlat.new()
+	pop_sb.bg_color = Color(0.137, 0.153, 0.180)
+	pop_sb.set_corner_radius_all(12)
+	pop_sb.set_border_width_all(3)
+	pop_sb.border_color = D_BOX_BORDER
+	pop_sb.content_margin_left = 6; pop_sb.content_margin_right = 6
+	pop_sb.content_margin_top  = 6; pop_sb.content_margin_bottom = 6
+	pop.add_theme_stylebox_override("panel", pop_sb)
 
 
 # Gefüllter, abgerundeter Aktions-Button mit vollem Rahmen (Balatro-Look).
@@ -487,9 +641,17 @@ func _build_credits_modal() -> Control:
 	_add_spacer(vbox, 4)
 	var audio_lbl := Label.new()
 	audio_lbl.text = "Audio: Tessemi"
+	audio_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	audio_lbl.add_theme_font_size_override("font_size", 17)
 	audio_lbl.add_theme_color_override("font_color", C_TEXT)
 	vbox.add_child(audio_lbl)
+
+	var visuals_lbl := Label.new()
+	visuals_lbl.text = "Visuals: RaccoonDog"
+	visuals_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	visuals_lbl.add_theme_font_size_override("font_size", 17)
+	visuals_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(visuals_lbl)
 
 	_credits_big_div(vbox)
 
@@ -497,8 +659,7 @@ func _build_credits_modal() -> Control:
 	_credits_heading(vbox, "TESTER")
 	_credits_thin_div(vbox)
 	_add_spacer(vbox, 4)
-	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi"])
-
+	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi", "RaccoonDog"])
 	_add_spacer(vbox, 14)
 	_add_menu_button(vbox, "←", "Zurück", C_ACCENT_MU, func(): _credits_modal.visible = false)
 
@@ -585,6 +746,23 @@ func _build_bug_modal() -> Control:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(hint)
 
+	_bug_name_edit = LineEdit.new()
+	_bug_name_edit.placeholder_text = "Name / Discord ID (Optional)"
+	_bug_name_edit.max_length = BUG_NAME_MAX
+	_bug_name_edit.add_theme_color_override("font_color", C_TEXT)
+	_bug_name_edit.add_theme_color_override("font_placeholder_color", C_TEXT_DIM)
+	_bug_name_edit.add_theme_font_size_override("font_size", 14)
+	var name_sb := StyleBoxFlat.new()
+	name_sb.bg_color = C_SURFACE
+	name_sb.set_border_width_all(1)
+	name_sb.border_color = C_ACCENT_MU
+	name_sb.set_corner_radius_all(6)
+	name_sb.content_margin_left = 8; name_sb.content_margin_right = 8
+	name_sb.content_margin_top  = 6; name_sb.content_margin_bottom = 6
+	_bug_name_edit.add_theme_stylebox_override("normal", name_sb)
+	_bug_name_edit.add_theme_stylebox_override("focus", name_sb)
+	vbox.add_child(_bug_name_edit)
+
 	_bug_text_edit = TextEdit.new()
 	_bug_text_edit.custom_minimum_size = Vector2(0, 200)
 	_bug_text_edit.placeholder_text = "Bitte erkläre uns kurz den Fehler oder schreibe uns einen Verbesserungsvorschlag!"
@@ -632,6 +810,7 @@ func _build_bug_modal() -> Control:
 
 
 func _show_bug_modal() -> void:
+	_bug_name_edit.text = ""
 	_bug_text_edit.text = ""
 	_bug_counter.text = "0/%d" % BUG_MAX_CHARS
 	_bug_status_lbl.text = ""
@@ -688,6 +867,9 @@ func _bug_payload(message: String) -> Dictionary:
 	var ver := str(ProjectSettings.get_setting("application/config/version", ""))
 	if ver != "":
 		fields.append({"name": "Version", "value": ver, "inline": true})
+	var reporter := _bug_name_edit.text.strip_edges()
+	if reporter != "":
+		fields.insert(0, {"name": "Von", "value": reporter, "inline": false})
 	return {
 		"embeds": [{
 			"title": "🐛 Bug-Report",
@@ -833,6 +1015,13 @@ func _build_options_panel() -> Control:
 	_sfx_slider = r[0]; _lbl_sfx_val = r[1]
 	_sfx_slider.value_changed.connect(_on_sfx_volume_changed)
 
+	_add_spacer(v1, 8)
+	_add_hline(v1)
+	_add_section_label(v1, "HINTERGRUND")
+	_music_min_switch = _add_toggle_row(v1, "Musik bei Minimierung:")
+	_music_min_switch.toggled.connect(_on_music_min_toggled)
+	_add_setting_hint(v1, "Spielt die Musik weiter, wenn das Fenster minimiert oder im Hintergrund ist.")
+
 	# Kategorie 2 – Anzeige (Modus + Auflösung + Cheat-Modus)
 	var v2 := _new_settings_cat(holder)
 	_add_section_label(v2, "ANZEIGEMODUS")
@@ -855,6 +1044,30 @@ func _build_options_panel() -> Control:
 		_res_option.add_item(res[0])
 	_res_option.item_selected.connect(_on_resolution_changed)
 	res_row.add_child(_res_option)
+
+	_add_hline(v2)
+	_add_section_label(v2, "DARSTELLUNG")
+
+	_fps_switch = _add_toggle_row(v2, "FPS anzeigen:")
+	_fps_switch.toggled.connect(_on_fps_toggled)
+
+	_darkmode_switch = _add_toggle_row(v2, "Dark Mode:")
+	_darkmode_switch.toggled.connect(_on_darkmode_toggled)
+
+	_colorblind_switch = _add_toggle_row(v2, "Farbenblind-Modus:")
+	_colorblind_switch.toggled.connect(_on_colorblind_toggled)
+	_add_setting_hint(v2, "Passt die Farben für eine Rot-Grün-Sehschwäche an.")
+
+	var mult_row := _make_hrow(v2)
+	_make_row_label(mult_row, "Multiplikatoren zeigen:")
+	_mult_option = OptionButton.new()
+	_mult_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_option_btn(_mult_option)
+	for opt in MULT_DISPLAY_OPTIONS:
+		_mult_option.add_item(opt)
+	_mult_option.item_selected.connect(_on_mult_display_changed)
+	mult_row.add_child(_mult_option)
+	_add_setting_hint(v2, "Steuert die ×-Werte auf den Baufeldern (z. B. ×5).")
 
 	_add_hline(v2)
 	_add_section_label(v2, "CHEAT-MODUS")
@@ -1229,6 +1442,12 @@ func _sync_settings_ui() -> void:
 	_cheat_switch.button_pressed = cheat
 	_cheat_switch.text = "An" if cheat else "Aus"
 
+	_music_min_switch.button_pressed  = bool(settings.get_value("options", "music_on_minimize", true))
+	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
+	_darkmode_switch.button_pressed   = bool(settings.get_value("options", "dark_mode", false))
+	_colorblind_switch.button_pressed = bool(settings.get_value("options", "colorblind", false))
+	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
+
 	_loading_settings = false
 
 
@@ -1292,6 +1511,41 @@ func _on_cheat_toggled(pressed: bool) -> void:
 	if _loading_settings: return
 	settings.set_value("cheats", "enabled", pressed)
 	Economy.apply_cheat_mode(pressed)
+	_settings_dirty = true
+
+
+func _on_music_min_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "music_on_minimize", pressed)
+	MusicPlayer.set_music_on_minimize(pressed)
+	_settings_dirty = true
+
+
+func _on_fps_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "show_fps", pressed)
+	Display.set_fps_visible(pressed)
+	_settings_dirty = true
+
+
+func _on_darkmode_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "dark_mode", pressed)
+	Display.set_dark_mode(pressed)
+	_settings_dirty = true
+
+
+func _on_colorblind_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "colorblind", pressed)
+	Display.set_colorblind(pressed)
+	_settings_dirty = true
+
+
+func _on_mult_display_changed(index: int) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "show_multiplier", index)
+	Display.set_multiplier_mode(index)
 	_settings_dirty = true
 
 
@@ -1472,6 +1726,28 @@ func _add_slider_row(parent: VBoxContainer, label_text: String) -> Array:
 	row.add_child(val_lbl)
 
 	return [slider, val_lbl]
+
+
+# Beschriftete Zeile mit einem niedlichen, abgerundeten 3D-Toggle rechts.
+func _add_toggle_row(parent: VBoxContainer, label_text: String) -> CuteToggle:
+	var row := _make_hrow(parent)
+	_make_row_label(row, label_text)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	var sw := CuteToggle.new()
+	row.add_child(sw)
+	return sw
+
+
+# Kleiner, gedämpfter Hinweistext unter einer Einstellung.
+func _add_setting_hint(parent: VBoxContainer, text: String) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	parent.add_child(lbl)
 
 
 func _add_panel_title(parent: VBoxContainer, text: String) -> void:
