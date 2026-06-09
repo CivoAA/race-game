@@ -1,8 +1,6 @@
 extends CanvasLayer
 class_name CurrencyHud
 
-const VIEWPORT_WIDTH = 960
-
 var _label: Label = null
 var _last_shown: int = -2147483648
 var _flash_tween: Tween = null
@@ -14,14 +12,18 @@ func _ready() -> void:
 
 	# Subtiler Streifen über voller Breite (in 2D kaum sichtbar, in 3D durch World3D-Bar überlagert)
 	var bg := ColorRect.new()
-	bg.position = Vector2(0, 0)
-	bg.size     = Vector2(VIEWPORT_WIDTH, 46)
+	bg.anchor_left   = 0.0; bg.offset_left   = 0
+	bg.anchor_top    = 0.0; bg.offset_top    = 0
+	bg.anchor_right  = 1.0; bg.offset_right  = 0
+	bg.anchor_bottom = 0.0; bg.offset_bottom = 46
 	bg.color    = Color(0, 0, 0, 0.22)
 	add_child(bg)
 
 	_label = Label.new()
-	_label.position = Vector2(0, 8)
-	_label.size = Vector2(VIEWPORT_WIDTH, 30)
+	_label.anchor_left   = 0.0; _label.offset_left   = 0
+	_label.anchor_top    = 0.0; _label.offset_top    = 8
+	_label.anchor_right  = 1.0; _label.offset_right  = 0
+	_label.anchor_bottom = 0.0; _label.offset_bottom = 38
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	_label.add_theme_font_size_override("font_size", 20)
@@ -72,7 +74,7 @@ func gain(amount: int) -> void:
 	# Aufsteigendes "+N 💰" das ausblendet
 	var fl := Label.new()
 	fl.text = "+%s %s" % [Economy.format_currency(amount), Icons.COIN]
-	fl.position = Vector2(VIEWPORT_WIDTH / 2.0 - 60, 46)
+	fl.position = Vector2(RUI.vw() / 2.0 - 60, 46)
 	fl.size = Vector2(120, 28)
 	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER

@@ -11,9 +11,6 @@ const GENERAL_CATEGORIES = [
 	{"name": "Allgemeines", "ids": ["tilebonus", "speed", "drive_time", "endmult", "car_count"]},
 	{"name": "Bonusfelder", "ids": ["bonus_plus5", "bonus_plus10", "bonus_mult15"]},
 ]
-const VIEW_W = 960
-const VIEW_H = 540
-
 var _current_cat:  int           = 0   # 0 = Allgemeines, 1..n = Auto i
 var _cat_box:      VBoxContainer = null
 var _content_box:  VBoxContainer = null
@@ -28,14 +25,16 @@ func _ready() -> void:
 func _build_static() -> void:
 	# Abdunkelnder Hintergrund (blockiert Klicks dahinter im GUI-Layer)
 	var dim = ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.color = Color(0, 0, 0, 0.55)
-	dim.size  = Vector2(VIEW_W, VIEW_H)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(dim)
 
 	var panel = Panel.new()
-	panel.position = Vector2(40, 20)
-	panel.size     = Vector2(880, 500)
+	panel.anchor_left   = 0.5; panel.offset_left   = -440
+	panel.anchor_right  = 0.5; panel.offset_right  =  440
+	panel.anchor_top    = 0.5; panel.offset_top    = -250
+	panel.anchor_bottom = 0.5; panel.offset_bottom =  250
 	var style = StyleBoxFlat.new()
 	style.bg_color     = Color(0.13, 0.14, 0.17, 1.0)
 	style.border_color = Color(0.5, 0.5, 0.6)

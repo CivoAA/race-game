@@ -1,16 +1,19 @@
-﻿extends CanvasLayer
+extends CanvasLayer
 ## Fullscreen-Modal: Shop | Errungenschaften | Werkstatt.
 ## Autoload "GlobalModal" (layer 25, über GameHUD).
 ## process_mode ALWAYS damit es auch bei Pause funktioniert.
 
 # Die Navigation liegt jetzt als dauerhafte Seitenleiste rechts (in GameHUD). Das Modal
 # füllt nur den Bereich LINKS davon und beginnt unter der Top-Bar.
-const NAV_W = 150                 # Breite der rechten Seitenleiste (GameHUD)
-const VW = 960 - NAV_W            # Inhaltsbreite des Modals = 810
-const VH = 540
-const TOP_H = 50                  # unter der GameHUD-Top-Bar
-const BOT_H = 42                  # Höhe der unteren Run-Bar (bleibt frei → „Fahren" sichtbar)
-const TAB_BAR_H = 48              # (Alt – Tab-Leiste entfernt, Konstante bleibt für Refs)
+const TOP_H     = 50    # unter der GameHUD-Top-Bar
+const BOT_H     = 42    # Höhe der unteren Run-Bar (bleibt frei → „Fahren" sichtbar)
+const TAB_BAR_H = 48    # (Alt – Tab-Leiste entfernt, Konstante bleibt für Refs)
+
+## Breite des Inhaltsbereichs (Viewport minus rechte Seitenleiste / Portrait: volle Breite)
+func _vw() -> float: return RUI.content_w()
+
+## Virtuelle Viewport-Höhe
+func _vh() -> float: return RUI.vh()
 
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
 const C_BG        := Color(0.118, 0.122, 0.133)   # #1e1f22
@@ -74,6 +77,7 @@ var _hint_targets_tile: Array = []   # Streckenteil-Karten (Shop-Kat 0): je {"id
 var _hint_id:      String   = ""     # aktuell ANGEZEIGTER Hinweis ("" = keiner)
 var _hover_id:     String   = ""     # aktuell überfahrenes Kästchen (Hover-Akkumulation)
 var _hover_elapsed: float   = 0.0
+var _needs_rebuild: bool    = false  # Viewport hat sich geändert → Modal beim nächsten Frame neu aufbauen
 
 # ── Prestige-Tab ────────────────────────────────────────────────────────────────
 var _prestige_tree_box:   HBoxContainer = null   # Knoten-Karten (links → rechts), für Neuaufbau
@@ -93,10 +97,61 @@ func _ready() -> void:
 	_build_modal()
 	_build_hint_overlay()
 	GameHUD.shop_requested.connect(open)
-	# Beim Wechsel des Speicherstands gelten andere Freischaltungen → Raster neu aufbauen.
 	Economy.slot_changed.connect(_on_slot_changed)
-	# Prestige-Punkte/Knoten geändert → Prestige-Tab aktualisieren.
 	Economy.prestige_changed.connect(_rebuild_prestige)
+	RUI.layout_changed.connect(_on_layout_changed)
+	get_viewport().size_changed.connect(_on_viewport_resized)
+
+
+func _on_layout_changed(_l) -> void:
+	if visible: _needs_rebuild = true
+
+
+func _on_viewport_resized() -> void:
+	if visible: _needs_rebuild = true
+
+
+func _do_rebuild() -> void:
+	var saved_tab := _active_modal_tab
+
+	# 3D-Vorschau aus ihrem Container herauslösen, damit sie das free() überlebt.
+	if _preview_svc != null and is_instance_valid(_preview_svc):
+		var prev_parent := _preview_svc.get_parent()
+		if prev_parent != null:
+			prev_parent.remove_child(_preview_svc)
+
+	# Alle Kinder sofort freigeben (nicht queue_free, damit _build_modal sofort neue anlegen kann).
+	for child in get_children():
+		child.free()
+
+	# UI-Referenzen zurücksetzen (Node-Zeiger ungültig nach free()).
+	_tab_panels.clear();   _shop_cats.clear();       _modal_tab_btns.clear()
+	_shop_sidebar_btns.clear()
+	_modal_money_lbl        = null
+	_werkstatt_container    = null;  _garage_container    = null
+	_prestige_tree_box      = null;  _prestige_points_lbl = null
+	_prestige_earned_lbl    = null;  _prestige_btn        = null
+	_prestige_confirm       = null;  _prestige_confirm_lbl = null
+	_ascend_confirm         = null;  _ascend_confirm_lbl  = null
+	_ws_options_box         = null;  _ws_summary_lbl      = null
+	_garage_options_box     = null;  _garage_summary_lbl  = null
+	_garage_tab_btns.clear(); _garage_active_tab = 0
+	_statistik_vbox         = null;  _stat_value_lbls.clear()
+	_tile_preview_pivots.clear();    _tiles_grid = null
+	_tile_buttons.clear();  _tile_upgrade_buttons.clear()
+	_tile_upgrade_cards.clear();     _upgrade_buttons.clear()
+	_ach_data.clear();      _ach_tiles.clear();       _ach_selected = -1
+	_ach_icon_lbl = null;   _ach_title_lbl = null;   _ach_status_lbl = null
+	_ach_desc_lbl = null;   _ach_reward_lbl = null
+	_hint_panel = null;     _hint_label = null;      _hint_ring = null
+	_hint_targets_upg.clear();       _hint_targets_tile.clear()
+	_hint_id = "";          _hover_id = "";           _hover_elapsed = 0.0
+	_last_currency_seen = -1
+
+	_build_modal()
+	_build_hint_overlay()
+	_show_modal_tab(saved_tab)
+	_refresh_affordability()
 
 
 func _on_slot_changed(_slot: int) -> void:
@@ -147,6 +202,10 @@ func close() -> void:
 
 
 func _process(delta: float) -> void:
+	if _needs_rebuild and visible:
+		_needs_rebuild = false
+		_do_rebuild()
+		return
 	if not visible:
 		return
 	# Vorschau-Auto langsam drehen, solange die Werkstatt sichtbar ist
@@ -191,22 +250,25 @@ func _input(event: InputEvent) -> void:
 
 
 func _build_modal() -> void:
-	# Abdunkelung NUR über dem Spielbereich links der Seitenleiste, ab unter der Top-Bar –
-	# damit die rechte Nav (GameHUD) und die obere Leiste sichtbar bleiben.
-	# Höhe: unter der Top-Bar beginnen UND die untere Run-Bar freilassen, damit der
-	# „Fahren"-Knopf nicht verdeckt wird.
-	var area_h := VH - TOP_H - BOT_H
+	# Abdunkelung und Panel über dem Spielbereich (links der Sidebar, unter Top-Bar,
+	# über der Run-Bar). Anker-basiert → passt sich automatisch an Viewport-Änderungen an.
+	var area_h := _vh() - TOP_H - BOT_H
 
 	var dim := ColorRect.new()
-	dim.position     = Vector2(0, TOP_H)
-	dim.size         = Vector2(VW, area_h)
+	# Anker: oben bei TOP_H, unten -BOT_H, rechts -RUI.nav_w() (Portrait: 0), links 0
+	dim.anchor_left   = 0.0; dim.offset_left   = 0
+	dim.anchor_top    = 0.0; dim.offset_top    = TOP_H
+	dim.anchor_right  = 1.0; dim.offset_right  = -RUI.nav_w()
+	dim.anchor_bottom = 1.0; dim.offset_bottom = -(BOT_H + RUI.nav_h())
 	dim.color        = Color(0, 0, 0, 0.82)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(dim)
 
 	var panel := Panel.new()
-	panel.position = Vector2(0, TOP_H)
-	panel.size     = Vector2(VW, area_h)
+	panel.anchor_left   = 0.0; panel.offset_left   = 0
+	panel.anchor_top    = 0.0; panel.offset_top    = TOP_H
+	panel.anchor_right  = 1.0; panel.offset_right  = -RUI.nav_w()
+	panel.anchor_bottom = 1.0; panel.offset_bottom = -(BOT_H + RUI.nav_h())
 	var ps := StyleBoxFlat.new()
 	ps.bg_color = C_BG
 	ps.set_border_width_all(0)
@@ -267,7 +329,7 @@ func _attach_preview_to(container: Control) -> void:
 	if cur != null:
 		cur.remove_child(_preview_svc)
 	container.add_child(_preview_svc)
-	_preview_svc.position = Vector2(PREVIEW_X, PREVIEW_Y)
+	_preview_svc.position = Vector2(_preview_x(), PREVIEW_Y)
 	_preview_svc.size     = Vector2(PREVIEW_W, PREVIEW_H)
 
 
@@ -275,8 +337,7 @@ func _attach_preview_to(container: Control) -> void:
 
 func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
-	container.position = Vector2(0, cy)
-	container.size     = Vector2(VW, ch)
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(container)
 	_tab_panels.append(container)
 
@@ -313,7 +374,7 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 
 	# Inhaltsbereiche für jede Kategorie
 	const CAT_X = SIDEBAR_W + 1
-	const CAT_W = VW - CAT_X
+	var   CAT_W = _vw() - CAT_X
 
 	# Nur Streckenteile (0) + Upgrades (1). Reifen/Autos/Lackierung sind ausgeblendet.
 	_build_cat_tiles(container, CAT_X, ch, CAT_W)
@@ -840,14 +901,13 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 	_ach_selected = -1
 
 	var root := Control.new()
-	root.position = Vector2(0, cy)
-	root.size     = Vector2(VW, ch)
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(root)
 	_tab_panels.append(root)
 
 	var outer := VBoxContainer.new()
 	outer.position = Vector2(16, 0)
-	outer.size     = Vector2(VW - 32, ch)
+	outer.size     = Vector2(_vw() - 32, ch)
 	outer.add_theme_constant_override("separation", 8)
 	root.add_child(outer)
 
@@ -1046,14 +1106,13 @@ var _stat_value_lbls: Dictionary = {}   # key → Wert-Label (für Live-Aktualis
 
 func _build_statistik_panel(parent: Control, cy: int, ch: int) -> void:
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(0, cy)
-	scroll.size     = Vector2(VW, ch)
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	parent.add_child(scroll)
 	_tab_panels.append(scroll)
 
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(VW - 20, 0)
+	vbox.custom_minimum_size = Vector2(_vw() - 20, 0)
 	vbox.add_theme_constant_override("separation", 0)
 	scroll.add_child(vbox)
 	_statistik_vbox = vbox
@@ -1227,8 +1286,9 @@ var _preview_svc:         SubViewportContainer = null
 # Gemeinsame Vorschau-Geometrie (in beiden Tabs identisch).
 const PREVIEW_W = 480
 const PREVIEW_H = 252
-const PREVIEW_X = (VW - PREVIEW_W) / 2.0
+# _preview_x() ist laufzeitabhängig (_vw() ändert sich mit Viewport) – wird per _preview_x() berechnet.
 const PREVIEW_Y = 158.0
+func _preview_x() -> float: return (_vw() - PREVIEW_W) / 2.0
 
 # 3D-Vorschau
 var _preview_pivot:  Node3D    = null
@@ -1281,15 +1341,14 @@ func _ws_options(id: String) -> Array:
 
 func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
-	container.position = Vector2(0, cy)
-	container.size     = Vector2(VW, ch)
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(container)
 	_tab_panels.append(container)
 	_werkstatt_container = container
 
 	var title := Label.new()
 	title.position = Vector2(0, 14)
-	title.size     = Vector2(VW, 26)
+	title.size     = Vector2(_vw(), 26)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 16)
 	title.add_theme_color_override("font_color", C_TEXT)
@@ -1299,7 +1358,7 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	# Auto-Aufstieg-Inhalt
 	_ws_options_box = Control.new()
 	_ws_options_box.position = Vector2(0, 48)
-	_ws_options_box.size     = Vector2(VW, 102)
+	_ws_options_box.size     = Vector2(_vw(), 102)
 	container.add_child(_ws_options_box)
 
 	_build_preview_frame(container)
@@ -1307,15 +1366,14 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 
 	# Gemeinsame 3D-Vorschau (initial in der Werkstatt) – wird beim Tab-Wechsel umgehängt.
 	_sync_paint_selection_from_economy()
-	_build_preview_viewport(container, Vector2(PREVIEW_X, PREVIEW_Y), Vector2(PREVIEW_W, PREVIEW_H))
+	_build_preview_viewport(container, Vector2(_preview_x(), PREVIEW_Y), Vector2(PREVIEW_W, PREVIEW_H))
 	_rebuild_autos_options()
 
 
 # Garage-Tab: Lackierung + Muster (aus der Werkstatt ausgelagert), dieselbe 3D-Vorschau.
 func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
-	container.position = Vector2(0, cy)
-	container.size     = Vector2(VW, ch)
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(container)
 	_tab_panels.append(container)
 	_garage_container = container
@@ -1325,7 +1383,7 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	const SUB_GAP = 8
 	var gtabs = _garage_tabs()
 	var total_w = gtabs.size() * SUB_W + (gtabs.size() - 1) * SUB_GAP
-	var sx = (VW - total_w) / 2.0
+	var sx = (_vw() - total_w) / 2.0
 	_garage_tab_btns.clear()
 	for i in gtabs.size():
 		var t = gtabs[i]
@@ -1343,7 +1401,7 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	# Optionsraster (Lack-Swatches / Muster-Karten)
 	_garage_options_box = Control.new()
 	_garage_options_box.position = Vector2(0, 58)
-	_garage_options_box.size     = Vector2(VW, 92)
+	_garage_options_box.size     = Vector2(_vw(), 92)
 	container.add_child(_garage_options_box)
 
 	_build_preview_frame(container)
@@ -1356,7 +1414,7 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 # Bordierter Vorschau-Rahmen (Hintergrund hinter dem 3D-Viewport).
 func _build_preview_frame(container: Control) -> void:
 	var frame := Panel.new()
-	frame.position = Vector2(PREVIEW_X - 3, PREVIEW_Y - 3)
+	frame.position = Vector2(_preview_x() - 3, PREVIEW_Y - 3)
 	frame.size     = Vector2(PREVIEW_W + 6, PREVIEW_H + 6)
 	var fsb := StyleBoxFlat.new()
 	fsb.bg_color     = C_SURFACE
@@ -1370,7 +1428,7 @@ func _build_preview_frame(container: Control) -> void:
 # Zusammenfassungs-Label unter dem Vorschau-Rahmen.
 func _make_preview_summary(container: Control) -> Label:
 	var lbl := Label.new()
-	lbl.position = Vector2(PREVIEW_X, PREVIEW_Y + PREVIEW_H + 6)
+	lbl.position = Vector2(_preview_x(), PREVIEW_Y + PREVIEW_H + 6)
 	lbl.size     = Vector2(PREVIEW_W, 22)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", 11)
@@ -1445,7 +1503,7 @@ func _rebuild_garage_options() -> void:
 	if id == "pattern":
 		cw = 120.0; ch = 78.0; show_label = true
 	const GAP = 6
-	var cols = maxi(1, int((VW + GAP) / (cw + GAP)))
+	var cols = maxi(1, int((_vw() + GAP) / (cw + GAP)))
 	cols = mini(cols, opts.size())
 	var rows = int(ceil(float(opts.size()) / float(cols)))
 	var grid_h = rows * ch + max(0, rows - 1) * GAP
@@ -1454,7 +1512,7 @@ func _rebuild_garage_options() -> void:
 		var r = int(i / cols)
 		var in_row = mini(cols, opts.size() - r * cols)
 		var row_w = in_row * cw + max(0, in_row - 1) * GAP
-		var sx = (VW - row_w) / 2.0
+		var sx = (_vw() - row_w) / 2.0
 		var ci = i - r * cols
 		var card := _make_ws_option(id, opts[i], i, i == sel, cw, ch, show_label)
 		card.position = Vector2(sx + ci * (cw + GAP), oy + r * (ch + GAP))
@@ -1561,7 +1619,7 @@ func _build_autos_options() -> void:
 
 	var info := Label.new()
 	info.position = Vector2(0, 2)
-	info.size     = Vector2(VW, 40)
+	info.size     = Vector2(_vw(), 40)
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info.add_theme_font_size_override("font_size", 13)
 	info.add_theme_color_override("font_color", C_TEXT)
@@ -1572,7 +1630,7 @@ func _build_autos_options() -> void:
 
 	var btn := Button.new()
 	btn.size     = Vector2(300, 36)
-	btn.position = Vector2((VW - 300) / 2.0, 50)
+	btn.position = Vector2((_vw() - 300) / 2.0, 50)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	btn.add_theme_font_size_override("font_size", 14)
@@ -1621,6 +1679,13 @@ func _style_ws_tab(btn: Button, active: bool) -> void:
 # ── 3D-Vorschau ─────────────────────────────────────────────────────────────────
 
 func _build_preview_viewport(parent: Control, pos: Vector2, sz: Vector2) -> void:
+	# Nach einem _do_rebuild() existiert _preview_svc noch – teuer, daher wiederverwenden.
+	if _preview_svc != null and is_instance_valid(_preview_svc):
+		parent.add_child(_preview_svc)
+		_preview_svc.position = pos
+		_preview_svc.size     = sz
+		return
+
 	var svc := SubViewportContainer.new()
 	svc.position     = pos
 	svc.size         = sz
@@ -1895,7 +1960,7 @@ func _build_hint_overlay() -> void:
 
 	_hint_ring = HintRing.new()
 	_hint_ring.position = Vector2.ZERO
-	_hint_ring.size = Vector2(960, VH)
+	_hint_ring.size = Vector2(_vw(), _vh())
 	add_child(_hint_ring)
 
 
@@ -1940,8 +2005,8 @@ func _show_upgrade_hint(id: String, anchor: Control) -> void:
 		return
 	_hint_label.text = Lang.hint(id).replace("{value}", _hint_value(id))
 	var r := anchor.get_global_rect()
-	var px := clampf(r.position.x, 8.0, VW - _hint_panel.size.x - 8.0)
-	var py := clampf(r.position.y + r.size.y + 6.0, 8.0, VH - _hint_panel.size.y - 8.0)
+	var px := clampf(r.position.x, 8.0, _vw() - _hint_panel.size.x - 8.0)
+	var py := clampf(r.position.y + r.size.y + 6.0, 8.0, _vh() - _hint_panel.size.y - 8.0)
 	_hint_panel.position = Vector2(px, py)
 	_hint_panel.visible = true
 	_hint_id = id
@@ -2078,8 +2143,7 @@ const C_STAR := Color(1.00, 0.82, 0.20)   # Gold für Prestige-Punkte
 
 func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
-	container.position = Vector2(0, cy)
-	container.size     = Vector2(VW, ch)
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(container)
 	_tab_panels.append(container)
 
@@ -2101,7 +2165,7 @@ func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 
 	# Großer Prestige-Auslöser rechts oben.
 	_prestige_btn = Button.new()
-	_prestige_btn.position = Vector2(VW - 24 - 360, 12)
+	_prestige_btn.position = Vector2(_vw() - 24 - 360, 12)
 	_prestige_btn.size     = Vector2(360, 56)
 	_prestige_btn.focus_mode = Control.FOCUS_NONE
 	_prestige_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -2112,14 +2176,14 @@ func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 	# Trennlinie
 	var line := ColorRect.new()
 	line.position = Vector2(0, 80)
-	line.size     = Vector2(VW, 1)
+	line.size     = Vector2(_vw(), 1)
 	line.color    = C_LINE
 	container.add_child(line)
 
 	# ── Tech-Baum (horizontal scrollbar) ─────────────────────────────────────
 	var scroll := ScrollContainer.new()
 	scroll.position = Vector2(0, 88)
-	scroll.size     = Vector2(VW, ch - 88)
+	scroll.size     = Vector2(_vw(), ch - 88)
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	container.add_child(scroll)
 
@@ -2370,16 +2434,16 @@ func _on_prestige_pressed() -> void:
 
 func _build_prestige_confirm(parent: Control) -> void:
 	# Das Modal-Panel beginnt bei y=TOP_H und lässt unten die Run-Bar frei → Overlay daran ausrichten.
-	var ph_area := VH - TOP_H - BOT_H
+	var ph_area := _vh() - TOP_H - BOT_H
 	_prestige_confirm = Control.new()
 	_prestige_confirm.position = Vector2(0, 0)
-	_prestige_confirm.size     = Vector2(VW, ph_area)
+	_prestige_confirm.size     = Vector2(_vw(), ph_area)
 	_prestige_confirm.visible  = false
 	parent.add_child(_prestige_confirm)
 
 	var dim := ColorRect.new()
 	dim.position     = Vector2(0, 0)
-	dim.size         = Vector2(VW, ph_area)
+	dim.size         = Vector2(_vw(), ph_area)
 	dim.color        = Color(0, 0, 0, 0.78)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_prestige_confirm.add_child(dim)
@@ -2387,7 +2451,7 @@ func _build_prestige_confirm(parent: Control) -> void:
 	const PW = 460
 	const PH = 280
 	var panel := Panel.new()
-	panel.position = Vector2((VW - PW) / 2.0, (ph_area - PH) / 2.0)
+	panel.position = Vector2((_vw() - PW) / 2.0, (ph_area - PH) / 2.0)
 	panel.size     = Vector2(PW, PH)
 	var psb := StyleBoxFlat.new()
 	psb.bg_color = C_BG
@@ -2474,16 +2538,16 @@ func _on_ascend_pressed() -> void:
 
 
 func _build_ascend_confirm(parent: Control) -> void:
-	var ph_area := VH - TOP_H - BOT_H
+	var ph_area := _vh() - TOP_H - BOT_H
 	_ascend_confirm = Control.new()
 	_ascend_confirm.position = Vector2(0, 0)
-	_ascend_confirm.size     = Vector2(VW, ph_area)
+	_ascend_confirm.size     = Vector2(_vw(), ph_area)
 	_ascend_confirm.visible  = false
 	parent.add_child(_ascend_confirm)
 
 	var dim := ColorRect.new()
 	dim.position     = Vector2(0, 0)
-	dim.size         = Vector2(VW, ph_area)
+	dim.size         = Vector2(_vw(), ph_area)
 	dim.color        = Color(0, 0, 0, 0.78)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_ascend_confirm.add_child(dim)
@@ -2491,7 +2555,7 @@ func _build_ascend_confirm(parent: Control) -> void:
 	const PW = 480
 	const PH = 290
 	var panel := Panel.new()
-	panel.position = Vector2((VW - PW) / 2.0, (ph_area - PH) / 2.0)
+	panel.position = Vector2((_vw() - PW) / 2.0, (ph_area - PH) / 2.0)
 	panel.size     = Vector2(PW, PH)
 	var psb := StyleBoxFlat.new()
 	psb.bg_color = C_BG
