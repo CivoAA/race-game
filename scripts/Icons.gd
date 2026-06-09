@@ -45,7 +45,7 @@ const _CP := {
 	"VIDEO": 0xed22, "CAMERA": 0xea54, "TRASH": 0xeb41, "MENU": 0xec42,
 	"INFINITY": 0xeb69, "RECYCLE": 0xeb9b, "KEY": 0xeac7, "SPARKLES": 0xf6d7,
 	"CIRCLE_DASHED": 0xed27, "CIRCLE": 0xea6b, "MATH": 0xeeb3, "TRENDING_UP": 0xeb43,
-	"ENGINE": 0xef7e, "CONFETTI": 0xee46, "LAYOUT_GRID": 0xedba,
+	"ENGINE": 0xef7e, "CONFETTI": 0xee46, "LAYOUT_GRID": 0xedba, "BUG": 0xea48,
 }
 
 # Glyph-Strings – in _ready aus _CP befüllt. Vor _ready leer (""), danach das jeweilige Icon.
@@ -66,7 +66,7 @@ var MAGNET: String; var SHIELD: String; var PENCIL: String; var FLOPPY: String
 var VIDEO: String; var CAMERA: String; var TRASH: String; var MENU: String
 var INFINITY: String; var RECYCLE: String; var KEY: String; var SPARKLES: String
 var CIRCLE_DASHED: String; var CIRCLE: String; var MATH: String; var TRENDING_UP: String
-var ENGINE: String; var CONFETTI: String; var LAYOUT_GRID: String
+var ENGINE: String; var CONFETTI: String; var LAYOUT_GRID: String; var BUG: String
 
 
 func _ready() -> void:

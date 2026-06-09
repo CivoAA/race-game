@@ -260,9 +260,8 @@ func _show_summary() -> void:
 	# Das Popup wird ausschließlich hier (3D-Ansicht) gezeigt. Der pending_summary-Flag
 	# in Economy gilt als "quittiert", sobald das Popup in der 3D-Ansicht erscheint.
 	Economy.clear_pending_summary(_active_track_idx)
-	# Die untere Leiste (mit "Fahrt beenden") gehört zum laufenden Lauf – über dem Popup ausblenden.
-	if _bottom_bar != null:
-		_bottom_bar.visible = false
+	# Die untere Leiste (mit "Fahrt beenden") bleibt durchgehend sichtbar – auch über dem
+	# Lauf-beendet-Popup. Sie liegt auf Layer 21 (über dem Popup-Layer 8).
 
 	var layer = CanvasLayer.new()
 	layer.layer = 8

@@ -7,6 +7,12 @@ key,en
 
 # ── Hauptmenü ─────────────────────────────────────────────────────────────────
 "ROGUELIKE RENNSPIEL","ROGUELIKE RACING GAME"
+"SPIELEN","PLAY"
+"PROFIL","PROFILE"
+"Profil %d","Profile %d"
+"Profil umbenennen","Rename profile"
+"PROFIL UMBENENNEN","RENAME PROFILE"
+"Name eingeben...","Enter name..."
 "NEUES SPIEL","NEW GAME"
 "SPIEL LADEN","LOAD GAME"
 "Spiel laden","Load game"
@@ -16,7 +22,12 @@ key,en
 
 # ── Allgemeine Buttons / Aktionen ─────────────────────────────────────────────
 "Speichern","Save"
+"SPEICHERN","SAVE"
 "Abbrechen","Cancel"
+"ABBRECHEN","CANCEL"
+"Löschen","Delete"
+"LÖSCHEN","DELETE"
+"ZURÜCK","BACK"
 "Beenden","Quit"
 "Weiterspielen","Resume"
 "Spiel beenden","Quit game"
@@ -42,6 +53,25 @@ key,en
 "Die Änderungen werden gespeichert\nund die Einstellungen geschlossen.","The changes will be saved\nand the settings closed."
 "Dieser Spielstand wird\nunwiderruflich gelöscht.","This save will be\npermanently deleted."
 "Dieser Spielstand wird\nunwiderruflich überschrieben.","This save will be\npermanently overwritten."
+"Spielstand löschen","Delete save"
+"SPIELSTAND LÖSCHEN?","DELETE SAVE?"
+"Das Profil „%s“ wird\nunwiderruflich gelöscht.","The profile „%s“ will be\npermanently deleted."
+
+# ── Credits ───────────────────────────────────────────────────────────────────
+"MITWIRKENDE","CONTRIBUTORS"
+"TESTER","TESTERS"
+
+# ── Fehler melden (Bug-Report) ────────────────────────────────────────────────
+"Fehler melden","Report a bug"
+"FEHLER MELDEN","REPORT A BUG"
+"Beschreibe den Fehler und klicke auf Senden – die Nachricht geht direkt an uns.","Describe the bug and click Send – the message goes straight to us."
+"Was ist passiert?","What happened?"
+"Senden","Send"
+"SENDEN","SEND"
+"Senden…","Sending…"
+"Gesendet! Danke.","Sent! Thank you."
+"Senden fehlgeschlagen. Bitte später erneut.","Sending failed. Please try again later."
+"Kein Webhook konfiguriert.","No webhook configured."
 
 # ── Pause-Menü ────────────────────────────────────────────────────────────────
 "PAUSE","PAUSE"

@@ -15,10 +15,10 @@ const CSV_PATH := "res://i18n/translations.txt"
 
 func _ready() -> void:
 	_load_translations()
-	# Gespeicherte Sprache anwenden (Standard: Deutsch).
+	# Gespeicherte Sprache anwenden (Standard: Englisch).
 	var cfg := ConfigFile.new()
 	cfg.load(Paths.SETTINGS_FILE)
-	TranslationServer.set_locale(String(cfg.get_value("options", "language", "de")))
+	TranslationServer.set_locale(String(cfg.get_value("options", "language", "en")))
 
 
 func _load_translations() -> void:

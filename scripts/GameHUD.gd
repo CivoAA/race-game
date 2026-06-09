@@ -242,18 +242,12 @@ var _pause_nav_btn: Button = null   # „Pause-Menü"-Eintrag, nur im Mobile-Ste
 func _build_side_menu() -> void:
 	var nav_h := NAV_BOT - NAV_TOP
 
-	# Hintergrund (durchgezogene Fläche) + linke Trennlinie
+	# Hintergrund (durchgezogene Fläche)
 	var bg := ColorRect.new()
 	bg.position = Vector2(NAV_X, NAV_TOP)
 	bg.size     = Vector2(NAV_W, nav_h)
 	bg.color    = C_SURFACE
 	add_child(bg)
-
-	var vline := ColorRect.new()
-	vline.position = Vector2(NAV_X, NAV_TOP)
-	vline.size     = Vector2(1, nav_h)
-	vline.color    = C_LINE
-	add_child(vline)
 
 	# Kopf
 	var hdr := Label.new()
@@ -301,6 +295,14 @@ func _build_side_menu() -> void:
 	_pause_nav_btn.pressed.connect(_on_pause_nav_pressed)
 	_pause_nav_btn.visible = _load_mobile_mode()
 	add_child(_pause_nav_btn)
+
+	# Linke Trennlinie zuletzt zeichnen, damit sie über den Nav-Einträgen liegt und
+	# durchgezogen bleibt (sonst überdecken die Button-Hintergründe die 1px-Linie).
+	var vline := ColorRect.new()
+	vline.position = Vector2(NAV_X, NAV_TOP)
+	vline.size     = Vector2(1, nav_h)
+	vline.color    = C_LINE
+	add_child(vline)
 
 	_refresh_nav_highlight()
 
@@ -529,10 +531,10 @@ func _regular_tab_font() -> SystemFont:
 
 
 func _style_tab_btn(btn: Button, active: bool) -> void:
-	# Pillen-Form: aktiver Tab gefüllt mit Akzent (dunkler Text), inaktive dezent.
+	# Rechteckige Form: aktiver Tab gefüllt mit Akzent (dunkler Text), inaktive dezent.
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_ACCENT if active else C_SURFACE
-	sb.set_corner_radius_all(18)
+	sb.set_corner_radius_all(4)
 	sb.content_margin_left   = 10
 	sb.content_margin_right  = 10
 	sb.content_margin_top    = 4

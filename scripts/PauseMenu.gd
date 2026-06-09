@@ -55,6 +55,7 @@ var _settings_panel:     Control
 var _quit_modal:         Control
 var _discard_modal:      Control
 var _save_modal:         Control
+var _credits_modal:      Control
 
 var _save_status_lbl: Label
 var _settings_dirty:  bool = false
@@ -76,6 +77,8 @@ var _lbl_sfx_val:    Label
 
 var _settings_nav_btns:   Array[Button]  = []
 var _settings_cat_panels: Array[Control] = []
+# Buttons mit Icon-Präfix im Text: selbst übersetzt (auto_translate aus), Neuaufbau bei Sprachwechsel.
+var _icon_text_btns:      Array[Button]  = []
 
 # Steuerung – Modus-Auswahl
 var _ctrl_subtab:      int           = 0   # aktiver Modus-Index (0 click / 1 drag / 2 mobile)
@@ -107,6 +110,7 @@ func _ready() -> void:
 	_quit_modal         = _build_quit_modal()
 	_discard_modal      = _build_discard_modal()
 	_save_modal         = _build_save_modal()
+	_credits_modal      = _build_credits_modal()
 
 	_show_pause()
 
@@ -197,9 +201,8 @@ func _build_pause_panel() -> Control:
 	_add_spacer(vbox, 12)
 
 	_add_btn(vbox, "01", "Weiterspielen",    C_ACCENT,    _resume)
-	_add_btn(vbox, "02", "Einstellungen",    C_ACCENT_MU, _show_settings_from_pause)
 	_add_spacer(vbox, 10)
-	_add_btn(vbox, "03", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
+	_add_btn(vbox, "02", "Speichern",        Color(0.15, 0.60, 0.35), _on_save_pressed)
 
 	_save_status_lbl = Label.new()
 	_save_status_lbl.text = Icons.CHECK + " Gespeichert!"
@@ -209,7 +212,7 @@ func _build_pause_panel() -> Control:
 	_save_status_lbl.add_theme_color_override("font_color", Color(0.4, 0.85, 0.4))
 	vbox.add_child(_save_status_lbl)
 
-	_add_btn(vbox, "04", "Spiel beenden",    C_ACCENT_RD, _on_quit_pressed)
+	_add_btn(vbox, "03", "Spiel beenden",    C_ACCENT_RD, _on_quit_pressed)
 
 	return center
 
@@ -269,6 +272,10 @@ func _build_quit_modal() -> Control:
 func _go_main_menu() -> void:
 	get_tree().paused = false
 	visible = false
+	# GlobalModal ist ein Autoload und überlebt den Szenenwechsel – offen gelassen würde
+	# es (z.B. die Statistik-Seite) über dem Hauptmenü weiterzeichnen.
+	if GlobalModal.visible:
+		GlobalModal.close()
 	get_tree().change_scene_to_file(Paths.SCENE_MAIN_MENU)
 
 
@@ -356,6 +363,18 @@ func _build_settings_panel() -> Control:
 		_lang_option.add_item(lang[0])
 	_lang_option.item_selected.connect(_on_language_changed)
 	lang_row.add_child(_lang_option)
+
+	_add_spacer(v0, 10)
+	_add_hline(v0)
+	_add_spacer(v0, 2)
+	# „Spielstand löschen" gibt es nur im Hauptmenü (im Spiel ergäbe das Löschen des
+	# laufenden Profils keinen Sinn). Hier nur der Credits-Button.
+	var credits_btn := _build_settings_btn("", C_SURFACE, C_ACCENT_MU)
+	credits_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	credits_btn.custom_minimum_size = Vector2(200, 46)
+	_set_icon_btn_text(credits_btn, Icons.SPARKLES, "Credits")
+	credits_btn.pressed.connect(_show_credits_modal)
+	v0.add_child(credits_btn)
 
 	# Kategorie 1 – Audio
 	var v1 := _new_settings_cat(holder)
@@ -511,13 +530,27 @@ func _add_settings_nav(parent: HBoxContainer, idx: int, icon: String, label: Str
 	_settings_nav_btns.append(btn)
 
 
-# Beim Sprachwechsel die selbst übersetzten Kategorie-Tabs (Icon + Label) neu beschriften.
+# Icon-Präfix-Button (z.B. „🗑  Spielstand löschen"): Text selbst übersetzen, da auto_translate
+# den zusammengesetzten String (Glyph + Text) nicht als Übersetzungsschlüssel findet.
+func _set_icon_btn_text(btn: Button, icon: String, label_key: String) -> void:
+	btn.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	btn.set_meta("btn_icon", icon)
+	btn.set_meta("btn_label", label_key)
+	btn.text = "%s  %s" % [icon, tr(label_key)]
+	if not _icon_text_btns.has(btn):
+		_icon_text_btns.append(btn)
+
+
+# Beim Sprachwechsel die selbst übersetzten Kategorie-Tabs / Icon-Buttons neu beschriften.
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_TRANSLATION_CHANGED:
 		return
 	for btn in _settings_nav_btns:
 		if is_instance_valid(btn) and btn.has_meta("nav_label"):
 			btn.text = "%s  %s" % [btn.get_meta("nav_icon"), tr(btn.get_meta("nav_label"))]
+	for btn in _icon_text_btns:
+		if is_instance_valid(btn) and btn.has_meta("btn_label"):
+			btn.text = "%s  %s" % [btn.get_meta("btn_icon"), tr(btn.get_meta("btn_label"))]
 
 
 # Horizontale Tab-Optik: aktiver Tab mit Akzent-Balken UNTEN + gefüllter Fläche.
@@ -744,17 +777,12 @@ func _hide_all() -> void:
 	_quit_modal.visible         = false
 	_discard_modal.visible      = false
 	_save_modal.visible         = false
+	_credits_modal.visible      = false
 
 
 func _show_pause() -> void:
 	_hide_all()
 	_pause_panel.visible = true
-
-
-# Einstellungen aus dem Pause-Menü heraus öffnen (Zurück führt wieder ins Pause-Menü).
-func _show_settings_from_pause() -> void:
-	_settings_from_pause = true
-	_show_settings()
 
 
 func _show_settings() -> void:
@@ -1003,7 +1031,7 @@ func _add_back_button(parent: VBoxContainer, cb: Callable) -> void:
 func _sync_settings_ui() -> void:
 	_loading_settings = true
 
-	var lang := settings.get_value("options", "language", "de") as String
+	var lang := settings.get_value("options", "language", "en") as String
 	for i in LANGUAGES.size():
 		if LANGUAGES[i][1] == lang:
 			_lang_option.selected = i
@@ -1135,7 +1163,7 @@ func _on_discard_confirm() -> void:
 	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
 	_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
-	TranslationServer.set_locale(settings.get_value("options", "language", "de"))
+	TranslationServer.set_locale(settings.get_value("options", "language", "en"))
 	Economy.apply_cheat_mode(bool(settings.get_value("cheats", "enabled", false)))
 	_settings_dirty = false
 	_exit_settings()
@@ -1205,6 +1233,114 @@ func _build_save_modal() -> Control:
 	))
 
 	return center
+
+
+# Modal schließen und zurück zu den Einstellungen (Seitenleiste bleibt sichtbar → Dimmer aus).
+func _reopen_settings_panel() -> void:
+	_hide_all()
+	if _dim_bg != null:
+		_dim_bg.visible = false
+	_settings_panel.visible = true
+
+
+# ── Credits-Modal ─────────────────────────────────────────────────────────────
+
+func _build_credits_modal() -> Control:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(540, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	# Dev Team
+	_credits_heading(vbox, "DEV TEAM")
+	_credits_thin_div(vbox)
+	_add_spacer(vbox, 4)
+	_credits_names_rows(vbox, ["Civoknis", "Reo"])
+
+	_credits_big_div(vbox)
+
+	# Mitwirkende
+	_credits_heading(vbox, "MITWIRKENDE")
+	_credits_thin_div(vbox)
+	_add_spacer(vbox, 4)
+	var audio_lbl := Label.new()
+	audio_lbl.text = "Audio: Tessemi"
+	audio_lbl.add_theme_font_size_override("font_size", 17)
+	audio_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(audio_lbl)
+
+	_credits_big_div(vbox)
+
+	# Tester
+	_credits_heading(vbox, "TESTER")
+	_credits_thin_div(vbox)
+	_add_spacer(vbox, 4)
+	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi"])
+
+	_add_spacer(vbox, 14)
+	_add_btn(vbox, "←", "Zurück", C_ACCENT_MU, _reopen_settings_panel)
+
+	return center
+
+
+func _show_credits_modal() -> void:
+	_hide_all()
+	_credits_modal.visible = true
+
+
+# Große, geprägte (3D) Überschrift im Credits-Modal.
+func _credits_heading(parent: VBoxContainer, text: String) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 27)
+	lbl.add_theme_color_override("font_color", C_ACCENT)
+	lbl.add_theme_constant_override("outline_size", 1)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	_emboss(lbl, 0.75)
+	parent.add_child(lbl)
+
+
+func _credits_thin_div(parent: VBoxContainer) -> void:
+	var d := ColorRect.new()
+	d.custom_minimum_size = Vector2(0, 1)
+	d.color = C_LINE
+	parent.add_child(d)
+
+
+func _credits_big_div(parent: VBoxContainer) -> void:
+	_add_spacer(parent, 8)
+	var d := ColorRect.new()
+	d.custom_minimum_size = Vector2(0, 2)
+	d.color = C_ACCENT_MU
+	parent.add_child(d)
+	_add_spacer(parent, 8)
+
+
+# Namen nebeneinander, maximal 4 pro Zeile, dann Umbruch. Zentriert (fett = Standardschrift).
+func _credits_names_rows(parent: VBoxContainer, names: Array) -> void:
+	var i := 0
+	while i < names.size():
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 28)
+		var upper := mini(i + 4, names.size())
+		for j in range(i, upper):
+			var lbl := Label.new()
+			lbl.text = names[j]
+			lbl.add_theme_font_size_override("font_size", 17)
+			lbl.add_theme_color_override("font_color", C_TEXT)
+			row.add_child(lbl)
+		parent.add_child(row)
+		i += 4
 
 
 func _make_placement_switch() -> CheckButton:
