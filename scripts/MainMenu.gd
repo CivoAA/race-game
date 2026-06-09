@@ -579,7 +579,7 @@ func _build_bug_modal() -> Control:
 	_add_hline(vbox)
 
 	var hint := Label.new()
-	hint.text = "Beschreibe den Fehler und klicke auf Senden – die Nachricht geht direkt an uns."
+	hint.text = "Beschreibe den Fehler und klicke auf Senden!"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", C_TEXT_DIM)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -587,7 +587,7 @@ func _build_bug_modal() -> Control:
 
 	_bug_text_edit = TextEdit.new()
 	_bug_text_edit.custom_minimum_size = Vector2(0, 200)
-	_bug_text_edit.placeholder_text = "Was ist passiert?"
+	_bug_text_edit.placeholder_text = "Bitte erkläre uns kurz den Fehler oder schreibe uns einen Verbesserungsvorschlag!"
 	_bug_text_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	_bug_text_edit.add_theme_color_override("font_color", C_TEXT)
 	_bug_text_edit.add_theme_color_override("font_placeholder_color", C_TEXT_DIM)

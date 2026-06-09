@@ -68,8 +68,9 @@ key,en
 # ── Fehler melden (Bug-Report) ────────────────────────────────────────────────
 "Fehler melden","Report a bug"
 "FEHLER MELDEN","REPORT A BUG"
-"Beschreibe den Fehler und klicke auf Senden – die Nachricht geht direkt an uns.","Describe the bug and click Send – the message goes straight to us."
-"Was ist passiert?","What happened?"
+"Beschreibe den Fehler und klicke auf Senden!","Describe the bug and click Send!."
+"Bitte erkläre uns kurz den Fehler oder schreibe uns einen Verbesserungsvorschlag!","
+Please briefly explain the error or send us a suggestion for improvement."
 "Senden","Send"
 "SENDEN","SEND"
 "Senden…","Sending…"
