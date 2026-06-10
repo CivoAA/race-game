@@ -128,12 +128,15 @@ var _cheat_switch:  CuteToggle
 var _music_min_switch: CuteToggle
 var _fps_switch:       CuteToggle
 var _mult_option:       OptionButton
+var _notation_option:   OptionButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
 
 # Reihenfolge entspricht Display.MultiplierMode (ALL, AFFECTED, NONE).
 const MULT_DISPLAY_OPTIONS := ["Alles anzeigen", "Nur betroffene Felder", "Nichts"]
+# Reihenfolge entspricht Display.MoneyNotation (STANDARD, SCIENTIFIC, ENGINEER).
+const NOTATION_OPTIONS := ["Standard (K/M/B/T)", "Wissenschaftlich (e7)", "Ingenieur (e6/e9)"]
 
 var _settings_nav_btns:   Array[Button]  = []
 var _settings_cat_panels: Array[Control] = []
@@ -1133,6 +1136,16 @@ func _build_options_panel() -> Control:
 	_mult_option.item_selected.connect(_on_mult_display_changed)
 	mult_row.add_child(_mult_option)
 
+	var notation_row := _make_hrow(v2)
+	_make_row_label(notation_row, "Geld-Notation:")
+	_notation_option = OptionButton.new()
+	_notation_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_option_btn(_notation_option)
+	for opt in NOTATION_OPTIONS:
+		_notation_option.add_item(opt)
+	_notation_option.item_selected.connect(_on_notation_changed)
+	notation_row.add_child(_notation_option)
+
 	_add_hline(v2)
 	_add_section_label(v2, "CHEAT-MODUS")
 	_cheat_switch = _add_toggle_row(v2, "Cheat-Modus:")
@@ -1517,6 +1530,7 @@ func _sync_settings_ui() -> void:
 	_music_min_switch.button_pressed  = bool(settings.get_value("options", "music_on_minimize", true))
 	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
 	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
+	_notation_option.selected         = clampi(int(settings.get_value("options", "money_notation", Display.MoneyNotation.STANDARD)), 0, 2)
 
 	_loading_settings = false
 
@@ -1601,6 +1615,13 @@ func _on_mult_display_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "show_multiplier", index)
 	Display.set_multiplier_mode(index)
+	_settings_dirty = true
+
+
+func _on_notation_changed(index: int) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "money_notation", index)
+	Display.set_money_notation(index)
 	_settings_dirty = true
 
 

@@ -257,7 +257,14 @@ func _build_bar() -> void:
 	_debug_btn.add_theme_stylebox_override("pressed", badge_n)
 	_debug_btn.add_theme_stylebox_override("focus",   badge_n)
 	_debug_btn.add_theme_color_override("font_color", Color(0.20, 0.12, 0.0))
-	_debug_btn.pressed.connect(func(): Economy.add(1_000_000_000); Economy.add_prestige_points(100))
+	_debug_btn.tooltip_text = "Verdoppelt dein Geld, +1 Mrd. Geld, +100 %s, +1000 %s" % [Icons.STAR, Icons.TROPHY]
+	# Cheat: Geld verdoppeln UND +1 Mrd. (Verdopplung = aktuelles Guthaben zusätzlich addieren),
+	# dazu Prestige-Punkte (⭐) und Erfolgs-Trophäen gutschreiben.
+	_debug_btn.pressed.connect(func():
+		Economy.add(Economy.get_currency() + 1_000_000_000)
+		Economy.add_prestige_points(100)
+		Economy.add_ach_currency(1000)
+	)
 	_ui_root.add_child(_debug_btn)
 
 	# Endlos-Modus-Toggle (links neben Währungsanzeige)
