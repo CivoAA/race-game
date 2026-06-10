@@ -1,9 +1,6 @@
 extends Node
 ## Autoload "Display": globales Anzeige-Overlay über ALLEN Szenen (Hauptmenü,
-## Baumodus, Rennen). Bündelt drei optionale Effekte als ein Vollbild-CanvasLayer:
-##   • FPS-Anzeige (oben links)
-##   • Dark Mode (alles etwas dunkler)
-##   • Farbenblind-Korrektur (Rot-Grün-Daltonisierung per Shader)
+## Baumodus, Rennen). Hostet die FPS-Anzeige (oben rechts) als Vollbild-CanvasLayer.
 ##
 ## Zusätzlich verwaltet es den „Multiplikator anzeigen"-Modus (für die ×-Marker im
 ## Baumodus). Die Menüs rufen nur die set_*-Funktionen; Persistenz/Anwenden liegt
@@ -17,8 +14,6 @@ signal multiplier_mode_changed(mode: int)
 var multiplier_mode: int = MultiplierMode.AFFECTED
 
 var _layer:     CanvasLayer
-var _cb_rect:   ColorRect
-var _dark_rect: ColorRect
 var _fps_lbl:   Label
 
 var _settings := ConfigFile.new()
@@ -31,30 +26,8 @@ func _ready() -> void:
 	_layer.layer = 110   # über allem (höchste reguläre Ebene ist PauseMenu = 100)
 	add_child(_layer)
 
-	# Farbenblind-Korrektur zuerst: liest die darunter gerenderte Szene (Screen-Textur).
-	_cb_rect = ColorRect.new()
-	_cb_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_cb_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_cb_rect.color = Color(1, 1, 1, 1)
-	var sh := load(Paths.SHADER_COLORBLIND)
-	if sh != null:
-		var mat := ShaderMaterial.new()
-		mat.shader = sh
-		_cb_rect.material = mat
-	_cb_rect.visible = false
-	_layer.add_child(_cb_rect)
-
-	# Dark-Mode-Abdunklung über der (ggf. korrigierten) Szene.
-	_dark_rect = ColorRect.new()
-	_dark_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_dark_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_dark_rect.color = Color(0, 0, 0, 0.28)
-	_dark_rect.visible = false
-	_layer.add_child(_dark_rect)
-
-	# FPS-Anzeige ganz oben rechts (wird von Dark/Colorblind nicht beeinflusst).
-	# Rechts verankert, wächst nach links → bleibt bei wechselnder Textbreite bündig
-	# in der Ecke.
+	# FPS-Anzeige ganz oben rechts. Rechts verankert, wächst nach links → bleibt bei
+	# wechselnder Textbreite bündig in der Ecke.
 	_fps_lbl = Label.new()
 	_fps_lbl.anchor_left   = 1.0
 	_fps_lbl.anchor_right  = 1.0
@@ -88,15 +61,6 @@ func set_fps_visible(on: bool) -> void:
 	_fps_lbl.visible = on
 
 
-func set_dark_mode(on: bool) -> void:
-	_dark_rect.visible = on
-
-
-func set_colorblind(on: bool) -> void:
-	# Ohne geladenen Shader würde der weiße Rect das Bild verdecken → nur dann zeigen.
-	_cb_rect.visible = on and _cb_rect.material != null
-
-
 func set_multiplier_mode(mode: int) -> void:
 	multiplier_mode = clampi(mode, 0, 2)
 	multiplier_mode_changed.emit(multiplier_mode)
@@ -107,6 +71,4 @@ func set_multiplier_mode(mode: int) -> void:
 func _load_from_settings() -> void:
 	_settings.load(Paths.SETTINGS_FILE)
 	_fps_lbl.visible   = bool(_settings.get_value("options", "show_fps", false))
-	_dark_rect.visible = bool(_settings.get_value("options", "dark_mode", false))
-	_cb_rect.visible   = bool(_settings.get_value("options", "colorblind", false)) and _cb_rect.material != null
 	multiplier_mode    = clampi(int(_settings.get_value("options", "show_multiplier", MultiplierMode.AFFECTED)), 0, 2)

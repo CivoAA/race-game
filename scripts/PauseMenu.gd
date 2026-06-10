@@ -1,7 +1,7 @@
 extends CanvasLayer
 
 const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
-const WINDOW_MODES  = ["Fenster", "Rahmenlos", "Vollbild"]
+const WINDOW_MODES  = ["Fenster", "Vollbild (Rahmenlos)", "Vollbild (Exklusiv)"]
 # Wählbare Bildschirmauflösungen (Label + Fenstergröße). Gängige 16:9-Auflösungen plus
 # Breitbild/Ultrawide, damit das Spiel auf möglichst jedem Monitor passt.
 const RESOLUTIONS = [
@@ -71,11 +71,9 @@ var _sfx_slider:     HSlider
 var _window_option:    OptionButton
 var _res_option:       OptionButton
 var _rotate_switch:    CheckButton
-var _cheat_switch:     CheckButton
+var _cheat_switch:     CuteToggle
 var _music_min_switch:  CuteToggle
 var _fps_switch:        CuteToggle
-var _colorblind_switch: CuteToggle
-var _darkmode_switch:   CuteToggle
 var _mult_option:       OptionButton
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
@@ -441,13 +439,6 @@ func _build_settings_panel() -> Control:
 	_fps_switch = _add_toggle_row(v2, "FPS anzeigen:")
 	_fps_switch.toggled.connect(_on_fps_toggled)
 
-	_darkmode_switch = _add_toggle_row(v2, "Dark Mode:")
-	_darkmode_switch.toggled.connect(_on_darkmode_toggled)
-
-	_colorblind_switch = _add_toggle_row(v2, "Farbenblind-Modus:")
-	_colorblind_switch.toggled.connect(_on_colorblind_toggled)
-	_add_setting_hint(v2, "Passt die Farben für eine Rot-Grün-Sehschwäche an.")
-
 	var mult_row := _make_hrow(v2)
 	_make_row_label(mult_row, "Multiplikatoren zeigen:")
 	_mult_option = OptionButton.new()
@@ -457,16 +448,12 @@ func _build_settings_panel() -> Control:
 		_mult_option.add_item(opt)
 	_mult_option.item_selected.connect(_on_mult_display_changed)
 	mult_row.add_child(_mult_option)
-	_add_setting_hint(v2, "Steuert die ×-Werte auf den Baufeldern (z. B. ×5).")
 
 	# Cheats sind jetzt ein Abschnitt der Anzeige-Kategorie (eigener Tab entfällt).
 	_add_hline(v2)
 	_add_section_label(v2, "CHEAT-MODUS")
-	var cheat_row := _make_hrow(v2)
-	_make_row_label(cheat_row, "Cheat-Modus:")
-	_cheat_switch = _make_placement_switch()
+	_cheat_switch = _add_toggle_row(v2, "Cheat-Modus:")
 	_cheat_switch.toggled.connect(_on_cheat_toggled)
-	cheat_row.add_child(_cheat_switch)
 	var cheat_hint := Label.new()
 	cheat_hint.text = "Zeigt den Endlos-Modus (%s) und den +1B %s Button in der oberen Leiste an." % [Icons.INFINITY, Icons.STAR]
 	cheat_hint.add_theme_font_size_override("font_size", 11)
@@ -800,14 +787,21 @@ func _on_resolution_changed(index: int) -> void:
 
 
 func _apply_resolution(size: Vector2i) -> void:
-	# Wirkt nur im Fenster-/Rahmenlos-Modus; Vollbild nutzt ohnehin die Monitorauflösung.
+	# Wirkt nur im Fenstermodus; beide Vollbild-Modi nutzen ohnehin die Monitorauflösung.
 	var mode := DisplayServer.window_get_mode()
 	if mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
 		return
-	DisplayServer.window_set_size(size)
+	# Fenstergröße so begrenzen, dass das Fenster INKLUSIVE Titelleiste/Rahmen auf den
+	# nutzbaren Bildschirm passt – sonst ragt z. B. „2560×1440" auf einem 2K-Monitor mit
+	# der Titelleiste oben aus dem Bild und ist nicht mehr erreichbar.
 	var screen_id := DisplayServer.window_get_current_screen()
 	var usable := DisplayServer.screen_get_usable_rect(screen_id)
-	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
+	var deco := DisplayServer.window_get_size_with_decorations() - DisplayServer.window_get_size()
+	deco.x = maxi(deco.x, 0)
+	deco.y = maxi(deco.y, 0)
+	var target := Vector2i(mini(size.x, usable.size.x - deco.x), mini(size.y, usable.size.y - deco.y))
+	DisplayServer.window_set_size(target)
+	DisplayServer.window_set_position(usable.position + (usable.size - (target + deco)) / 2)
 
 
 # ── Panel-Wechsel ─────────────────────────────────────────────────────────────
@@ -1130,12 +1124,9 @@ func _sync_settings_ui() -> void:
 
 	var cheat := bool(settings.get_value("cheats", "enabled", false))
 	_cheat_switch.button_pressed = cheat
-	_cheat_switch.text = "An" if cheat else "Aus"
 
 	_music_min_switch.button_pressed  = bool(settings.get_value("options", "music_on_minimize", true))
 	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
-	_darkmode_switch.button_pressed   = bool(settings.get_value("options", "dark_mode", false))
-	_colorblind_switch.button_pressed = bool(settings.get_value("options", "colorblind", false))
 	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
 
 	_loading_settings = false
@@ -1199,7 +1190,6 @@ func _on_rotate_btn_toggled(pressed: bool) -> void:
 
 
 func _on_cheat_toggled(pressed: bool) -> void:
-	_cheat_switch.text = "An" if pressed else "Aus"
 	if _loading_settings: return
 	settings.set_value("cheats", "enabled", pressed)
 	# Live anwenden, damit die Cheat-Buttons (∞ / +1B ⭐) sofort ein-/ausblenden.
@@ -1218,20 +1208,6 @@ func _on_fps_toggled(pressed: bool) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "show_fps", pressed)
 	Display.set_fps_visible(pressed)
-	_settings_dirty = true
-
-
-func _on_darkmode_toggled(pressed: bool) -> void:
-	if _loading_settings: return
-	settings.set_value("options", "dark_mode", pressed)
-	Display.set_dark_mode(pressed)
-	_settings_dirty = true
-
-
-func _on_colorblind_toggled(pressed: bool) -> void:
-	if _loading_settings: return
-	settings.set_value("options", "colorblind", pressed)
-	Display.set_colorblind(pressed)
 	_settings_dirty = true
 
 
@@ -1494,9 +1470,9 @@ func _make_placement_switch() -> CheckButton:
 
 func _update_res_option_state(mode_index: int) -> void:
 	if _res_option == null: return
-	# Im Vollbild-Modus nutzt das Spiel immer die native Monitorauflösung –
-	# die Auswahl ist dann bedeutungslos und wird ausgegraut.
-	_res_option.disabled = (mode_index == 2)
+	# In beiden Vollbild-Modi nutzt das Spiel immer die native Monitorauflösung –
+	# die Auswahl ist dann bedeutungslos und wird ausgegraut. Nur im Fenstermodus aktiv.
+	_res_option.disabled = (mode_index != 0)
 
 func _apply_window_mode(index: int) -> void:
 	match index:
@@ -1505,13 +1481,10 @@ func _apply_window_mode(index: int) -> void:
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
 			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
-		1: # Rahmenlos – ebenfalls größenänderbar
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
-			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
-			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
-		2: # Vollbild – nutzt Monitorauflösung, Auflösungsauswahl irrelevant
+		1: # Vollbild (Rahmenlos) – randloses Fenster über den ganzen Bildschirm
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		2: # Vollbild (Exklusiv) – echtes Vollbild, nutzt Monitorauflösung
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
 	_update_res_option_state(index)
 
 

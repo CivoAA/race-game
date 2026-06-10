@@ -37,9 +37,6 @@ const TEX_CAR_MASK      = "res://assets/3D-models/cars/test_car/car_mask.png"
 # Shader: färbt nur die maskierten (roten) Bereiche um, behält Hell-Dunkel-Verläufe.
 const SHADER_CAR_PAINT  = "res://shaders/car_paint.gdshader"
 
-# Shader: Vollbild-Korrektur für Rot-Grün-Sehschwäche (Display-Overlay).
-const SHADER_COLORBLIND = "res://shaders/colorblind.gdshader"
-
 # Shader: animierter Hauptmenü-Hintergrund (Perspektiv-Straße + Glows).
 const SHADER_MAINMENU_BG = "res://shaders/mainmenu_bg.gdshader"
 
