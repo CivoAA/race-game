@@ -31,7 +31,8 @@ const BOTTOM_BTN_W    = 56
 const BOTTOM_BTN_H    = 72
 const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
 # Computed at _ready() — depend on viewport height (RUI.vh()), not hardcoded 540.
-var _bottom_btn_y: float    = 0.0
+# Die Boden-Werkzeuge (Hammer/Papierkorb/Drehen) liegen anker-basiert (siehe _layout_bottom_ui),
+# damit sie bei jeder Fenstergröße bündig an der Menüleiste kleben statt fix zu verschwinden.
 var _build_panel_bot: float = 0.0
 
 # Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
@@ -129,6 +130,8 @@ var _hammer_btn:    Button      = null   # Baumenü-Umschalter (persistent, unte
 
 # Persistenter Run-Bar (Layer 4, immer sichtbar: Track-Status + Fahren-Button)
 var _run_bar:          CanvasLayer = null
+var _run_bar_bg:       ColorRect   = null
+var _run_bar_line:     ColorRect   = null
 var _run_bar_status:   Label       = null
 var _run_bar_btn:      Button      = null
 var _track_valid:      bool        = false
@@ -150,8 +153,9 @@ var tile_selector = null
 
 
 func _ready() -> void:
-	_bottom_btn_y    = RUI.vh() - RUN_BAR_H - 4 - BOTTOM_BTN_H
-	_build_panel_bot = RUI.vh() - RUN_BAR_H
+	# nav_h() > 0 nur im Portrait/Handy-Modus (Menüleiste liegt UNTEN, volle Breite). Dann müssen
+	# Run-Bar und Werkzeug-Knöpfe über diese Leiste gehoben werden, sonst überlappen sie sie.
+	_build_panel_bot = RUI.vh() - RUI.nav_h() - RUN_BAR_H
 	GRID_ROWS = Economy.get_grid_rows()
 	GRID_COLS = Economy.get_grid_cols()
 	_init_grid()
@@ -162,6 +166,10 @@ func _ready() -> void:
 	_setup_run_bar()
 	_setup_build_panel()
 	_setup_build_toggle_btn()
+	_layout_bottom_ui()
+	# Bei Layout-Wechsel (Portrait ↔ Landscape/Ultrawide) Versätze neu setzen, damit die
+	# Boden-Werkzeuge weiter bündig an der jeweiligen Menüleiste (rechts bzw. unten) kleben.
+	RUI.layout_changed.connect(func(_l): _layout_bottom_ui())
 
 	# TileSelector-Shim aufsetzen NACH Build-Panel (Nodes already created)
 	var shim := _TileSelectorShim.new()
@@ -333,40 +341,44 @@ func _setup_run_bar() -> void:
 	_run_bar.layer  = 4
 	add_child(_run_bar)
 
-	var bg := ColorRect.new()
-	bg.anchor_left   = 0.0; bg.offset_left   = 0
-	bg.anchor_right  = 1.0; bg.offset_right  = 0
-	bg.anchor_top    = 1.0; bg.offset_top    = -RUN_BAR_H
-	bg.anchor_bottom = 1.0; bg.offset_bottom = 0
-	bg.color    = Color(0.08, 0.09, 0.13)
-	_run_bar.add_child(bg)
+	# Portrait/Handy: untere Menüleiste (nav_h) belegt den unteren Rand → Run-Bar darüber heben.
+	var nav_h := RUI.nav_h()
 
-	var top_line := ColorRect.new()
-	top_line.anchor_left   = 0.0; top_line.offset_left   = 0
-	top_line.anchor_right  = 1.0; top_line.offset_right  = 0
-	top_line.anchor_top    = 1.0; top_line.offset_top    = -RUN_BAR_H
-	top_line.anchor_bottom = 1.0; top_line.offset_bottom = -RUN_BAR_H + 1
-	top_line.color    = C_LINE
-	_run_bar.add_child(top_line)
+	_run_bar_bg = ColorRect.new()
+	_run_bar_bg.anchor_left   = 0.0; _run_bar_bg.offset_left   = 0
+	_run_bar_bg.anchor_right  = 1.0; _run_bar_bg.offset_right  = 0
+	_run_bar_bg.anchor_top    = 1.0; _run_bar_bg.offset_top    = -RUN_BAR_H - nav_h
+	_run_bar_bg.anchor_bottom = 1.0; _run_bar_bg.offset_bottom = -nav_h
+	_run_bar_bg.color    = Color(0.08, 0.09, 0.13)
+	_run_bar.add_child(_run_bar_bg)
+
+	_run_bar_line = ColorRect.new()
+	_run_bar_line.anchor_left   = 0.0; _run_bar_line.offset_left   = 0
+	_run_bar_line.anchor_right  = 1.0; _run_bar_line.offset_right  = 0
+	_run_bar_line.anchor_top    = 1.0; _run_bar_line.offset_top    = -RUN_BAR_H - nav_h
+	_run_bar_line.anchor_bottom = 1.0; _run_bar_line.offset_bottom = -RUN_BAR_H + 1 - nav_h
+	_run_bar_line.color    = C_LINE
+	_run_bar.add_child(_run_bar_line)
 
 	_run_bar_status = Label.new()
 	_run_bar_status.anchor_left   = 0.0; _run_bar_status.offset_left   = 12
-	_run_bar_status.anchor_right  = 1.0; _run_bar_status.offset_right  = -(RUI.nav_w() + 12.0 + 228.0 + 8.0)
-	_run_bar_status.anchor_top    = 1.0; _run_bar_status.offset_top    = -RUN_BAR_H
-	_run_bar_status.anchor_bottom = 1.0; _run_bar_status.offset_bottom = 0
+	_run_bar_status.anchor_right  = 1.0; _run_bar_status.offset_right  = -(8.0 + 228.0 + 8.0)
+	_run_bar_status.anchor_top    = 1.0; _run_bar_status.offset_top    = -RUN_BAR_H - nav_h
+	_run_bar_status.anchor_bottom = 1.0; _run_bar_status.offset_bottom = -nav_h
 	_run_bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_run_bar_status.add_theme_font_size_override("font_size", 12)
 	_run_bar_status.add_theme_color_override("font_color", C_TEXT_DIM)
 	_run_bar.add_child(_run_bar_status)
 
 	_run_bar_btn = Button.new()
-	# Rechter Rand: innerhalb des Content-Bereichs (links der Sidebar), nicht am Viewport-Rand.
-	var _btn_right  := -(RUI.nav_w() + 12.0)
+	# Bündig in der rechten unteren Ecke: die Run-Bar liegt UNTER der Seitenleiste (BOT_H frei),
+	# daher darf der Fahren-Knopf bis an den Viewport-Rand (kleiner 8px-Rand).
+	var _btn_right  := -8.0
 	var _btn_left   := _btn_right - 228.0
 	_run_bar_btn.anchor_left   = 1.0; _run_bar_btn.offset_left   = _btn_left
 	_run_bar_btn.anchor_right  = 1.0; _run_bar_btn.offset_right  = _btn_right
-	_run_bar_btn.anchor_top    = 1.0; _run_bar_btn.offset_top    = -RUN_BAR_H + 4
-	_run_bar_btn.anchor_bottom = 1.0; _run_bar_btn.offset_bottom = -4
+	_run_bar_btn.anchor_top    = 1.0; _run_bar_btn.offset_top    = -RUN_BAR_H + 4 - nav_h
+	_run_bar_btn.anchor_bottom = 1.0; _run_bar_btn.offset_bottom = -4 - nav_h
 	_run_bar_btn.focus_mode = Control.FOCUS_NONE
 	_run_bar_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_run_bar_btn.pressed.connect(_on_fahren_pressed)
@@ -558,8 +570,9 @@ func _setup_build_panel() -> void:
 # Persistenter Hammer-Button unten links (öffnet/schließt das Baumenü).
 func _setup_build_toggle_btn() -> void:
 	_hammer_btn = Button.new()
-	_hammer_btn.position = Vector2(8, _bottom_btn_y)
-	_hammer_btn.size     = Vector2(BOTTOM_BTN_W, BOTTOM_BTN_H)
+	# Anker unten-links; konkrete Versätze (über nav_h) setzt _layout_bottom_ui.
+	_hammer_btn.anchor_left = 0.0; _hammer_btn.anchor_right = 0.0
+	_hammer_btn.anchor_top  = 1.0; _hammer_btn.anchor_bottom = 1.0
 	_hammer_btn.text     = Icons.HAMMER
 	_hammer_btn.focus_mode = Control.FOCUS_NONE
 	_hammer_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -568,6 +581,57 @@ func _setup_build_toggle_btn() -> void:
 	_hammer_btn.pressed.connect(func(): GameHUD.request_build_toggle())
 	_run_bar.add_child(_hammer_btn)
 	_refresh_hammer_btn()
+
+
+# Setzt die layout-abhängigen Anker-Versätze aller Boden-Elemente neu. Über die Anker folgen
+# Run-Bar, Hammer, Papierkorb und Drehen-Knopf jeder Fenstergröße automatisch; diese Funktion
+# aktualisiert nur die Versätze, die vom aktiven Layout abhängen:
+#   nav_w = rechte Seitenleiste (Landscape/Ultrawide) → Papierkorb/Drehen bündig links davon
+#   nav_h = untere Menüleiste   (Portrait/Handy)       → alle Boden-Elemente darüber heben
+# Dadurch verschwinden die Knöpfe beim Vergrößern/Verkleinern des Fensters nie hinter der Leiste.
+func _layout_bottom_ui() -> void:
+	var nav_w := RUI.nav_w()
+	var nav_h := RUI.nav_h()
+	var W := float(BOTTOM_BTN_W)
+	var H := float(BOTTOM_BTN_H)
+	const GAP := 8.0
+	var row1 := nav_h + RUN_BAR_H + 4.0          # Unterkante der unteren Werkzeug-Reihe (über Run-Bar)
+	var row2 := row1 + H + GAP                    # Reihe darüber (Drehen-Knopf)
+
+	# Run-Bar (Hintergrund, Trennlinie, Status, Fahren) über die untere Menüleiste heben.
+	if _run_bar_bg != null:
+		_run_bar_bg.offset_top    = -RUN_BAR_H - nav_h
+		_run_bar_bg.offset_bottom = -nav_h
+	if _run_bar_line != null:
+		_run_bar_line.offset_top    = -RUN_BAR_H - nav_h
+		_run_bar_line.offset_bottom = -RUN_BAR_H + 1 - nav_h
+	if _run_bar_status != null:
+		_run_bar_status.offset_top    = -RUN_BAR_H - nav_h
+		_run_bar_status.offset_bottom = -nav_h
+	if _run_bar_btn != null:
+		_run_bar_btn.offset_top    = -RUN_BAR_H + 4 - nav_h
+		_run_bar_btn.offset_bottom = -4 - nav_h
+
+	# Hammer unten links (X fix bei 8, Y über der Run-Bar).
+	if _hammer_btn != null:
+		_hammer_btn.offset_left   = 8.0
+		_hammer_btn.offset_right  = 8.0 + W
+		_hammer_btn.offset_top    = -(row1 + H)
+		_hammer_btn.offset_bottom = -row1
+
+	# Papierkorb (untere Reihe) bündig an die rechte Menüleiste (nav_w); rechts am Rand im Portrait.
+	if _trash_panel != null:
+		_trash_panel.offset_right  = -nav_w
+		_trash_panel.offset_left   = -nav_w - W
+		_trash_panel.offset_top    = -(row1 + H)
+		_trash_panel.offset_bottom = -row1
+
+	# Drehen-Knopf: gleiche Spalte wie der Papierkorb, eine Reihe höher.
+	if _rotate_btn != null:
+		_rotate_btn.offset_right  = -nav_w
+		_rotate_btn.offset_left   = -nav_w - W
+		_rotate_btn.offset_top    = -(row2 + H)
+		_rotate_btn.offset_bottom = -row2
 
 
 func _refresh_hammer_btn() -> void:
@@ -701,15 +765,10 @@ func _make_build_card(idx: int) -> Panel:
 
 
 func _make_trash_card() -> Panel:
-	const TW  = BOTTOM_BTN_W
-	const TH  = BOTTOM_BTN_H
-	# Links neben der rechten Seitenleiste (GameHUD-Nav, Breite 150 ab x=810), damit der
-	# Papierkorb nicht von ihr verdeckt wird.
-	const TX  = 810 - 8 - TW          # unten rechts, vor der Nav (= 746)
-	var   TY  = _bottom_btn_y          # gleiche Höhe wie der Hammer-Button
+	# Anker unten-rechts; die konkreten Versätze (bündig an nav_w / über nav_h) setzt _layout_bottom_ui.
 	var card := Panel.new()
-	card.position = Vector2(TX, TY)
-	card.size     = Vector2(TW, TH)
+	card.anchor_left = 1.0; card.anchor_right = 1.0
+	card.anchor_top  = 1.0; card.anchor_bottom = 1.0
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 	var sb_n := StyleBoxFlat.new()
@@ -723,7 +782,8 @@ func _make_trash_card() -> Panel:
 
 	var lbl := Label.new()
 	lbl.text = Icons.TRASH
-	lbl.size = Vector2(TW, TH)
+	lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", 22)
@@ -735,16 +795,10 @@ func _make_trash_card() -> Panel:
 # Drehen-Knopf direkt über dem Papierkorb. Ersetzt die [R]-Taste auf Touch-Geräten;
 # in beiden Bauweisen (schnell + langsam) sichtbar, solange das Baumenü offen ist.
 func _make_rotate_card() -> Button:
-	const TW  = BOTTOM_BTN_W
-	const TH  = BOTTOM_BTN_H
-	const GAP = 8
-	# Gleiche Spalte wie der Papierkorb (_make_trash_card): vor der rechten GameHUD-Nav (ab x=810),
-	# sonst läge der Knopf hinter der Seitenleiste. Bei Änderung von _make_trash_card hier mitziehen.
-	const TX  = 810 - 8 - TW              # = 746, gleiche Spalte wie der Papierkorb
-	var   TY  = _bottom_btn_y - TH - GAP   # eine Reihe darüber
+	# Gleiche Spalte wie der Papierkorb, eine Reihe höher; Versätze setzt _layout_bottom_ui.
 	var btn := Button.new()
-	btn.position = Vector2(TX, TY)
-	btn.size     = Vector2(TW, TH)
+	btn.anchor_left = 1.0; btn.anchor_right = 1.0
+	btn.anchor_top  = 1.0; btn.anchor_bottom = 1.0
 	btn.text     = "↻"
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND

@@ -89,6 +89,12 @@ var _prestige_confirm_lbl: Label        = null
 var _ascend_confirm:      Control       = null   # Auto-Prestige-Bestätigung (Werkstatt)
 var _ascend_confirm_lbl:  Label         = null
 
+# Sperr-Overlay für noch nicht freigeschaltete Tabs (Prestige/Werkstatt). Liegt über dem
+# Inhalt und zeigt nur ein Schloss + Hinweistext. TEMP: Freischalt-Bedingung kommt aus
+# Economy.is_*_tab_unlocked – sobald es einen Erfolge-Tab gibt, von dort aus speisen.
+var _lock_overlay:  Control = null
+var _lock_hint_lbl: Label   = null
+
 
 func _ready() -> void:
 	layer        = 25
@@ -101,14 +107,18 @@ func _ready() -> void:
 	Economy.prestige_changed.connect(_rebuild_prestige)
 	RUI.layout_changed.connect(_on_layout_changed)
 	get_viewport().size_changed.connect(_on_viewport_resized)
+	Economy.tab_unlock_changed.connect(_on_tab_unlock_changed)
 
 
+# Auflösungs-/Layout-Änderung IMMER vormerken – auch wenn das Modal gerade
+# geschlossen ist (typisch: Auflösung im Menü ändern, danach erst öffnen).
+# Sichtbar → im nächsten Frame neu bauen (_process); geschlossen → beim nächsten open().
 func _on_layout_changed(_l) -> void:
-	if visible: _needs_rebuild = true
+	_needs_rebuild = true
 
 
 func _on_viewport_resized() -> void:
-	if visible: _needs_rebuild = true
+	_needs_rebuild = true
 
 
 func _do_rebuild() -> void:
@@ -133,6 +143,7 @@ func _do_rebuild() -> void:
 	_prestige_earned_lbl    = null;  _prestige_btn        = null
 	_prestige_confirm       = null;  _prestige_confirm_lbl = null
 	_ascend_confirm         = null;  _ascend_confirm_lbl  = null
+	_lock_overlay           = null;  _lock_hint_lbl       = null
 	_ws_options_box         = null;  _ws_summary_lbl      = null
 	_garage_options_box     = null;  _garage_summary_lbl  = null
 	_garage_tab_btns.clear(); _garage_active_tab = 0
@@ -159,6 +170,12 @@ func _on_slot_changed(_slot: int) -> void:
 
 
 func open() -> void:
+	# Hat sich die Auflösung/das Layout geändert, während das Modal geschlossen war,
+	# JETZT mit den aktuellen Viewport-Maßen neu aufbauen – sonst stünden Container &
+	# Seitenleiste bis zum nächsten Resize versetzt zueinander.
+	if _needs_rebuild:
+		_needs_rebuild = false
+		_do_rebuild()
 	# Streckenteile-Status ist slot-abhängig; nach einem Slot-Wechsel hier neu aufbauen.
 	if _tiles_dirty:
 		_populate_tiles_grid()
@@ -288,8 +305,58 @@ func _build_modal() -> void:
 
 	_build_prestige_confirm(panel)
 	_build_ascend_confirm(panel)
+	_build_lock_overlay(panel)   # zuletzt → liegt über dem Inhalt der gesperrten Tabs
 
 	_show_modal_tab(0)
+
+
+# Vollflächiges Sperr-Overlay (Schloss + Hinweis) für noch nicht freigeschaltete Tabs. Wird in
+# _show_modal_tab je nach aktivem Tab ein-/ausgeblendet; Anker-basiert → resize-fest.
+func _build_lock_overlay(parent: Control) -> void:
+	_lock_overlay = Control.new()
+	_lock_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lock_overlay.visible = false
+	parent.add_child(_lock_overlay)
+
+	var bg := ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = C_BG
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP   # blockt Klicks auf den dahinterliegenden Inhalt
+	_lock_overlay.add_child(bg)
+
+	var icon := Label.new()
+	icon.anchor_left = 0.0; icon.anchor_right = 1.0
+	icon.anchor_top  = 0.5; icon.anchor_bottom = 0.5
+	icon.offset_top  = -86; icon.offset_bottom = -22
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 56)
+	if Icons.FONT != null:
+		icon.add_theme_font_override("font", Icons.FONT)
+	icon.add_theme_color_override("font_color", C_TEXT_DIM)
+	icon.text = Icons.LOCK
+	_lock_overlay.add_child(icon)
+
+	var title := Label.new()
+	title.anchor_left = 0.0; title.anchor_right = 1.0
+	title.anchor_top  = 0.5; title.anchor_bottom = 0.5
+	title.offset_top  = -14; title.offset_bottom = 20
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", C_TEXT)
+	title.text = "Gesperrt"
+	_lock_overlay.add_child(title)
+
+	_lock_hint_lbl = Label.new()
+	_lock_hint_lbl.anchor_left = 0.0; _lock_hint_lbl.anchor_right = 1.0
+	_lock_hint_lbl.anchor_top  = 0.5; _lock_hint_lbl.anchor_bottom = 0.5
+	_lock_hint_lbl.offset_top  = 28;  _lock_hint_lbl.offset_bottom = 96
+	_lock_hint_lbl.offset_left = 24;  _lock_hint_lbl.offset_right = -24
+	_lock_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lock_hint_lbl.add_theme_font_size_override("font_size", 14)
+	_lock_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	_lock_hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_lock_overlay.add_child(_lock_hint_lbl)
 
 
 # ── Modal-Tab-Switching ────────────────────────────────────────────────────────
@@ -310,6 +377,15 @@ func _on_modal_tab(idx: int) -> void:
 func _show_modal_tab(idx: int) -> void:
 	for i in _tab_panels.size():
 		_tab_panels[i].visible = (i == idx)
+	# Gesperrte Tabs (Prestige/Werkstatt vor Freischaltung): Inhalt durch das Schloss-Overlay
+	# verdecken und hier nichts weiter aufbauen.
+	var locked := _is_tab_locked(idx)
+	if _lock_overlay != null:
+		_lock_overlay.visible = locked
+		if locked:
+			_lock_hint_lbl.text = _tab_lock_hint(idx)
+	if locked:
+		return
 	# Die gemeinsame 3D-Auto-Vorschau in den gerade sichtbaren Tab (Werkstatt/Garage) umhängen.
 	if idx == WERKSTATT_TAB:
 		_attach_preview_to(_werkstatt_container)
@@ -317,6 +393,28 @@ func _show_modal_tab(idx: int) -> void:
 	elif idx == GARAGE_TAB:
 		_attach_preview_to(_garage_container)
 		_apply_ws_config()
+
+
+# TEMP: Tab gesperrt? (Prestige/Werkstatt bis zur Verdienst-Schwelle). Sobald es einen Erfolge-Tab
+# gibt, leitet sich is_*_tab_unlocked von dort ab – diese Abfrage bleibt unverändert.
+func _is_tab_locked(idx: int) -> bool:
+	if idx == PRESTIGE_TAB:  return not Economy.is_prestige_tab_unlocked()
+	if idx == WERKSTATT_TAB: return not Economy.is_werkstatt_tab_unlocked()
+	return false
+
+
+func _tab_lock_hint(idx: int) -> String:
+	if idx == PRESTIGE_TAB:
+		return "Verdiene 100K (seit dem letzten Prestige), um den Prestige-Bereich dauerhaft freizuschalten."
+	if idx == WERKSTATT_TAB:
+		return "Verdiene 100B (seit dem letzten Prestige), um die Werkstatt dauerhaft freizuschalten."
+	return ""
+
+
+# Ein Tab wurde live freigeschaltet → falls er gerade offen ist, Sperre sofort entfernen.
+func _on_tab_unlock_changed() -> void:
+	if visible:
+		_show_modal_tab(_active_modal_tab)
 
 
 # Hängt das gemeinsame Vorschau-SubViewport in den angegebenen Tab-Container (gleiche Position).
@@ -1570,6 +1668,8 @@ func _rebuild_garage_options() -> void:
 func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float, h: float, show_label: bool) -> Panel:
 	var card := Panel.new()
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	# Die Kinder (Farbfläche/Streifen/Icon/Label) dürfen Klicks NICHT abfangen, sonst reagiert
+	# nur der schmale Rand der Karte. Mit MOUSE_FILTER_IGNORE landet jeder Klick beim card.gui_input.
 
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_SURFACE2 if selected else C_SURFACE
@@ -1585,6 +1685,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		sw.position = Vector2(pad, pad)
 		sw.size     = Vector2(w - 2.0 * pad, content_h)
 		sw.color    = opt.color
+		sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(sw)
 	elif opt.get("stripes", false):
 		# Kleine Streifen-Vorschau: aktuelle Lackfarbe mit schwarzen Streifen.
@@ -1593,6 +1694,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		bg.position = Vector2(pad, pad)
 		bg.size     = Vector2(w - 2.0 * pad, content_h)
 		bg.color    = base_col
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(bg)
 		var stripes := 5
 		var sw_w := (w - 2.0 * pad) / float(stripes * 2 - 1)
@@ -1601,6 +1703,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 			st.position = Vector2(pad + s * 2.0 * sw_w, pad)
 			st.size     = Vector2(sw_w, content_h)
 			st.color    = Economy.get_car_pattern_color()
+			st.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			bg.add_child(st)
 	else:
 		var icon := Label.new()
@@ -1610,6 +1713,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 		icon.add_theme_font_size_override("font_size", 24 if show_label else 18)
 		icon.text = opt.get("icon", "◆")
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(icon)
 
 	if show_label:
@@ -1620,6 +1724,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		name_lbl.add_theme_font_size_override("font_size", 11)
 		name_lbl.add_theme_color_override("font_color", C_TEXT if selected else C_TEXT_DIM)
 		name_lbl.text = opt.name
+		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(name_lbl)
 	else:
 		card.tooltip_text = opt.name
@@ -2263,8 +2368,8 @@ func _refresh_prestige_action() -> void:
 		return
 	_prestige_points_lbl.text = Icons.STAR + " %d Prestige-Punkte" % Economy.get_prestige_points()
 	var pending := Economy.prestige_pending_points()
-	_prestige_earned_lbl.text = "Seit letztem Prestige verdient: %s %s   ·   ×-Bonus aktiv: ×%d" % [
-		Economy.format_currency(Economy.get_prestige_earned()), Icons.COIN, int(Economy.get_prestige_mult())]
+	_prestige_earned_lbl.text = "Seit letztem Prestige verdient: %s %s   ·   ×-Bonus aktiv: ×%d   ·   Prestiges: %d" % [
+		Economy.format_currency(Economy.get_prestige_earned()), Icons.COIN, int(Economy.get_prestige_mult()), Economy.get_prestige_count()]
 
 	if pending >= 1:
 		_prestige_btn.text     = "%s  PRESTIGE  →  +%d %s" % [Icons.RECYCLE, pending, Icons.STAR]
@@ -2310,12 +2415,15 @@ func _populate_prestige_tree() -> void:
 func _prestige_node_icon(id: String) -> String:
 	match id:
 		"income":       return Icons.X
+		"points2":      return Icons.STAR
 		"grid":         return Icons.LAYOUT_GRID
-		"keep_unlocks": return Icons.KEY
 		"car":          return Icons.CAR
+		"points3":      return Icons.SPARKLES
+		"keep_unlocks": return Icons.KEY
 		"track":        return Icons.FLAG_3
 		"free_roads":   return Icons.ROAD
 		"stand_unlock": return Icons.STADIUM
+		"scaling":      return Icons.TRENDING_UP
 	return Icons.STAR
 
 
@@ -2440,13 +2548,12 @@ func _make_prestige_card(id: String) -> Panel:
 	return card
 
 
-# Voraussetzungs-Text eines Knotens ("benötigt ×-Einkommen Lv3").
+# Freischalt-Text eines Knotens: er erscheint nach dem N. Prestige (positionsbasiert).
 func _prestige_prereq_text(id: String) -> String:
-	var prereq: Dictionary = Economy.PRESTIGE_NODES[id].get("prereq", {})
-	for req_id in prereq:
-		var nm := String(Economy.PRESTIGE_NODES[req_id].get("name", req_id))
-		return "%s Lv%d" % [nm, int(prereq[req_id])]
-	return "gesperrt"
+	var need := Economy.get_prestige_node_unlock_count(id)
+	if need <= 0:
+		return "gesperrt"
+	return "nach %d. Prestige" % need
 
 
 # Stil eines Prestige-Kauf-Knopfs (leistbar = Gold, sonst gedämpft).

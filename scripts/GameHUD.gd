@@ -73,7 +73,11 @@ func _ready() -> void:
 	Economy.lap_credited.connect(_on_lap_credited)
 	# Prestige kann Strecken freischalten → Tabs neu bewerten (Sperre/Beschriftung).
 	Economy.prestige_changed.connect(_refresh_tabs)
-	Economy.slot_changed.connect(func(_s): _refresh_tabs())
+	# Profilwechsel → komplette Leiste neu bauen, damit Strecken-Tabs UND die Nav-Sperren
+	# (Prestige/Werkstatt: Schloss vs. Stern) den Zustand des NEUEN Profils widerspiegeln.
+	Economy.slot_changed.connect(func(_s): _build_ui())
+	# Ein Tab (Prestige/Werkstatt) wurde freigeschaltet → Nav neu bauen, damit das Schloss verschwindet.
+	Economy.tab_unlock_changed.connect(func(): _build_ui())
 	# Cheat-Modus-Einstellung blendet die Cheat-Buttons (∞ und +1B ⭐) ein/aus.
 	Economy.cheat_mode_changed.connect(_refresh_cheat_visibility)
 	# Bei Layout-Wechsel (Portrait ↔ Landscape) oder Viewport-Resize alles neu aufbauen.
@@ -290,8 +294,8 @@ func _nav_pages() -> Array:
 		{"icon": Icons.FLAG_3,   "label": "Strecke",   "tab": -1, "color": Color(0.32, 0.80, 0.46)},  # grün
 		{"icon": Icons.STORE,    "label": "Shop",      "tab": 0,  "color": Color(0.26, 0.78, 0.85)},  # türkis
 		{"icon": Icons.STAR,     "label": "Prestige",  "tab": 4,  "color": Color(0.74, 0.48, 0.97)},  # violett
-		{"icon": Icons.GARAGE,   "label": "Garage",    "tab": 5,  "color": Color(0.93, 0.42, 0.66)},  # rosa
 		{"icon": Icons.TOOLS,    "label": "Werkstatt", "tab": 2,  "color": Color(0.96, 0.55, 0.26)},  # orange
+		{"icon": Icons.GARAGE,   "label": "Garage",    "tab": 5,  "color": Color(0.93, 0.42, 0.66)},  # rosa
 		{"icon": Icons.TROPHY,   "label": "Erfolge",   "tab": 1,  "color": Color(1.00, 0.82, 0.30)},  # gold
 		{"icon": Icons.CHART_BAR,"label": "Statistik", "tab": 3,  "color": Color(0.40, 0.62, 1.00)},  # blau
 	]
@@ -339,6 +343,7 @@ func _build_side_menu() -> void:
 		var btn := _make_nav_item(entry.icon, entry.label, entry.color, Vector2(nav_x, y0), NAV_W, ITEM_H)
 		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
 		_ui_root.add_child(btn)
+		_apply_nav_lock(btn, int(entry.tab))   # Prestige/Werkstatt ggf. als gesperrt markieren
 		_nav_btns.append({"btn": btn, "tab": int(entry.tab), "icon": entry.icon, "label": entry.label})
 		y0 += ITEM_H + ITEM_GAP
 
@@ -419,6 +424,7 @@ func _build_bottom_nav() -> void:
 		_style_nav_btn(btn, false)
 		btn.pressed.connect(_on_nav_page.bind(int(entry.tab)))
 		_ui_root.add_child(btn)
+		_apply_nav_lock(btn, int(entry.tab))   # Prestige/Werkstatt ggf. als gesperrt markieren
 		_nav_btns.append({"btn": btn, "tab": int(entry.tab), "icon": entry.icon, "label": entry.label})
 
 	# Pause-Menü-Button ist immer im Portrait-Modus sichtbar (kein ESC auf Handy)
@@ -483,6 +489,7 @@ func _make_nav_item(icon_glyph: String, label_key: String, icon_color: Color, po
 	ico.size     = Vector2(24, h)
 	_emboss(ico)
 	btn.add_child(ico)
+	btn.set_meta("icon_lbl", ico)   # für die Tab-Sperre (Schloss-Glyph) referenzierbar
 
 	# Text als eigenes (geprägtes) Label – Button-Text kann keinen Schatten, daher als Label.
 	# Klicks gehen durch (mouse_filter ignore) an den Button.
@@ -576,6 +583,31 @@ func _refresh_nav_highlight() -> void:
 		if not is_instance_valid(btn):
 			continue
 		_style_nav_btn(btn, int(e["tab"]) == _active_page)
+
+
+# TEMP: Tab gesperrt? Prestige (Tab 4) bzw. Werkstatt (Tab 2) bis zur Verdienst-Schwelle.
+# Bedingung kommt aus Economy.is_*_tab_unlocked – sobald es einen Erfolge-Tab gibt, von dort speisen.
+func _is_tab_locked(tab: int) -> bool:
+	if tab == 4: return not Economy.is_prestige_tab_unlocked()
+	if tab == 2: return not Economy.is_werkstatt_tab_unlocked()
+	return false
+
+
+# Gesperrte Nav-Einträge: Schloss-Glyph statt farbigem Icon + abgedunkelter Text. Klick bleibt
+# möglich → öffnet den Tab, der dann das Sperr-Overlay mit dem Freischalt-Hinweis zeigt.
+func _apply_nav_lock(btn: Button, tab: int) -> void:
+	if not _is_tab_locked(tab):
+		return
+	# Icon-Label: Seitenleiste = eigenes "icon_lbl"; Bottom-Nav = das einzige Label ("txt_lbl").
+	var ico = btn.get_meta("icon_lbl", null)
+	if ico == null:
+		ico = btn.get_meta("txt_lbl", null)
+	if ico != null and is_instance_valid(ico):
+		ico.text = Icons.LOCK
+		ico.modulate = Color(1, 1, 1, 0.55)
+	var lbl = btn.get_meta("txt_lbl", null)
+	if lbl != null and is_instance_valid(lbl) and lbl != ico:
+		lbl.modulate = Color(1, 1, 1, 0.6)
 
 
 ## Erzeugt einen kleinen Aktions-Button und fügt ihn zu _ui_root hinzu.

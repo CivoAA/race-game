@@ -1,4 +1,4 @@
-﻿extends Node
+extends Node
 ## Zentraler, persistenter Spielzustand: Währung + gekaufte Upgrades + 3 Track-Zustände.
 ## Wird als Autoload "Economy" geladen. Speichert in Slot-Dateien (user://savegame_slotN.dat).
 
@@ -192,51 +192,70 @@ const GRID_STEPS = [
 ]
 
 # ── Prestige ────────────────────────────────────────────────────────────────────
-# „Formel als Gate": beim Prestige bekommt man floor(sqrt(prestige_earned / K)) Punkte (⭐).
-# Der Prestige-Button ist erst aktiv, sobald das ≥ 1 ergibt. K ist die einzige Stellschraube
-# für „Geld pro Punkt" – unabhängig vom Einkommens-Balancing.
-# K = Geld für den 1. Punkt; n. Punkt braucht n²·K. Bei 100k „rastet" Prestige ein (1. Punkt),
-# 2. Punkt bei 400k, 3. bei 900k – man muss also erst ein Stück spielen.
+# Punkte pro Prestige: FLACHE Basis + optionale Verdienst-Skalierung.
+#   Basis    = 1 + „points2"-Knoten (+1) + „points3"-Knoten (+1)  → 1 / 2 / 3
+#   Extra    = nur wenn der „scaling"-Knoten gekauft ist: floor(sqrt(prestige_earned / K)) − 1
+#              (bei genau K = 100k also +0, ab 400k +1, ab 900k +2 …).
+#   Ergebnis = (Basis + Extra) · Auto-Stufen-Bonus (get_car_point_mult).
+# Der Prestige-Button rastet ab prestige_earned ≥ K (= 100k) ein. K ist die Geld-Stellschraube.
 const PRESTIGE_K = 100000.0
 
-# Tech-Baum: Knoten werden mit ⭐ bezahlt. Voraussetzung = der jeweils VORHERIGE Knoten muss
-# mindestens 1× gekauft sein (prereq = {vorheriger: 1}). Man wird also NICHT zum Mehrfach-Leveln
-# gezwungen – nur ein einziger Kauf schaltet den nächsten Knoten frei. „income" ist zusätzlich
-# am billigsten. Kosten je Stufe = round(base_cost * growth^level), bezahlt in Prestige-Punkten.
+# TEMP – Tab-Freischaltung: Verdienst-Schwellen (prestige_earned, seit letztem Prestige) ab denen
+# der Prestige- bzw. Werkstatt-Tab DAUERHAFT freigeschaltet wird. Siehe _check_tab_unlocks().
+# ENTFERNEN, sobald es einen Erfolge-Tab gibt – die Freischaltung dann dort auslösen.
+const PRESTIGE_TAB_UNLOCK_EARN  = 100000.0          # 100k
+const WERKSTATT_TAB_UNLOCK_EARN = 100000000000.0    # 100b
+
+# Tech-Baum: Knoten werden mit ⭐ bezahlt. Freigeschaltet wird POSITIONSBASIERT: der Knoten an
+# Position p (1-basiert in PRESTIGE_ORDER) wird sichtbar/kaufbar, sobald man p-mal prestigt hat
+# (prestige_count ≥ p). Jedes Prestige schaltet also genau den nächsten Knoten frei – kaufen muss
+# man ihn weiterhin mit Punkten. Kosten je Stufe = round(base_cost * growth^level) in ⭐; die ersten
+# Stufen liegen bewusst bei 1–5 ⭐, spätere Stufen werden teuer (growth).
 # Reset-fest: Prestige-Fortschritt liegt in prestige_nodes (NICHT in upgrade_levels, das beim
 # Prestige geleert wird). Daher leben grid/car/track-Boni hier, nicht im normalen Upgrade-Block.
+# Neue Knoten lassen sich einfach durch Eintrag hier + Position in PRESTIGE_ORDER ergänzen.
 const PRESTIGE_NODES = {
 	# Globaler Einkommens-Multiplikator: Mult = 1 + Level (Lv1 ×2, Lv2 ×3, Lv3 ×4 …). Billig & viele
 	# Stufen → der „Brot-und-Butter"-Knoten, in den die ersten Punkte fließen.
 	"income": {
 		"name": "×-Einkommen", "icon": "", "base_cost": 1, "growth": 2.0, "max_level": 25,
-		"desc": "Multipliziert allen verdienten Lauf-Ertrag (×2, ×3, ×4 …).", "prereq": {},
+		"desc": "Multipliziert allen verdienten Lauf-Ertrag (×2, ×3, ×4 …).",
 	},
-	# Streckengröße: identische Stufen wie GRID_STEPS (4×4 → 4×5 → 4×6 → 5×6). Teuer (nur 3 Stufen).
+	# +1 Prestigepunkt pro Prestige (1 → 2). Einmalig, nicht upgradebar (max_level 1).
+	"points2": {
+		"name": "+1 Punkt (→2)", "icon": "", "base_cost": 1, "growth": 1.0, "max_level": 1,
+		"desc": "Du erhältst dauerhaft 2 Prestige-Punkte pro Prestige statt 1.",
+	},
+	# Streckengröße: identische Stufen wie GRID_STEPS (4×4 → 4×5 → 4×6 → 5×6). Nur 3 Stufen.
 	"grid": {
-		"name": "Streckengröße", "icon": "", "base_cost": 4, "growth": 4.0, "max_level": 3,
-		"desc": "Vergrößert das Baufeld aller Strecken.", "prereq": {"income": 1},
+		"name": "Streckengröße", "icon": "", "base_cost": 2, "growth": 4.0, "max_level": 3,
+		"desc": "Vergrößert das Baufeld aller Strecken.",
+	},
+	# Zusätzliche Autos – addiert sich auf das normale Auto-Upgrade. max 10 mit flacherer Kurve
+	# (growth 3.0), damit man dauerhaft mehr Autos kaufen kann. Ermöglicht u. a. genügend Autos
+	# für (mehrere) Super-Autos, siehe SUPER_CAR_*.
+	"car": {
+		"name": "Extra-Auto", "icon": "", "base_cost": 3, "growth": 3.0, "max_level": 10,
+		"desc": "Je Stufe ein dauerhaft zusätzliches Auto.",
+	},
+	# +1 Prestigepunkt pro Prestige (2 → 3). Einmalig, nicht upgradebar. Liegt an Position 5 →
+	# wird nach dem 5. Prestige freigeschaltet.
+	"points3": {
+		"name": "+1 Punkt (→3)", "icon": "", "base_cost": 3, "growth": 1.0, "max_level": 1,
+		"desc": "Du erhältst dauerhaft 3 Prestige-Punkte pro Prestige.",
 	},
 	# Unlocks behalten: einmaliger Kauf (max_level 1). Danach bleiben ALLE freigeschalteten
 	# Streckenteile (Gerade/Kurve/Eis/Rampe) über den Prestige-Reset hinweg gratis nutzbar –
 	# man zahlt die Freischalt-Gebühr nie wieder. Die Tile-UPGRADES bleiben Level 0 (werden
 	# normal zurückgesetzt); nur die einmalige Freischaltung entfällt. Siehe is_tile_unlocked().
 	"keep_unlocks": {
-		"name": "Unlocks behalten", "icon": "", "base_cost": 5, "growth": 1.0, "max_level": 1,
+		"name": "Unlocks behalten", "icon": "", "base_cost": 4, "growth": 1.0, "max_level": 1,
 		"desc": "Freigeschaltete Streckenteile bleiben nach dem Prestige gratis (keine Freischalt-Gebühr mehr).",
-		"prereq": {"grid": 1},
-	},
-	# Zusätzliche Autos – addiert sich auf das normale Auto-Upgrade. max 10 mit flacherer Kurve
-	# (growth 3.0), damit man dauerhaft mehr Autos kaufen kann (Stufe 10 ≈ 118k ⭐). Ermöglicht u. a.
-	# genügend Autos für (mehrere) Super-Autos, siehe SUPER_CAR_*.
-	"car": {
-		"name": "Extra-Auto", "icon": "", "base_cost": 6, "growth": 3.0, "max_level": 10,
-		"desc": "Je Stufe ein dauerhaft zusätzliches Auto.", "prereq": {"keep_unlocks": 1},
 	},
 	# Strecken-Freischaltung: Lv1 = Strecke 2, Lv2 = Strecke 3 (Strecke 1 ist immer offen).
 	"track": {
-		"name": "Extra-Strecke", "icon": "", "base_cost": 8, "growth": 8.0, "max_level": 2,
-		"desc": "Schaltet Strecke 2 und 3 frei (eine je Stufe).", "prereq": {"car": 1},
+		"name": "Extra-Strecke", "icon": "", "base_cost": 4, "growth": 8.0, "max_level": 2,
+		"desc": "Schaltet Strecke 2 und 3 frei (eine je Stufe).",
 	},
 	# Gratis-Straßen: mehrfach kaufbar. Je Stufe darf man FREE_ROADS_PER_LEVEL["straight"] Geraden
 	# und ["curve"] Kurven gratis platzieren, BEVOR sie etwas kosten. Danach startet der Preis beim
@@ -246,18 +265,24 @@ const PRESTIGE_NODES = {
 	"free_roads": {
 		"name": "Gratis-Straßen", "icon": "", "base_cost": 5, "growth": 2.0, "max_level": 10,
 		"desc": "Je Stufe 2 Geraden und 4 Kurven gratis platzierbar, bevor sie etwas kosten.",
-		"prereq": {"track": 1},
 	},
-	# End-Knoten: schaltet die Tribüne ÜBERHAUPT erst frei (15 ⭐, einmalig). Danach muss sie im
-	# Shop trotzdem noch für Geld freigeschaltet werden (is_tile_unlocked + Unlock-Gate auf stand_unlock).
+	# Tribüne: schaltet die Tribüne ÜBERHAUPT erst frei (einmalig). Danach muss sie im Shop
+	# trotzdem noch für Geld freigeschaltet werden (is_tile_unlocked + Unlock-Gate auf stand_unlock).
 	"stand_unlock": {
-		"name": "Tribüne", "icon": "", "base_cost": 15, "growth": 1.0, "max_level": 1,
+		"name": "Tribüne", "icon": "", "base_cost": 5, "growth": 1.0, "max_level": 1,
 		"desc": "Schaltet die Tribüne frei (danach im Shop noch für Geld freischaltbar).",
-		"prereq": {"free_roads": 1},
+	},
+	# Letzter Knoten: schaltet die Verdienst-Skalierung der Prestige-Punkte frei. Vorher gibt ein
+	# Prestige eine feste Punktzahl (1/2/3); danach bringt mehr Geld zusätzliche Punkte (siehe
+	# prestige_pending_points). Einmalig, nicht upgradebar.
+	"scaling": {
+		"name": "Verdienst-Skalierung", "icon": "", "base_cost": 5, "growth": 1.0, "max_level": 1,
+		"desc": "Mehr Geld pro Prestige bringt zusätzliche Punkte (ab 400k +1, 900k +2, 1,6M +3 …).",
 	},
 }
-# Reihenfolge im Tech-Baum (links → rechts).
-const PRESTIGE_ORDER = ["income", "grid", "keep_unlocks", "car", "track", "free_roads", "stand_unlock"]
+# Reihenfolge im Tech-Baum (links → rechts). Position p (1-basiert) ⇒ freigeschaltet nach dem
+# p-ten Prestige (siehe is_prestige_node_unlocked).
+const PRESTIGE_ORDER = ["income", "points2", "grid", "car", "points3", "keep_unlocks", "track", "free_roads", "stand_unlock", "scaling"]
 const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe eine weitere.
 
 # Gratis platzierbare Default-Tiles je Stufe des „free_roads"-Knotens (siehe get_free_tile_quota).
@@ -287,6 +312,11 @@ var super_car_count: int   = 0
 var prestige_points: int        = 0   # verfügbare ⭐
 var prestige_earned: int        = 0   # seit dem letzten Prestige verdientes Geld (Basis für Punkte)
 var prestige_nodes:  Dictionary = {}  # Tech-Baum-Knoten: id → Stufe
+var prestige_count:  int        = 0   # Anzahl ausgeführter Prestiges → gated Baum-Freischaltung
+# TEMP: dauerhafte Tab-Freischaltung (Prestige/Werkstatt), sobald die Verdienst-Schwelle einmal
+# erreicht wurde. ENTFERNEN, sobald es einen Erfolge-Tab gibt – dann dort setzen (_check_tab_unlocks).
+var prestige_tab_unlocked:  bool = false
+var werkstatt_tab_unlocked: bool = false
 var total_playtime:  float      = 0.0 # gesamte gespielte Zeit in Sekunden (slot-gebunden)
 var _current_slot:  int        = 0
 var _slot_name:     String     = ""
@@ -312,6 +342,9 @@ signal slot_changed(slot: int)
 signal upgrade_purchased(id: String)
 # Prestige-Punkte oder Tech-Baum-Knoten haben sich geändert (Kauf oder ausgeführtes Prestige).
 signal prestige_changed
+# TEMP: ein Tab (Prestige/Werkstatt) wurde dauerhaft freigeschaltet → Nav/Modal entsperren live.
+# ENTFERNEN bzw. durch ein Erfolgs-Signal ersetzen, sobald es einen Erfolge-Tab gibt.
+signal tab_unlock_changed
 # Auto-Lackierung wurde in der Werkstatt geändert → 3D-Autos färben sich live um.
 signal car_paint_changed
 # Cheat-Modus (globale Einstellung) wurde umgeschaltet → HUD blendet die Cheat-Buttons ein/aus.
@@ -489,6 +522,7 @@ func _credit_laps(i: int) -> void:
 		return
 	_currency += gain
 	prestige_earned += gain   # Basis für die nächste Prestige-Punkte-Ausschüttung
+	_check_tab_unlocks()      # TEMP: Prestige-/Werkstatt-Tab freischalten, sobald Schwelle erreicht
 	_tracks[i]["run_credited"] = int(_tracks[i]["run_credited"]) + gain
 	_tracks[i]["run_earned"]   = int(_tracks[i]["run_credited"])
 	emit_signal("lap_credited", i, gain)
@@ -1059,6 +1093,7 @@ func ascend_car() -> bool:
 	prestige_earned = 0
 	prestige_points = 0
 	prestige_nodes  = {}
+	prestige_count  = 0   # Tech-Baum startet neu; Tab-Unlocks (prestige_/werkstatt_) bleiben dauerhaft
 	super_car_count = 0
 	_active_track   = 0
 	_init_tracks()
@@ -1214,13 +1249,49 @@ func get_prestige_node_cost(id: String) -> int:
 	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), get_prestige_node_level(id))))
 
 
-# Freigeschaltet, sobald alle Voraussetzungs-Knoten ihre Mindeststufe erreicht haben.
+func get_prestige_count() -> int:
+	return prestige_count
+
+
+# Position (1-basiert) in PRESTIGE_ORDER = Anzahl benötigter Prestiges, bis der Knoten erscheint.
+func get_prestige_node_unlock_count(id: String) -> int:
+	var pos := PRESTIGE_ORDER.find(id)
+	return pos + 1 if pos >= 0 else 0
+
+
+# Freigeschaltet, sobald man oft genug prestigt hat (positionsbasiert). Jedes Prestige öffnet genau
+# den nächsten Knoten; kaufen muss man ihn weiterhin mit ⭐. Ersetzt die alte Prereq-Kette.
 func is_prestige_node_unlocked(id: String) -> bool:
-	var prereq: Dictionary = _prestige_def(id).get("prereq", {})
-	for req_id in prereq:
-		if get_prestige_node_level(req_id) < int(prereq[req_id]):
-			return false
-	return true
+	var need := get_prestige_node_unlock_count(id)
+	if need <= 0:
+		return true
+	return prestige_count >= need
+
+
+# ── TEMP: Tab-Freischaltung ──────────────────────────────────────────────────────
+# Prestige- und Werkstatt-Tab starten gesperrt und werden dauerhaft frei, sobald prestige_earned
+# (seit letztem Prestige) die jeweilige Schwelle erreicht. Wird live aus _credit_laps und beim
+# Laden geprüft. ENTFERNEN, sobald ein Erfolge-Tab existiert – die Freischaltung dann dort über
+# den jeweiligen Erfolg auslösen (einfach is_*_tab_unlocked aus dem Erfolgsstatus ableiten).
+func _check_tab_unlocks() -> void:
+	var changed := false
+	if not prestige_tab_unlocked and float(prestige_earned) >= PRESTIGE_TAB_UNLOCK_EARN:
+		prestige_tab_unlocked = true
+		changed = true
+	if not werkstatt_tab_unlocked and float(prestige_earned) >= WERKSTATT_TAB_UNLOCK_EARN:
+		werkstatt_tab_unlocked = true
+		changed = true
+	if changed:
+		save_game()
+		tab_unlock_changed.emit()
+
+
+func is_prestige_tab_unlocked() -> bool:
+	return prestige_tab_unlocked
+
+
+func is_werkstatt_tab_unlocked() -> bool:
+	return werkstatt_tab_unlocked
 
 
 func can_buy_prestige_node(id: String) -> bool:
@@ -1265,6 +1336,11 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 			return "%d Strecke" % n if n == 1 else "%d Strecken" % n
 		"keep_unlocks":
 			return Icons.CHECK + " aktiv" if level >= 1 else "aus"
+		"points2", "points3":
+			# Additiv: jeder dieser Knoten gibt +1 Punkt pro Prestige (Basis 1 + points2 + points3).
+			return "+1 Punkt/Prestige" if level >= 1 else "+0"
+		"scaling":
+			return Icons.CHECK + " aktiv" if level >= 1 else "aus"
 		"stand_unlock":
 			return Icons.CHECK + " freigeschaltet" if level >= 1 else "gesperrt"
 		"free_roads":
@@ -1273,12 +1349,17 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 	return str(level)
 
 
-# Punkte, die ein Prestige JETZT einbringen würde: floor(sqrt(prestige_earned / K)) · Auto-Stufen-Bonus.
+# Punkte, die ein Prestige JETZT einbringt: flache Basis (1 + points2 + points3) plus – nur wenn der
+# „scaling"-Knoten gekauft ist – ein verdienstabhängiger Zusatz floor(sqrt(verdient/K))−1. Alles
+# zum Schluss × Auto-Stufen-Bonus. Gate: erst ab prestige_earned ≥ K (= 100k).
 func prestige_pending_points() -> int:
-	if prestige_earned <= 0:
+	if float(prestige_earned) < PRESTIGE_K:
 		return 0
-	var base: float = floor(sqrt(float(prestige_earned) / PRESTIGE_K))
-	return int(base * get_car_point_mult())
+	var flat := 1 + get_prestige_node_level("points2") + get_prestige_node_level("points3")
+	var extra := 0
+	if get_prestige_node_level("scaling") >= 1:
+		extra = maxi(0, int(floor(sqrt(float(prestige_earned) / PRESTIGE_K))) - 1)
+	return int(float(flat + extra) * get_car_point_mult())
 
 
 func can_prestige() -> bool:
@@ -1293,7 +1374,8 @@ func do_prestige() -> int:
 	if gained < 1:
 		return 0
 	prestige_points += gained
-	# Harter Reset – nur prestige_points/prestige_nodes bleiben erhalten.
+	prestige_count  += 1   # schaltet positionsbasiert den nächsten Tech-Baum-Knoten frei
+	# Harter Reset – nur prestige_points/prestige_nodes/prestige_count + Tab-Unlocks bleiben erhalten.
 	_currency      = START_CURRENCY
 	upgrade_levels = {}
 	track          = []
@@ -1402,6 +1484,9 @@ func save_game_to_slot(slot: int) -> void:
 		"prestige_points": prestige_points,
 		"prestige_earned": prestige_earned,
 		"prestige_nodes":  prestige_nodes,
+		"prestige_count":  prestige_count,
+		"prestige_tab_unlocked":  prestige_tab_unlocked,   # TEMP (siehe _check_tab_unlocks)
+		"werkstatt_tab_unlocked": werkstatt_tab_unlocked,  # TEMP (siehe _check_tab_unlocks)
 		"total_playtime":  total_playtime,
 		"car_paint_on":    car_paint_on,
 		"car_paint_color": car_paint_color,
@@ -1422,21 +1507,7 @@ func load_game_from_slot(slot: int) -> void:
 	_current_slot = slot
 	# Erst auf Standardwerte zurücksetzen, damit KEIN Zustand (z. B. freigeschaltete
 	# Tiles) vom vorher geladenen Slot übrig bleibt – auch wenn die Datei fehlt/defekt ist.
-	_currency       = START_CURRENCY
-	upgrade_levels  = {}
-	track           = []
-	unlocked_tiles  = {}
-	prestige_points = 0
-	prestige_earned = 0
-	prestige_nodes  = {}
-	total_playtime  = 0.0
-	car_paint_on    = false
-	car_paint_color = Color(0.85, 0.15, 0.12)
-	car_pattern     = 0
-	car_tier        = 0
-	super_car_count = 0
-	_slot_name      = ""
-	_init_tracks()
+	_reset_state_to_defaults()
 
 	var path = get_save_path(slot)
 	if FileAccess.file_exists(path):
@@ -1457,6 +1528,11 @@ func load_game_from_slot(slot: int) -> void:
 				prestige_earned = int(data.get("prestige_earned", 0))
 				var pn         = data.get("prestige_nodes", {})
 				prestige_nodes = pn.duplicate() if typeof(pn) == TYPE_DICTIONARY else {}
+				# Alt-Save ohne prestige_count: aus den bereits gekauften Knoten ableiten, damit
+				# sie weiterhin freigeschaltet bleiben (höchste belegte Position).
+				prestige_count = int(data.get("prestige_count", _infer_prestige_count()))
+				prestige_tab_unlocked  = bool(data.get("prestige_tab_unlocked", false))   # TEMP
+				werkstatt_tab_unlocked = bool(data.get("werkstatt_tab_unlocked", false))  # TEMP
 				total_playtime = float(data.get("total_playtime", 0.0))
 				car_paint_on   = bool(data.get("car_paint_on", false))
 				var cpc        = data.get("car_paint_color", car_paint_color)
@@ -1476,11 +1552,26 @@ func load_game_from_slot(slot: int) -> void:
 					# Rückwärtskompatibilität: alten track-State in Track 0 laden
 					_tracks[0]["grid"] = track
 
+	_check_tab_unlocks()   # TEMP: bei bereits erreichter Schwelle die Tabs sofort entsperren
 	slot_changed.emit(slot)
 
 
-func reset_slot(slot: int) -> void:
-	_current_slot   = slot
+# Migration für Alt-Saves ohne prestige_count: so viele Prestiges annehmen, dass bereits gekaufte
+# Knoten weiterhin freigeschaltet bleiben (höchste belegte Position in PRESTIGE_ORDER).
+func _infer_prestige_count() -> int:
+	var pc := 0
+	for nid in prestige_nodes:
+		if int(prestige_nodes[nid]) > 0:
+			pc = maxi(pc, get_prestige_node_unlock_count(nid))
+	return pc
+
+
+# Setzt ALLEN slot-gebundenen Zustand auf Werkseinstellungen. EINZIGE Quelle, damit
+# load_game_from_slot (Defaults vor dem Laden) und reset_slot (Neues Spiel) garantiert dasselbe
+# zurücksetzen → keine Profil-Leaks. JEDER neue persistente Zustand (Upgrade, Freischaltung,
+# Kosmetik, Auto-Tier, Prestige …) MUSS hier zurückgesetzt werden, sonst sickert er in andere
+# Profile durch. _current_slot/Datei-IO setzt der Aufrufer.
+func _reset_state_to_defaults() -> void:
 	_currency       = START_CURRENCY
 	upgrade_levels  = {}
 	track           = []
@@ -1488,12 +1579,23 @@ func reset_slot(slot: int) -> void:
 	prestige_points = 0
 	prestige_earned = 0
 	prestige_nodes  = {}
+	prestige_count  = 0
+	prestige_tab_unlocked  = false
+	werkstatt_tab_unlocked = false
 	total_playtime  = 0.0
 	car_paint_on    = false
 	car_paint_color = Color(0.85, 0.15, 0.12)
+	car_pattern     = 0
+	car_pattern_color = Color(0.06, 0.06, 0.08)
+	car_tier        = 0   # Werkstatt-Auto („2. Auto") ist PROFIL-gebunden
 	super_car_count = 0
 	_slot_name      = ""
 	_init_tracks()
+
+
+func reset_slot(slot: int) -> void:
+	_current_slot   = slot
+	_reset_state_to_defaults()
 	save_game_to_slot(slot)
 	slot_changed.emit(slot)
 
