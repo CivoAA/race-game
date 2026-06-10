@@ -678,9 +678,23 @@ func _build_credits_modal() -> Control:
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 
+	# Äußerer Container: scrollbarer Inhalt oben, fixer „Zurück"-Button unten.
+	var outer_vbox := VBoxContainer.new()
+	outer_vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(outer_vbox)
+
+	# Scroll-Bereich: Höhe an die Fenstergröße gekoppelt → bei vielen Namen wird gescrollt,
+	# ohne dass das Panel über den Bildschirm hinauswächst.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(0, mini(RUI.px(460), int(RUI.vh() - RUI.px(150))))
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer_vbox.add_child(scroll)
+
 	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
+	scroll.add_child(vbox)
 
 	# Dev Team
 	_credits_heading(vbox, "DEV TEAM")
@@ -714,9 +728,12 @@ func _build_credits_modal() -> Control:
 	_credits_heading(vbox, "TESTER")
 	_credits_thin_div(vbox)
 	_add_spacer(vbox, 4)
-	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi", "RaccoonDog"])
-	_add_spacer(vbox, 14)
-	_add_menu_button(vbox, "←", "Zurück", C_ACCENT_MU, func(): _credits_modal.visible = false)
+	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi", "RaccoonDog",
+		"Louis", "DGROM", "Bubbles", "Papa_Civo"])
+
+	# „Zurück" bleibt außerhalb des Scrollbereichs immer sichtbar.
+	_add_spacer(outer_vbox, 14)
+	_add_menu_button(outer_vbox, "←", "Zurück", C_ACCENT_MU, func(): _credits_modal.visible = false)
 
 	return overlay
 
