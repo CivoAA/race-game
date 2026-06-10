@@ -21,15 +21,19 @@ const CLICK_GAIN_DB := -8.0
 
 # Mindestabstand zwischen zwei Hover-Sounds in Millisekunden. Wer schnell über mehrere
 # Menüpunkte fährt, löst dadurch nicht im Maschinengewehr-Tempo Dutzende Sounds aus.
-const HOVER_MIN_INTERVAL_MS := 60
+const HOVER_MIN_INTERVAL_MS := 45
+# Wie viele Hover-Sounds gleichzeitig ausklingen dürfen, bevor der älteste wiederverwendet
+# (sanft „gestohlen") wird. Höher = weicher/voller bei schnellem Sweep, tiefer = trockener.
+const HOVER_VOICES := 3
 
 var _hover_stream: AudioStream
 var _click_stream: AudioStream
-# Hover hat eine EIGENE Stimme: jeder neue Hover startet sie neu und schneidet damit
-# den vorherigen Hover ab → nie gestapelte, überlagerte Hover-Sounds.
-var _hover_player: AudioStreamPlayer
+# Hover nutzt einen kleinen eigenen Pool: bis zu HOVER_VOICES Sounds klingen natürlich
+# übereinander aus; erst danach wird die älteste Stimme neu gestartet (Round-Robin).
+var _hover_players: Array[AudioStreamPlayer] = []
+var _hover_next := 0
 var _last_hover_ms := 0
-# Klicks dürfen sich überlappen → kleiner Round-Robin-Stimmen-Pool.
+# Klicks dürfen sich überlappen → eigener Round-Robin-Stimmen-Pool.
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 
@@ -41,12 +45,14 @@ func _ready() -> void:
 	_hover_stream = _load_oneshot(Paths.SFX_UI_HOVER)
 	_click_stream = _load_oneshot(Paths.SFX_UI_CLICK)
 
-	# Dedizierte Einzelstimme für Hover (siehe oben).
-	_hover_player = AudioStreamPlayer.new()
-	_hover_player.bus = "SFX"
-	_hover_player.stream = _hover_stream
-	_hover_player.volume_db = HOVER_GAIN_DB
-	add_child(_hover_player)
+	# Kleiner eigener Stimmen-Pool für Hover (siehe oben).
+	for i in HOVER_VOICES:
+		var h := AudioStreamPlayer.new()
+		h.bus = "SFX"
+		h.stream = _hover_stream
+		h.volume_db = HOVER_GAIN_DB
+		add_child(h)
+		_hover_players.append(h)
 
 	for i in POOL_SIZE:
 		var p := AudioStreamPlayer.new()
@@ -80,15 +86,18 @@ func _load_oneshot(path: String) -> AudioStream:
 # ── Öffentliche Wiedergabe (auch manuell aufrufbar: Sfx.play_click()) ──────────
 
 func play_hover() -> void:
-	if _hover_player == null:
+	if _hover_players.is_empty():
 		return
 	# Zu dicht aufeinanderfolgende Hover (schneller Sweep) überspringen.
 	var now := Time.get_ticks_msec()
 	if now - _last_hover_ms < HOVER_MIN_INTERVAL_MS:
 		return
 	_last_hover_ms = now
-	# Neustart schneidet einen evtl. noch laufenden Hover ab → immer nur eine Stimme.
-	_hover_player.play()
+	# Nächste Stimme im Pool. Bis zu HOVER_VOICES klingen übereinander aus; ist der Pool
+	# voll, trifft es wieder die älteste (Round-Robin) → sanftes Stimmen-Stehlen statt Cut.
+	var p := _hover_players[_hover_next]
+	_hover_next = (_hover_next + 1) % _hover_players.size()
+	p.play()
 
 
 func play_click() -> void:
