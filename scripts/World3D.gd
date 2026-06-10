@@ -30,12 +30,10 @@ var _track_cx: float = 3.6
 var _track_cz: float = 3.0
 
 # Lauf-Zustand
-var _run_time_left:   float = 0.0
 var _run_active:      bool  = false
 var _active_track_idx: int  = 0
 var _grid_state:      Array = []   # für Auto-Respawn bei Live-Upgrade gemerkt
 
-var _timer_label:  Label = null
 var _finish_btn:   Button = null
 var _bottom_bar:   Control = null   # untere Leiste (wie im 2D-Bauplan), trägt den Finish-Button
 
@@ -68,8 +66,8 @@ func _ready() -> void:
 
 	generator.generate(grid_state)
 
-	# Timer kommt immer aus Economy (single source of truth)
-	_run_time_left = Economy.get_run_time_left(_active_track_idx)
+	# Lauf-Status kommt immer aus Economy (single source of truth); der Timer-Text
+	# wird von GameHUD gerendert.
 	_run_active    = Economy.is_run_active(_active_track_idx)
 
 	# Strecken-Tabs bleiben auch in 3D aktiv → auf Wechsel reagieren. run_ended liefert das
@@ -86,7 +84,6 @@ func _ready() -> void:
 		return
 
 	_start_cars(grid_state)
-	_update_run_hud()
 
 
 # ── Grid-Zustand ────────────────────────────────────────────────────────────────
@@ -119,12 +116,10 @@ func _resolve_grid_state() -> Array:
 func _process(_delta: float) -> void:
 	if not _run_active:
 		return
-	# Economy ist die einzige Timer-Quelle – World3D zählt NICHT selbst
-	_run_time_left = Economy.get_run_time_left(_active_track_idx)
+	# Economy ist die einzige Timer-Quelle – World3D zählt NICHT selbst und prüft hier nur
+	# das Lauf-Ende. Die Timer-Anzeige liegt in GameHUD.
 	if not Economy.is_run_active(_active_track_idx):
 		_end_run()
-	else:
-		_update_run_hud()
 
 
 func _on_economy_run_ended(track_idx: int, _earned: int) -> void:
@@ -160,9 +155,7 @@ func _end_run() -> void:
 
 func _setup_hud() -> void:
 	# HUD-Overlay (Layer 21 = über GameHUD Layer 20)
-	# Kein eigener Hintergrund – GameHUD stellt die Bar bereit.
-	# Timer: freier Bereich zwischen Währungs-Label und 2D-Button (x 592–720)
-	# Runde/Gesamt: Build-Button-Bereich (x 822–902, in 3D ausgeblendet)
+	# Kein eigener Hintergrund – GameHUD stellt die Bar bereit (inkl. Renn-Timer neben der Währung).
 	var layer := CanvasLayer.new()
 	layer.layer = 21
 	add_child(layer)
@@ -172,6 +165,11 @@ func _setup_hud() -> void:
 	const BAR_H = 42
 	_bottom_bar = Control.new()
 	_bottom_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Vollbild-Container, aber NUR die sichtbare untere Leiste soll Klicks fangen.
+	# Ohne IGNORE würde dieser Container (Layer 21, über GameHUD/Popup) alle Klicks
+	# über den ganzen Bildschirm schlucken → Seitenleiste & "Zurück zum Bauplan"
+	# unklickbar. Kinder (z.B. der Finish-Button) erhalten Klicks weiterhin selbst.
+	_bottom_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_bottom_bar)
 
 	var bar_bg := ColorRect.new()
@@ -233,17 +231,8 @@ func _setup_hud() -> void:
 	bar_status.add_theme_color_override("font_color", Color(0.580, 0.608, 0.643))
 	_bottom_bar.add_child(bar_status)
 
-	# Timer – zwischen Währung (endet ~x580) und Run-Anzeige (x820)
-	_timer_label = Label.new()
-	_timer_label.position = Vector2(592, 8)
-	_timer_label.size     = Vector2(128, 34)
-	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_timer_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_timer_label.add_theme_font_size_override("font_size", 18)
-	_timer_label.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
-	_timer_label.add_theme_constant_override("outline_size", 3)
-	_timer_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
-	layer.add_child(_timer_label)
+	# Der Renn-Timer wird von GameHUD in der oberen Leiste neben der Währung gezeigt
+	# (responsive, single source) – World3D rendert ihn nicht mehr selbst.
 
 
 func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
@@ -258,11 +247,6 @@ func _make_hud_label(pos: Vector2, font_size: int, color: Color) -> Label:
 	lbl.add_theme_constant_override("outline_size", 4)
 	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	return lbl
-
-
-func _update_run_hud() -> void:
-	if _timer_label != null:
-		_timer_label.text = Icons.CLOCK + "  " + Icons.INFINITY if Economy.endless_mode else Icons.CLOCK + "  %.1f s" % _run_time_left
 
 
 func _show_summary() -> void:
@@ -336,16 +320,6 @@ func _show_summary() -> void:
 	earned_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	panel.add_child(earned_lbl)
 
-	# Info-Text
-	var info := Label.new()
-	info.text = "Der Betrag wurde deinem Konto gutgeschrieben."
-	info.position = Vector2(0, 118)
-	info.size = Vector2(PW, 22)
-	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info.add_theme_font_size_override("font_size", 12)
-	info.add_theme_color_override("font_color", Color(0.36, 0.40, 0.52))
-	panel.add_child(info)
-
 	# Zurück-Button
 	var btn := Button.new()
 	btn.text = "← Zurück zum Bauplan"
@@ -382,7 +356,6 @@ func _respawn_cars() -> void:
 			ctrl.queue_free()
 	car_controllers.clear()
 	_start_cars(_grid_state)
-	_update_run_hud()
 
 
 func _start_cars(grid_state: Array) -> void:
