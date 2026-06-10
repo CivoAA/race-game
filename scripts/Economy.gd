@@ -8,6 +8,16 @@ const START_CURRENCY  = 0
 # Umrechnung "Tempo"-Zahl (Shop, 25→150) → tatsächliche Auto-Geschwindigkeit (m/s).
 # Basis-Tempo 25 · 0.1 = 2.5 m/s (bewusst langsam); Max-Tempo 150 · 0.1 = 15 m/s.
 const SPEED_SCALE     = 0.1
+# Tempo-Wert je Speed-Stufe 0..15 („Auto 1"-Bereich), Stufe 15 = 150. Special-case in _effect_at;
+# get_car_speed = Tempo · SPEED_SCALE. Gleichmäßiger Anstieg 25→150 in ganzzahligen Schritten.
+const SPEED_STEPS = [25, 33, 42, 50, 58, 67, 75, 83, 92, 100, 108, 117, 125, 133, 142, 150]
+# Oberhalb von Stufe 15 geht das Tempo weiter: je SPEED_TRIPLE_EVERY Stufen verdreifacht es sich
+# (Stufe 30=450, 45=1350, 60=4050, 75=12150). Grund: langsamere Auto-Tiers (jedes ÷3 → Auto 5 = ÷81)
+# brauchen mehr Tempo, um effektiv 150 zu erreichen (12150 ÷ 81 = 150). Kosten ab Stufe 15 wachsen
+# sanfter (SPEED_TAIL_GROWTH), damit diese Stufen für die hohen Tiers überhaupt erreichbar bleiben.
+const SPEED_BASE_LEVELS  = 15     # Stufen mit dem steilen „Auto 1"-Kostenverlauf (growth 4.4)
+const SPEED_TAIL_GROWTH  = 1.3    # Kosten-Wachstum je Stufe oberhalb von SPEED_BASE_LEVELS
+const SPEED_TRIPLE_EVERY = 15.0   # je so viele Stufen verdreifacht sich das Tempo oberhalb von 150
 
 # ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
 # MEHRFACH kaufbar (super_car_count): jeder Kauf „kombiniert" SUPER_CAR_COST_CARS normale Autos zu
@@ -22,7 +32,7 @@ const SUPER_CAR_REQ_SPEED   = 75              # min. Tempo (speed-Effektwert) al
 const SUPER_CAR_COST_CARS   = 4               # so viele normale Autos werden je Super-Auto ersetzt
 const SUPER_CAR_SPEED_DIV   = 3.0             # Tempo wird durch diesen Wert geteilt
 const SUPER_CAR_TILE_BONUS  = 10000.0         # zusätzlicher +Ertrag JE Feld (oben drauf)
-const SUPER_CAR_END_MULT    = 25.0            # zusätzlicher ×Faktor ganz am Ende (oben drauf)
+const SUPER_CAR_END_MULT    = 1.0             # KEIN zusätzlicher End-×Faktor mehr (Tier-Auto nur +Wert/Feld)
 
 # ── Auto-Prestige (Tier) ────────────────────────────────────────────────────────
 # In der Werkstatt (Tab „Autos") kann man ab einer Geld-Schwelle das Auto „upgraden": car_tier += 1,
@@ -41,12 +51,15 @@ const CAR_ASCEND_POINT_MULT = 4.0                # ×4 Prestigepunkte je Stufe (
 # Effektwert pro Level = base + per_level * level
 const UPGRADES = {
 	# Tempo-ZAHL 25→150 (Anzeige). Tatsächliche Auto-Geschwindigkeit = Tempo · SPEED_SCALE
-	# (get_car_speed), Basis also bewusst langsam. EINE Quelle für alle Strecken.
-	# Tempo-Stufen 0..25: Tempo = 25 + 5·Level → 25 … 150 (gleicher Top-Speed wie zuvor, nur in
-	# kleineren Schritten = deutlich langsamerer Tempo-Zuwachs). Preis unverändert (steigt steil).
+	# (get_car_speed), Basis bewusst langsam. EINE Quelle für alle Strecken.
+	# Tempo: Stufen 0–15 = SPEED_STEPS (25→150, „Auto 1"), Kosten base 50 · growth 4.4 (Stufe-15-Kauf
+	# ≈ 50b – diese ersten 15 Preise sind bewusst so). Geht bis Stufe 75 = Tempo 12150, weil langsamere
+	# Auto-Tiers (jedes ÷3, Auto 5 ÷81) so viel Tempo brauchen, um effektiv 150 zu fahren. Effekt + Kosten
+	# ab Stufe 15 special-cased (_effect_at / _speed_cost, base/per_level dort ignoriert – die bleiben
+	# nur die „Tempo-Stufe" für Eis-/Steilwand-Speedbonus).
 	"speed": {
 		"category": "general", "name": "Tempo",
-		"base_cost": 50, "growth": 3.0, "max_level": 25,
+		"base_cost": 50, "growth": 4.4, "max_level": 75,
 		"base": 25.0, "per_level": 5.0, "unit": " Tempo",
 	},
 	# Fahrzeit: eigene Sequenz (_drive_time_value, special-case in _effect_at): 15,20,25,30,
@@ -73,9 +86,12 @@ const UPGRADES = {
 		"base_cost": 500, "growth": 3.5, "max_level": 10,
 		"base": 1.0, "per_level": 0.5, "unit": "×",
 	},
+	# Tile-Bonus: +Geld je überfahrenem Feld. 100 Stufen, Kosten growth 1.413 (Lv20 ≈ 10k Preis →
+	# dort +10/Feld; sanfter als früher 3.0). Effekt special-cased (_tilebonus_value, base/per_level
+	# IGNORIERT): sanft bis +10/Feld bei Lv20, danach stark beschleunigt → Lv50 ≈ +10.000/Feld.
 	"tilebonus": {
 		"category": "general", "name": "Tile-Bonus",
-		"base_cost": 10, "growth": 3.0, "max_level": 14,
+		"base_cost": 10, "growth": 1.413, "max_level": 100,
 		"base": 0.0, "per_level": 0.5, "unit": " /Feld",
 	},
 	# Tile-Upgrades: zusätzlicher Reward je überfahrenem Feld dieses Typs (additiv, vor endmult).
@@ -134,7 +150,7 @@ const UPGRADES = {
 	# andere Multiplikator des Feldes multipliziert wird (M·F). get_effect liefert direkt 2.0+0.2·Lvl.
 	"loopbonus": {
 		"category": "tile", "name": "Looping-Multiplikator (×)",
-		"base_cost": 50000, "growth": 2.5, "max_level": 10,
+		"base_cost": 50000, "growth": 2.8, "max_level": 10,
 		"base": 1.5, "per_level": 0.2, "unit": "",
 	},
 	# Portal-Upgrade: additiver Geld-Ertrag am Eingangs-Portal (kein Multiplikator). 25 Stufen.
@@ -288,10 +304,85 @@ const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe 
 # Gratis platzierbare Default-Tiles je Stufe des „free_roads"-Knotens (siehe get_free_tile_quota).
 const FREE_ROADS_PER_LEVEL = {"straight": 2, "curve": 4}
 
+# ── Erfolge (Achievements) ────────────────────────────────────────────────────────
+# Pro Profil gespeichert (unlocked_achievements, slot-gebunden). Definition als reine Daten;
+# Icons sind UI-Sache und liegen in GlobalModal. Zwei Arten von Erfolgen:
+#   • Ereignis-Erfolge (ohne "metric") werden explizit per unlock_achievement(id) freigeschaltet
+#     (z. B. erstes Rennen, erstes Streckenteil platzieren, Auto-Aufstieg).
+#   • Schwellen-Erfolge (mit "metric" + "target") schaltet _check_metric_achievements() automatisch
+#     frei, sobald der jeweilige Wert die Schwelle erreicht. metric ∈
+#     {currency, prestige_points, prestige_count, lap_earn}.
+# Freischalten ist idempotent + sofort persistiert; achievement_unlocked meldet es der UI live.
+const ACHIEVEMENTS = {
+	"first_race":     {"name": "Erster Start",   "desc": "Starte dein allererstes Rennen."},
+	"tile_road":      {"name": "Streckenbauer",  "desc": "Platziere zum ersten Mal eine Straße (Gerade oder Kurve)."},
+	"tile_ice":       {"name": "Eiszeit",        "desc": "Platziere zum ersten Mal eine Eisgerade."},
+	"tile_ramp":      {"name": "Abheben",        "desc": "Platziere zum ersten Mal eine Rampe."},
+	"tile_wall":      {"name": "Steile Sache",   "desc": "Platziere zum ersten Mal eine Steilwandkurve."},
+	"tile_loop":      {"name": "Looping",        "desc": "Platziere zum ersten Mal ein Looping."},
+	"tile_portal":    {"name": "Portalspringer", "desc": "Platziere zum ersten Mal ein Portal."},
+	"tile_stand":     {"name": "Volle Tribüne",  "desc": "Platziere zum ersten Mal eine Tribüne."},
+	"stand_max":      {"name": "Ausverkauft",    "desc": "Staple eine Tribüne auf die maximale Stufe (5×)."},
+	"lap_1k":         {"name": "Erste Einnahmen", "desc": "Verdiene 1.000 mit EINEM Auto in einer Runde (Start bis Start).",          "metric": "lap_earn",        "target": 1000.0},
+	"lap_100k":       {"name": "Gute Runde",      "desc": "Verdiene 100.000 mit EINEM Auto in einer Runde.",                          "metric": "lap_earn",        "target": 100000.0},
+	"lap_1m":         {"name": "Spitzenrunde",    "desc": "Verdiene 1.000.000 mit EINEM Auto in einer Runde.",                        "metric": "lap_earn",        "target": 1000000.0},
+	"lap_1b":         {"name": "Traumrunde",      "desc": "Verdiene 1.000.000.000 mit EINEM Auto in einer Runde.",                    "metric": "lap_earn",        "target": 1000000000.0},
+	"money_100k":     {"name": "Erstes Vermögen", "desc": "Besitze 100.000 Währung.",            "metric": "currency",        "target": 100000.0},
+	"money_1m":       {"name": "Millionär",       "desc": "Besitze 1.000.000 Währung.",          "metric": "currency",        "target": 1000000.0},
+	"money_1b":       {"name": "Milliardär",      "desc": "Besitze 1.000.000.000 Währung.",      "metric": "currency",        "target": 1000000000.0},
+	"money_1t":       {"name": "Billionär",       "desc": "Besitze 1.000.000.000.000 Währung.",  "metric": "currency",        "target": 1000000000000.0},
+	"car_ascend":     {"name": "Werkstatt-Profi", "desc": "Werte dein Auto zum ersten Mal in der Werkstatt auf."},
+	"first_prestige": {"name": "Neuanfang",       "desc": "Führe dein erstes Prestige durch.",   "metric": "prestige_count",  "target": 1},
+	"prestige_5":     {"name": "Wiedergeboren",   "desc": "Führe 5 Prestiges durch.",            "metric": "prestige_count",  "target": 5},
+	"prestige_10":    {"name": "Aufgestiegen",    "desc": "Führe 10 Prestiges durch.",           "metric": "prestige_count",  "target": 10},
+	"pp_10":          {"name": "Sternensammler",  "desc": "Besitze 10 Prestige-Punkte.",         "metric": "prestige_points", "target": 10},
+	"pp_100":         {"name": "Sternenhaufen",   "desc": "Besitze 100 Prestige-Punkte.",        "metric": "prestige_points", "target": 100},
+	"pp_1000":        {"name": "Galaxie",         "desc": "Besitze 1.000 Prestige-Punkte.",      "metric": "prestige_points", "target": 1000},
+	"track_2":        {"name": "Neue Strecke",    "desc": "Schalte Strecke 2 frei.",   "metric": "unlocked_tracks", "target": 2},
+	"track_3":        {"name": "Streckensammler", "desc": "Schalte Strecke 3 frei.",   "metric": "unlocked_tracks", "target": 3},
+}
+# Anzeige-Reihenfolge im Erfolge-Tab (links → rechts, oben → unten). Grob nach der WAHRSCHEINLICHEN
+# Freischalt-Progression sortiert (früh → spät), bewusst über Geld-/Runden-/Tile-/Prestige-/Strecken-
+# Erfolge gemischt statt strikt nach Kategorie – orientiert an den Freischalt-/Kostengrenzen.
+const ACHIEVEMENT_ORDER = [
+	"first_race",      # sofort
+	"tile_road",       # Gerade/Kurve (ab 15k/30k)
+	"lap_1k",          # 1k je Runde
+	"money_100k",      # 100k Geld
+	"first_prestige",  # erstes Prestige (ab 100k verdient)
+	"tile_ice",        # Eisgerade (500k)
+	"lap_100k",        # 100k je Runde
+	"money_1m",        # 1M Geld
+	"pp_10",           # 10 ⭐
+	"prestige_5",      # 5 Prestiges
+	"tile_ramp",       # Rampe (25M)
+	"lap_1m",          # 1M je Runde
+	"tile_wall",       # Steilwand (500M)
+	"money_1b",        # 1B Geld
+	"prestige_10",     # 10 Prestiges
+	"pp_100",          # 100 ⭐
+	"track_2",         # Strecke 2 (Prestige-Knoten)
+	"tile_loop",       # Looping (15B)
+	"car_ascend",      # Auto-Aufstieg (100B)
+	"tile_portal",     # Portal (100B)
+	"money_1t",        # 1T Geld
+	"tile_stand",      # Tribüne (1T)
+	"stand_max",       # Tribüne 5× gestapelt
+	"lap_1b",          # 1B je Runde (sehr spät)
+	"track_3",         # Strecke 3
+	"pp_1000",         # 1.000 ⭐ (sehr spät)
+]
+
+# Trophäen: eigene Erfolgs-Währung. Jeder freigeschaltete Erfolg bringt ACH_REWARD Trophäen.
+# Nur in der Garage angezeigt (slot-gebunden, kein Spieleffekt – reine Sammel-Währung).
+const ACH_REWARD = 100
+
 var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke des aktiven Tracks (Rückwärtskompatibilität)
 var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
+var unlocked_achievements: Dictionary = {}   # freigeschaltete Erfolge: id → true (slot-gebunden)
+var ach_currency: int = 0   # Trophäen aus Erfolgen (slot-gebunden, nur in der Garage sichtbar)
 
 # Kosmetik: Auto-Lackierung (Werkstatt). car_paint_on=false → Originaltextur (keine Umfärbung).
 var car_paint_on:    bool  = false
@@ -349,6 +440,8 @@ signal tab_unlock_changed
 signal car_paint_changed
 # Cheat-Modus (globale Einstellung) wurde umgeschaltet → HUD blendet die Cheat-Buttons ein/aus.
 signal cheat_mode_changed
+# Ein Erfolg wurde freigeschaltet (id aus ACHIEVEMENTS) → Erfolge-Tab aktualisiert sich live.
+signal achievement_unlocked(id: String)
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -357,12 +450,12 @@ signal cheat_mode_changed
 const TILE_UNLOCK_COST = {
 	"def_straight": 15000,
 	"def_curve":    30000,
-	"ice":          150000,
-	"ramp":         500000,
-	"wall":         2000000,
-	"loop":         1000000,
-	"portal":       5000000,
-	"stand":        50000000,
+	"ice":          500000,
+	"ramp":         25000000,
+	"wall":         500000000,
+	"loop":         15000000000,
+	"portal":       100000000000,
+	"stand":        1000000000000,
 }
 
 # ── Eisgerade ───────────────────────────────────────────────────────────────────
@@ -516,12 +609,16 @@ func _credit_laps(i: int) -> void:
 		var new_laps := car_laps - int(car.get("credited_laps", 0))
 		if new_laps <= 0:
 			continue
-		gain += new_laps * _lap_reward_for_car(car)
+		var car_reward := _lap_reward_for_car(car)
+		gain += new_laps * car_reward
 		car["credited_laps"] = car_laps
+		# Erfolge „verdiene X mit EINEM Auto in einer Runde" – am Pro-Auto-Rundenertrag.
+		_check_metric_achievements("lap_earn", float(car_reward))
 	if gain <= 0:
 		return
 	_currency += gain
 	prestige_earned += gain   # Basis für die nächste Prestige-Punkte-Ausschüttung
+	_check_metric_achievements("currency", float(_currency))   # „Besitze X Währung"-Erfolge
 	_check_tab_unlocks()      # TEMP: Prestige-/Werkstatt-Tab freischalten, sobald Schwelle erreicht
 	_tracks[i]["run_credited"] = int(_tracks[i]["run_credited"]) + gain
 	_tracks[i]["run_earned"]   = int(_tracks[i]["run_credited"])
@@ -697,6 +794,7 @@ func start_run(track_idx: int) -> void:
 	_tracks[track_idx]["run_earned"]   = 0
 	_tracks[track_idx]["run_credited"] = 0
 	_tracks[track_idx]["run_credited_laps"] = 0
+	unlock_achievement("first_race")   # Erfolg: erstes Rennen gestartet
 
 
 # Bisher verstrichene Fahrzeit dieses Runs (für die Rückrechnung der Auto-Position).
@@ -806,6 +904,7 @@ func spend(amount: int) -> bool:
 
 func add(amount: int) -> void:
 	_currency += amount
+	_check_metric_achievements("currency", float(_currency))   # „Besitze X Währung"-Erfolge
 	save_game()
 
 
@@ -834,6 +933,15 @@ func _effect_at(id: String, level: int) -> float:
 	# Fahrzeit: eigene Stufen-Sequenz (10,15,…,30,40,…,60,90,…).
 	if id == "drive_time":
 		return float(_drive_time_value(level))
+	# Tempo: Stufen 0–15 aus der Tabelle, darüber Verdreifachung je SPEED_TRIPLE_EVERY Stufen
+	# (Stufe 75 = 12150). base/per_level ignoriert.
+	if id == "speed":
+		if level <= SPEED_BASE_LEVELS:
+			return float(SPEED_STEPS[clampi(level, 0, SPEED_STEPS.size() - 1)])
+		return float(int(round(150.0 * pow(3.0, float(level - SPEED_BASE_LEVELS) / SPEED_TRIPLE_EVERY))))
+	# Tile-Bonus: beschleunigende Stufen-Summe (base/per_level ignoriert).
+	if id == "tilebonus":
+		return _tilebonus_value(level)
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0.0
@@ -869,12 +977,37 @@ func _dirt_field_earn(level: int) -> int:
 	return total
 
 
+# Tile-Bonus (+Geld /Feld) bei Upgrade-Stufe `level` (0..100). Zwei Phasen:
+#   Lv0–20:  linear +0.5/Stufe  → +10/Feld bei Lv20 (dort ≈ 10k Kosten).
+#   Lv20–100: stark beschleunigt, Verdopplung alle 3 Stufen → Lv50 ≈ +10.000/Feld, Lv100 ≈ +1e9/Feld.
+# Stetig bei Lv20 (beide Zweige = 10). Closed-Form, da pro Runde im Reward aufgerufen.
+func _tilebonus_value(level: int) -> float:
+	var lv := clampi(level, 0, 100)
+	if lv <= 20:
+		return 0.5 * lv
+	return 10.0 * pow(2.0, float(lv - 20) / 3.0)
+
+
 func get_upgrade_cost(id: String) -> int:
+	if id == "speed":
+		return _speed_cost(get_upgrade_level(id))
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0
 	var level = get_upgrade_level(id)
 	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), level)))
+
+
+# Tempo-Kosten der NÄCHSTEN Stufe. Stufen 0–15 wie der „Auto 1"-Verlauf (base · 4.4^level,
+# Stufe-15-Kauf ≈ 50b). Ab Stufe 15 sanfteres Wachstum (SPEED_TAIL_GROWTH), damit die hohen
+# Tempo-Stufen für die langsameren Auto-Tiers (bis Tempo 12150) erreichbar bleiben.
+func _speed_cost(level: int) -> int:
+	var d := UPGRADES["speed"]
+	var bc := float(d["base_cost"])
+	var g  := float(d["growth"])
+	if level <= SPEED_BASE_LEVELS:
+		return int(round(bc * pow(g, level)))
+	return int(round(bc * pow(g, SPEED_BASE_LEVELS) * pow(SPEED_TAIL_GROWTH, level - SPEED_BASE_LEVELS)))
 
 
 func is_maxed(id: String) -> bool:
@@ -1079,21 +1212,22 @@ func get_car_point_mult() -> float:
 func get_tier_car_count() -> int:
 	return 1 + int(get_car_count() / SUPER_CAR_COST_CARS)
 
-# Führt den Auto-Aufstieg aus: car_tier += 1, danach VOLL-Reset (alles inkl. Prestige-Tree; nur
-# car_tier + Kosmetik bleiben). Gibt true zurück, wenn ausgeführt.
+# Führt den Auto-Aufstieg aus: car_tier += 1, danach Reset (Geld/Upgrades/Tiles + Prestige-PUNKTE
+# und Node-Level). NICHT zurückgesetzt: car_tier + Kosmetik UND prestige_count – dadurch bleibt der
+# Tech-Baum komplett freigeschaltet (man muss nicht erneut prestigen) und kann von Anfang an wieder
+# hochgekauft werden; Tab-Unlocks (prestige_/werkstatt_) bleiben ebenfalls dauerhaft.
 func ascend_car() -> bool:
 	if not can_ascend_car():
 		return false
 	car_tier += 1
-	# Harter Reset – alles außer car_tier + Kosmetik (car_paint_*/car_pattern_*).
+	unlock_achievement("car_ascend")   # Erfolg: erstes Auto-Upgrade in der Werkstatt
 	_currency       = START_CURRENCY
 	upgrade_levels  = {}
 	track           = []
 	unlocked_tiles  = {}
 	prestige_earned = 0
 	prestige_points = 0
-	prestige_nodes  = {}
-	prestige_count  = 0   # Tech-Baum startet neu; Tab-Unlocks (prestige_/werkstatt_) bleiben dauerhaft
+	prestige_nodes  = {}   # Node-LEVEL zurück auf 0 (neu kaufen), aber prestige_count bleibt → alles freigeschaltet
 	super_car_count = 0
 	_active_track   = 0
 	_init_tracks()
@@ -1213,6 +1347,7 @@ func get_prestige_points() -> int:
 # Debug/Cheat: Prestige-Punkte direkt gutschreiben (für Test-Buttons). Speichert + meldet Änderung.
 func add_prestige_points(n: int) -> void:
 	prestige_points += n
+	_check_metric_achievements("prestige_points", float(prestige_points))   # „Besitze X ⭐"-Erfolge
 	save_game()
 	prestige_changed.emit()
 
@@ -1313,6 +1448,8 @@ func buy_prestige_node(id: String) -> bool:
 		emit_signal("upgrade_purchased", "grid_size")
 	elif id == "car":
 		emit_signal("upgrade_purchased", "car_count")
+	elif id == "track":
+		_check_metric_achievements("unlocked_tracks", float(get_unlocked_tracks()))   # Strecke 2/3-Erfolge
 	return true
 
 
@@ -1375,6 +1512,9 @@ func do_prestige() -> int:
 		return 0
 	prestige_points += gained
 	prestige_count  += 1   # schaltet positionsbasiert den nächsten Tech-Baum-Knoten frei
+	# Erfolge: „X Prestiges durchgeführt" (count) und „Besitze X ⭐" (Punkte aus diesem Prestige).
+	_check_metric_achievements("prestige_count", float(prestige_count))
+	_check_metric_achievements("prestige_points", float(prestige_points))
 	# Harter Reset – nur prestige_points/prestige_nodes/prestige_count + Tab-Unlocks bleiben erhalten.
 	_currency      = START_CURRENCY
 	upgrade_levels = {}
@@ -1386,6 +1526,50 @@ func do_prestige() -> int:
 	save_game()
 	prestige_changed.emit()
 	return gained
+
+
+# ── Erfolge (Achievements) ────────────────────────────────────────────────────────
+
+func is_achievement_unlocked(id: String) -> bool:
+	return bool(unlocked_achievements.get(id, false))
+
+
+# Trophäen-Stand (Erfolgs-Währung, nur Garage). 100 je freigeschaltetem Erfolg.
+func get_ach_currency() -> int:
+	return ach_currency
+
+
+func get_achievement_count() -> int:
+	return ACHIEVEMENTS.size()
+
+
+func get_unlocked_achievement_count() -> int:
+	var n := 0
+	for id in ACHIEVEMENTS:
+		if is_achievement_unlocked(id):
+			n += 1
+	return n
+
+
+# Schaltet einen Erfolg frei (idempotent). Speichert sofort (slot-gebunden) und meldet die
+# Änderung, damit der Erfolge-Tab sie live anzeigt. Unbekannte/bereits erledigte Erfolge: No-Op.
+func unlock_achievement(id: String) -> void:
+	if not ACHIEVEMENTS.has(id) or is_achievement_unlocked(id):
+		return
+	unlocked_achievements[id] = true
+	ach_currency += ACH_REWARD   # Trophäen-Belohnung (nur Garage)
+	save_game()
+	achievement_unlocked.emit(id)
+
+
+# Prüft alle schwellenbasierten Erfolge einer Metrik gegen den aktuellen Wert und schaltet die
+# erreichten frei. Wird aus den jeweiligen Wertänderungen aufgerufen (Geld/Punkte/Prestige/Runde).
+func _check_metric_achievements(metric: String, value: float) -> void:
+	for id in ACHIEVEMENTS:
+		var d: Dictionary = ACHIEVEMENTS[id]
+		if String(d.get("metric", "")) == metric and not is_achievement_unlocked(id):
+			if value >= float(d.get("target", 0.0)):
+				unlock_achievement(id)
 
 
 # ── Bonusfelder ─────────────────────────────────────────────────────────────────
@@ -1481,6 +1665,8 @@ func save_game_to_slot(slot: int) -> void:
 		"track":       track,
 		"track_grids": track_grids,
 		"unlocked":    unlocked_tiles,
+		"achievements": unlocked_achievements,
+		"ach_currency": ach_currency,
 		"prestige_points": prestige_points,
 		"prestige_earned": prestige_earned,
 		"prestige_nodes":  prestige_nodes,
@@ -1524,6 +1710,9 @@ func load_game_from_slot(slot: int) -> void:
 				track          = tr if typeof(tr) == TYPE_ARRAY else []
 				var unl        = data.get("unlocked", {})
 				unlocked_tiles = unl.duplicate() if typeof(unl) == TYPE_DICTIONARY else {}
+				var ach        = data.get("achievements", {})
+				unlocked_achievements = ach.duplicate() if typeof(ach) == TYPE_DICTIONARY else {}
+				ach_currency   = int(data.get("ach_currency", 0))
 				prestige_points = int(data.get("prestige_points", 0))
 				prestige_earned = int(data.get("prestige_earned", 0))
 				var pn         = data.get("prestige_nodes", {})
@@ -1553,6 +1742,12 @@ func load_game_from_slot(slot: int) -> void:
 					_tracks[0]["grid"] = track
 
 	_check_tab_unlocks()   # TEMP: bei bereits erreichter Schwelle die Tabs sofort entsperren
+	# Schwellen-Erfolge rückwirkend prüfen: bereits erfüllte Werte (Geld/Punkte/Prestige-Anzahl)
+	# eines geladenen Profils sofort als erledigt markieren (auch für Alt-Saves vor diesem Feature).
+	_check_metric_achievements("currency", float(_currency))
+	_check_metric_achievements("prestige_points", float(prestige_points))
+	_check_metric_achievements("prestige_count", float(prestige_count))
+	_check_metric_achievements("unlocked_tracks", float(get_unlocked_tracks()))
 	slot_changed.emit(slot)
 
 
@@ -1576,6 +1771,8 @@ func _reset_state_to_defaults() -> void:
 	upgrade_levels  = {}
 	track           = []
 	unlocked_tiles  = {}
+	unlocked_achievements = {}   # Erfolge sind PROFIL-gebunden → bei Slot-Wechsel/Reset leeren
+	ach_currency    = 0
 	prestige_points = 0
 	prestige_earned = 0
 	prestige_nodes  = {}

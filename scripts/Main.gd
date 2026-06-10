@@ -49,12 +49,12 @@ const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
 	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 15000,  "base_price": 3000,   "growth": 4.0, "upgrade": "straightbonus"},
 	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
-	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 150000, "base_price": 25000,  "growth": 3.5, "upgrade": "icebonus"},
-	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 500000, "base_price": 100000, "growth": 5.0},
-	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 2000000, "base_price": 400000, "growth": 5.0, "upgrade": "wallbonus"},
-	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 1000000, "base_price": 200000, "growth": 5.0, "upgrade": "loopbonus"},
-	{"tier": "portal",  "type": "portal",   "name": "Portal",        "key": "portal",     "unlock": 5000000, "base_price": 1000000, "growth": 5.0, "upgrade": "portalbonus"},
-	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 50000000, "base_price": 5000000, "growth": 9.0, "upgrade": "standbonus"},
+	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 500000, "base_price": 100000,  "growth": 3.5, "upgrade": "icebonus"},
+	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
+	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
+	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
+	{"tier": "portal",  "type": "portal",   "name": "Portal",        "key": "portal",     "unlock": 100000000000, "base_price": 20000000000, "growth": 5.0, "upgrade": "portalbonus"},
+	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 1000000000000, "base_price": 200000000000, "growth": 9.0, "upgrade": "standbonus"},
 ]
 
 const SHOP_SLOT_COUNT = 10  # = SHOP_ITEMS.size()
@@ -2640,6 +2640,20 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 
 # xform (optional): überschreibt Typ/Rotation/Richtung – z. B. das aus dem Shop
 # gezogene Teil trägt seine per [R] geänderte Ausrichtung mit (Slow-Modus).
+# Schaltet beim ERSTEN erfolgreichen Platzieren eines Streckenteil-Typs den zugehörigen Erfolg
+# frei (idempotent in Economy). Dreck-Tiles haben bewusst keinen Erfolg; Gerade & Kurve teilen
+# sich „tile_road". tier kommt aus SHOP_ITEMS["tier"].
+func _grant_tile_achievement(tier: String) -> void:
+	match tier:
+		"default": Economy.unlock_achievement("tile_road")
+		"ice":     Economy.unlock_achievement("tile_ice")
+		"ramp":    Economy.unlock_achievement("tile_ramp")
+		"wall":    Economy.unlock_achievement("tile_wall")
+		"loop":    Economy.unlock_achievement("tile_loop")
+		"portal":  Economy.unlock_achievement("tile_portal")
+		"stand":   Economy.unlock_achievement("tile_stand")
+
+
 func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	var item = SHOP_ITEMS[selected_shop_slot]
 	if not Economy.is_tile_unlocked(item["key"]):
@@ -2701,6 +2715,7 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	_update_build_ui()
 	_update_grid_highlight()
 	_invalidate_track()
+	_grant_tile_achievement(item["tier"])   # Erfolg beim ersten Platzieren dieses Typs
 	# Schnell-Modus: Werkzeug abwählen & platziertes Tile markieren (Shift = mehrere platzieren).
 	_after_quick_place(row, col)
 
@@ -2806,6 +2821,7 @@ func _place_ramp(row: int, col: int) -> void:
 				"is_start": false, "is_dirt": false,
 				"ramp_partner_row": row, "ramp_partner_col": col,
 			})
+			_grant_tile_achievement("ramp")   # Erfolg beim ersten Platzieren
 			ramp_preview_rot = rot
 			last_placed_row = row
 			last_placed_col = col
@@ -2847,6 +2863,7 @@ func _place_wall(row: int, col: int) -> void:
 				"is_start": false, "is_dirt": false,
 				"ramp_partner_row": row, "ramp_partner_col": col,
 			})
+			_grant_tile_achievement("wall")   # Erfolg beim ersten Platzieren
 			ramp_preview_rot = rot
 			last_placed_row = row
 			last_placed_col = col
@@ -2879,6 +2896,8 @@ func _place_stand(row: int, col: int) -> void:
 		var nd = existing.duplicate()
 		nd.erase("node")
 		nd["stack"] = stk + 1
+		if stk + 1 >= STAND_MAX_STACK:
+			Economy.unlock_achievement("stand_max")   # Erfolg: Tribüne voll gestapelt
 		_free_tile_node(row, col)
 		_spawn_tile(row, col, nd)
 		last_placed_row = row; last_placed_col = col
@@ -2903,6 +2922,7 @@ func _place_stand(row: int, col: int) -> void:
 		"variant_label": "", "series": "", "combine_level": 0,
 		"is_start": false, "is_dirt": false, "stack": 1,
 	})
+	_grant_tile_achievement("stand")   # Erfolg beim ersten Platzieren
 	last_placed_row = row; last_placed_col = col
 	_update_currency_label(); _update_build_ui(); _update_grid_highlight(); _invalidate_track()
 	_after_quick_place(row, col)

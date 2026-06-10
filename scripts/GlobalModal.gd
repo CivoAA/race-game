@@ -108,6 +108,7 @@ func _ready() -> void:
 	RUI.layout_changed.connect(_on_layout_changed)
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	Economy.tab_unlock_changed.connect(_on_tab_unlock_changed)
+	Economy.achievement_unlocked.connect(_on_achievement_unlocked)
 
 
 # Auflösungs-/Layout-Änderung IMMER vormerken – auch wenn das Modal gerade
@@ -146,6 +147,7 @@ func _do_rebuild() -> void:
 	_lock_overlay           = null;  _lock_hint_lbl       = null
 	_ws_options_box         = null;  _ws_summary_lbl      = null
 	_garage_options_box     = null;  _garage_summary_lbl  = null
+	_garage_trophy_lbl      = null
 	_garage_tab_btns.clear(); _garage_active_tab = 0
 	_statistik_vbox         = null;  _stat_value_lbls.clear()
 	_tile_preview_pivots.clear();    _tiles_grid = null
@@ -153,7 +155,7 @@ func _do_rebuild() -> void:
 	_tile_upgrade_cards.clear();     _upgrade_buttons.clear()
 	_ach_data.clear();      _ach_tiles.clear();       _ach_selected = -1
 	_ach_icon_lbl = null;   _ach_title_lbl = null;   _ach_status_lbl = null
-	_ach_desc_lbl = null;   _ach_reward_lbl = null;  _ach_progress_lbl = null
+	_ach_desc_lbl = null;   _ach_progress_lbl = null
 	_hint_panel = null;     _hint_label = null;      _hint_ring = null
 	_hint_targets_upg.clear();       _hint_targets_tile.clear()
 	_hint_id = "";          _hover_id = "";           _hover_elapsed = 0.0
@@ -188,6 +190,7 @@ func open() -> void:
 	_refresh_affordability()
 	_rebuild_prestige()   # Punkte/Knoten könnten sich seit dem letzten Öffnen geändert haben
 	_refresh_statistik()  # Statistik-Werte (Geld/Prestige/Strecken …) frisch anzeigen
+	_refresh_achievements()  # Erfolge-done-Status (slot-gebunden) frisch anzeigen
 	_refresh_werkstatt()  # Auto-Stufe/Lack/Muster könnten sich geändert haben (Vorschau ggf. neu)
 	_refresh_modal_money()
 	visible = true
@@ -983,23 +986,60 @@ var _ach_icon_lbl:   Label = null
 var _ach_title_lbl:  Label = null
 var _ach_status_lbl: Label = null
 var _ach_desc_lbl:   Label = null
-var _ach_reward_lbl: Label = null
 var _ach_progress_lbl: Label = null   # „% erreicht" in der Kopfzeile
 
 
+# Icon-Glyph je Erfolgs-ID (UI-Sache; die Glyphen werden erst zur Laufzeit aus Icons befüllt,
+# daher hier als Funktion statt als const-Tabelle). Unbekannte IDs → neutrales Pokal-Icon.
+func _ach_icon_for(id: String) -> String:
+	match id:
+		"first_race":     return Icons.FLAG_3
+		"tile_road":      return Icons.ROAD
+		"tile_ice":       return Icons.SNOWFLAKE
+		"tile_ramp":      return Icons.ROCKET
+		"tile_wall":      return Icons.MOUNTAIN
+		"tile_loop":      return Icons.RECYCLE
+		"tile_portal":    return Icons.CIRCLE_DASHED
+		"tile_stand":     return Icons.STADIUM
+		"stand_max":      return Icons.CONFETTI
+		"lap_1k":         return Icons.CLOCK
+		"lap_100k":       return Icons.GAUGE
+		"lap_1m":         return Icons.BOLT
+		"lap_1b":         return Icons.FLAME
+		"money_100k":     return Icons.COIN
+		"money_1m":       return Icons.COINS
+		"money_1b":       return Icons.TRENDING_UP
+		"money_1t":       return Icons.TROPHY
+		"car_ascend":     return Icons.GARAGE
+		"first_prestige": return Icons.STAR
+		"prestige_5":     return Icons.MEDAL
+		"prestige_10":    return Icons.AWARD
+		"pp_10":          return Icons.SPARKLES
+		"pp_100":         return Icons.ROSETTE_CHECK
+		"pp_1000":        return Icons.STAR
+		"track_2":        return Icons.MAP_2
+		"track_3":        return Icons.WORLD
+	return Icons.TROPHY
+
+
+# Baut die Anzeige-Daten aus der zentralen Erfolgs-Definition in Economy (Quelle der Wahrheit).
+# done-Status ist slot-gebunden → kommt aus Economy.is_achievement_unlocked.
+func _build_ach_data() -> Array:
+	var out: Array = []
+	for id in Economy.ACHIEVEMENT_ORDER:
+		var d: Dictionary = Economy.ACHIEVEMENTS.get(id, {})
+		out.append({
+			"id":   id,
+			"icon": _ach_icon_for(id),
+			"name": String(d.get("name", id)),
+			"desc": String(d.get("desc", "")),
+			"done": Economy.is_achievement_unlocked(id),
+		})
+	return out
+
+
 func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
-	_ach_data = [
-		{"icon": Icons.FLAG_3, "name": "Erster Start",       "desc": "Starte dein allererstes Rennen.",            "reward": "+200 "   + Icons.COIN, "done": false},
-		{"icon": Icons.BOLT,   "name": "Schnellster Fahrer", "desc": "Beende ein Rennen in unter 60 Sekunden.",    "reward": "+500 "   + Icons.COIN, "done": false},
-		{"icon": Icons.TOOLS,  "name": "Streckenbauer",      "desc": "Erstelle 10 verschiedene Strecken.",         "reward": "+1.000 " + Icons.COIN, "done": false},
-		{"icon": Icons.FLAME,  "name": "Unaufhaltsam",       "desc": "Gewinne 5 Rennen in Folge ohne Niederlage.", "reward": "+2.000 " + Icons.COIN, "done": false},
-		{"icon": Icons.WIND,   "name": "Vollgas",            "desc": "Erreiche die maximale Geschwindigkeit.",     "reward": "+750 "    + Icons.COIN, "done": false},
-		{"icon": Icons.COINS,  "name": "Millionär",          "desc": "Besitze zum ersten Mal 1.000.000 Währung.",  "reward": "+5.000 "  + Icons.COIN, "done": false},
-		{"icon": Icons.TROPHY, "name": "Champion",           "desc": "Gewinne insgesamt 50 Rennen.",               "reward": "+10.000 " + Icons.COIN, "done": false},
-		{"icon": Icons.STAR,   "name": "Prestige-Meister",   "desc": "Führe deinen ersten Prestige durch.",        "reward": "+5 "      + Icons.STAR, "done": false},
-		{"icon": Icons.ROAD,   "name": "Architekt",          "desc": "Baue eine Strecke mit 100 Feldern.",         "reward": "+3.000 "  + Icons.COIN, "done": false},
-		{"icon": Icons.INFINITY,"name": "Grenzenlos",        "desc": "Schalte den Endlos-Modus frei.",             "reward": "+1.500 "  + Icons.COIN, "done": false},
-	]
+	_ach_data = _build_ach_data()
 	_ach_tiles.clear()
 	_ach_selected = -1
 
@@ -1086,22 +1126,6 @@ func _build_ach_detail_panel() -> Control:
 	_ach_desc_lbl.add_theme_font_size_override("font_size", 13)
 	_ach_desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	v.add_child(_ach_desc_lbl)
-
-	# Belohnungs-Box am unteren Rand der Spalte.
-	var reward_box := PanelContainer.new()
-	var rsb := StyleBoxFlat.new()
-	rsb.bg_color = C_BG
-	rsb.set_corner_radius_all(8)
-	rsb.content_margin_left = 12; rsb.content_margin_right  = 12
-	rsb.content_margin_top  = 8;  rsb.content_margin_bottom = 8
-	reward_box.add_theme_stylebox_override("panel", rsb)
-	v.add_child(reward_box)
-
-	_ach_reward_lbl = Label.new()
-	_ach_reward_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_ach_reward_lbl.add_theme_font_size_override("font_size", 15)
-	_ach_reward_lbl.add_theme_color_override("font_color", C_TEXT)
-	reward_box.add_child(_ach_reward_lbl)
 
 	return panel
 
@@ -1200,7 +1224,6 @@ func _select_achievement(idx: int) -> void:
 	_ach_icon_lbl.modulate = Color(1, 1, 1, 1.0 if done else 0.5)
 	_ach_title_lbl.text    = data["name"]
 	_ach_desc_lbl.text     = data["desc"]
-	_ach_reward_lbl.text   = "Belohnung:  %s" % data["reward"]
 	if done:
 		_ach_status_lbl.text = Icons.CHECK + " Freigeschaltet"
 		_ach_status_lbl.add_theme_color_override("font_color", C_ACCENT)
@@ -1224,25 +1247,29 @@ func _update_ach_progress() -> void:
 	_ach_progress_lbl.text = "%d %% (%d/%d)" % [pct, done, total]
 
 
-# Schaltet einen Erfolg frei (per Name) und aktualisiert Kacheln, Detailspalte und die
-# Prozentanzeige live. Mehrfaches Freischalten desselben Erfolgs bleibt wirkungslos.
-# Aufruf z. B.: GlobalModal.unlock_achievement("Erster Start")
-func unlock_achievement(ach_name: String) -> void:
+# Gleicht den done-Status aller Kacheln mit Economy ab (Quelle der Wahrheit) und zeichnet
+# Kacheln, Detailspalte und Prozentanzeige neu. Wird beim Öffnen (Slot kann gewechselt haben)
+# und live über das achievement_unlocked-Signal aufgerufen. No-Op, solange das Panel noch nicht
+# gebaut ist (greift z. B. nicht während _ready vor dem ersten _build_modal).
+func _refresh_achievements() -> void:
+	if _ach_tiles.is_empty() or _ach_progress_lbl == null:
+		return
 	for i in _ach_data.size():
-		if _ach_data[i].get("name", "") == ach_name:
-			if _ach_data[i].get("done", false):
-				return
-			_ach_data[i]["done"] = true
-			if i < _ach_tiles.size():
-				var t: Dictionary = _ach_tiles[i]
-				t["done"] = true
-				(t["icon"] as Label).modulate = Color(1, 1, 1, 1.0)
-				(t["name_lbl"] as Label).add_theme_color_override("font_color", C_TEXT)
-			_update_ach_progress()
-			# Detailspalte/Kachel-Optik neu zeichnen (greift nur, wenn das Panel gebaut ist).
-			if _ach_progress_lbl != null:
-				_select_achievement(_ach_selected if _ach_selected >= 0 else i)
-			return
+		var done: bool = Economy.is_achievement_unlocked(String(_ach_data[i].get("id", "")))
+		_ach_data[i]["done"] = done
+		if i < _ach_tiles.size():
+			var t: Dictionary = _ach_tiles[i]
+			t["done"] = done
+			(t["icon"] as Label).modulate = Color(1, 1, 1, 1.0 if done else 0.45)
+			(t["name_lbl"] as Label).add_theme_color_override("font_color", C_TEXT if done else C_TEXT_DIM)
+	_update_ach_progress()
+	_select_achievement(_ach_selected if _ach_selected >= 0 else 0)
+
+
+# Live-Update, wenn im Spiel ein Erfolg freigeschaltet wird (Signal aus Economy).
+func _on_achievement_unlocked(_id: String) -> void:
+	_refresh_achievements()
+	_refresh_garage_trophies()   # Trophäen-Stand (Garage) mitziehen
 
 
 # ── Statistik ───────────────────────────────────────────────────────────────────
@@ -1426,6 +1453,7 @@ var _garage_active_tab:  int           = 0
 var _garage_tab_btns:    Array[Button] = []
 var _garage_options_box: Control       = null
 var _garage_summary_lbl: Label         = null
+var _garage_trophy_lbl:  Label         = null   # Trophäen-Stand (Erfolgs-Währung), nur hier sichtbar
 
 # Container beider Tabs (für das Umhängen der gemeinsamen Vorschau) + die Vorschau selbst.
 var _werkstatt_container: Control = null
@@ -1556,6 +1584,16 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	_build_preview_frame(container)
 	_garage_summary_lbl = _make_preview_summary(container)
 
+	# Trophäen-Stand (Erfolgs-Währung) – bewusst NUR in der Garage sichtbar.
+	_garage_trophy_lbl = Label.new()
+	_garage_trophy_lbl.position = Vector2(16, 16)
+	_garage_trophy_lbl.size     = Vector2(220, 24)
+	_garage_trophy_lbl.add_theme_font_size_override("font_size", 15)
+	_garage_trophy_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_emboss(_garage_trophy_lbl)
+	container.add_child(_garage_trophy_lbl)
+	_refresh_garage_trophies()
+
 	_sync_paint_selection_from_economy()
 	_rebuild_garage_options()
 
@@ -1632,7 +1670,16 @@ func _refresh_werkstatt() -> void:
 	_sync_paint_selection_from_economy()
 	_rebuild_autos_options()
 	_rebuild_garage_options()
+	_refresh_garage_trophies()
 	_apply_ws_config()
+
+
+# Aktualisiert den Trophäen-Stand (Erfolgs-Währung) in der Garage. No-Op, solange das Panel
+# noch nicht gebaut ist. Trophäen-Icon = Pokal; Wert über die Idle-Zahlenformatierung.
+func _refresh_garage_trophies() -> void:
+	if _garage_trophy_lbl == null:
+		return
+	_garage_trophy_lbl.text = "%s  %d Trophäen" % [Icons.TROPHY, Economy.get_ach_currency()]
 
 
 func _rebuild_garage_options() -> void:
@@ -2216,9 +2263,9 @@ func _make_super_car_row(row_w: float) -> Control:
 	info.add_child(n_lbl)
 
 	var d_lbl := Label.new()
-	d_lbl.text = "%d Autos → 1 Super-Auto  ·  Tempo ≥%d nötig  ·  +%s/Feld · ×%d am Ende · Tempo ÷%d" % [
+	d_lbl.text = "%d Autos → 1 Super-Auto  ·  Tempo ≥%d nötig  ·  +%s/Feld · Tempo ÷%d" % [
 		Economy.SUPER_CAR_COST_CARS, Economy.SUPER_CAR_REQ_SPEED,
-		Economy.format_currency(Economy.SUPER_CAR_TILE_BONUS), int(Economy.SUPER_CAR_END_MULT),
+		Economy.format_currency(Economy.SUPER_CAR_TILE_BONUS),
 		int(Economy.SUPER_CAR_SPEED_DIV)]
 	d_lbl.add_theme_font_size_override("font_size", 11)
 	d_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
