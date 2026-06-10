@@ -45,6 +45,8 @@ var _tab_btns:     Array[Button]    = []
 var _run_dots:     Array[Panel]         = []
 var _run_dot_sbs:  Array[StyleBoxFlat]  = []   # je Punkt eigene Stylebox (zum Umfärben)
 var _currency_lbl: Label            = null
+var _timer_lbl:    Label            = null   # Renn-Timer (nur in der 3D-Fahrt sichtbar)
+var _timer_box:    Panel            = null   # Pille hinter dem Timer-Label
 var _view_2d_btn:  Button           = null
 var _view_3d_btn:  Button           = null
 var _shop_btn:     Button           = null
@@ -97,6 +99,8 @@ func _build_ui() -> void:
 	_run_dots.clear()
 	_run_dot_sbs.clear()
 	_currency_lbl = null
+	_timer_lbl    = null
+	_timer_box    = null
 	_endless_btn   = null
 	_debug_btn     = null
 	_nav_btns.clear()
@@ -196,6 +200,40 @@ func _build_bar() -> void:
 	_currency_lbl.add_theme_font_size_override("font_size", 16)
 	_currency_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
 	_ui_root.add_child(_currency_lbl)
+
+	# Renn-Timer – liegt NEBEN der Währung (nicht darüber) und wird komplett aus der
+	# Währungsgeometrie abgeleitet, damit beide in jeder Fenstergröße/Auflösung
+	# nebeneinander bleiben. Der Timer sitzt rechts neben der gesamten Geld-Gruppe
+	# (inkl. +1B-Badge-Slot) und wird am Inhalts-Rechtsrand geklemmt, damit er nie
+	# unter die rechte Seitenleiste rutscht oder über deren Rand hinausläuft.
+	# Sichtbar nur in der 3D-Fahrt der gerade gezeigten Strecke (siehe _refresh_timer).
+	const TIMER_W = 122
+	var timer_x := group_x + group_w + MONEY_GAP * 3
+	# Rechtsbündig begrenzen: rechte Kante nie über den Inhaltsbereich (= vor der Seitenleiste).
+	timer_x = minf(timer_x, RUI.content_w() - 8.0 - TIMER_W)
+	# Aber nie die Geld-Gruppe überlappen (bei sehr schmalen Layouts geht Lesbarkeit vor).
+	timer_x = maxf(timer_x, group_x + group_w + MONEY_GAP)
+
+	_timer_box = Panel.new()
+	_timer_box.position = Vector2(timer_x, pill_y)
+	_timer_box.size     = Vector2(TIMER_W, 32)
+	var tmr_sb := StyleBoxFlat.new()
+	tmr_sb.bg_color     = C_SURFACE
+	tmr_sb.set_border_width_all(1)
+	tmr_sb.border_color = C_LINE
+	tmr_sb.set_corner_radius_all(16)
+	_timer_box.add_theme_stylebox_override("panel", tmr_sb)
+	_ui_root.add_child(_timer_box)
+
+	_timer_lbl = Label.new()
+	_timer_lbl.position = Vector2(timer_x, 0)
+	_timer_lbl.size     = Vector2(TIMER_W, BAR_H)
+	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_timer_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_timer_lbl.add_theme_font_size_override("font_size", 16)
+	_timer_lbl.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+	_ui_root.add_child(_timer_lbl)
+	_refresh_timer()
 
 	# „+1B"-Badge (Cheat-Modus)
 	_debug_btn = Button.new()
@@ -705,6 +743,7 @@ func _process(_delta: float) -> void:
 
 	if _currency_lbl != null:
 		_currency_lbl.text = "%s  %s" % [Icons.COIN, Economy.format_currency(Economy.get_currency())]
+	_refresh_timer()
 	for i in TRACK_COUNT:
 		if i < _run_dot_sbs.size():
 			_set_run_dot(i, Economy.is_run_active(i))
@@ -874,6 +913,23 @@ func _refresh_endless_btn() -> void:
 	else:
 		_endless_btn.add_theme_stylebox_override("normal", _sb(C_SURFACE, C_ACCENT_MU))
 		_endless_btn.add_theme_color_override("font_color", C_TEXT_DIM)
+
+
+# Renn-Timer aktualisieren: nur in der 3D-Fahrt der gerade gezeigten Strecke und nur
+# bei laufender Runde sichtbar. Im Endlos-Modus erscheint ∞ statt der Restzeit. Die
+# Position wird in _build_bar aus der Währungsgeometrie bestimmt (responsive).
+func _refresh_timer() -> void:
+	if _timer_lbl == null or _timer_box == null:
+		return
+	var show := is_track_3d(_active_tab) and Economy.is_run_active(_active_tab)
+	_timer_box.visible = show
+	_timer_lbl.visible = show
+	if not show:
+		return
+	if Economy.endless_mode:
+		_timer_lbl.text = "%s  %s" % [Icons.CLOCK, Icons.INFINITY]
+	else:
+		_timer_lbl.text = "%s  %.1f s" % [Icons.CLOCK, Economy.get_run_time_left(_active_tab)]
 
 
 func flash_currency() -> void:
