@@ -34,6 +34,7 @@ GlobalModal="*res://scripts/GlobalModal.gd"
 PauseMenu="*res://scripts/PauseMenu.gd"
 MusicPlayer="*res://scripts/MusicPlayer.gd"
 Display="*res://scripts/Display.gd"
+Sfx="*res://scripts/Sfx.gd"
 
 [display]
 
