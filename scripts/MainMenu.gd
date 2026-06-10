@@ -61,21 +61,33 @@ const D_TITLE_BLUE_OUT := Color(0.106, 0.137, 0.314) # #1b2350
 const D_TITLE_CREAM := Color(0.953, 0.933, 0.882) # #f3eee1 TYCOON
 const D_TITLE_CREAM_OUT := Color(0.165, 0.184, 0.239) # #2a2f3d
 const D_LINE_BLUE  := Color(0.435, 0.545, 1.000)  # #6f8bff Trennstrich/Glow
-# Candy-Buttons: Fläche / Rahmen / Sockel / Text
-const D_BTN_BLUE      := Color(0.435, 0.545, 1.000)  # #6f8bff
-const D_BTN_BLUE_BRD  := Color(0.231, 0.337, 0.769)  # #3b56c4
-const D_BTN_BLUE_LDG  := Color(0.184, 0.278, 0.659)  # #2f47a8
-const D_BTN_BLUE_TXT  := Color(0.957, 0.965, 1.000)  # #f4f6ff
-const D_BTN_GREEN     := Color(0.318, 0.824, 0.486)  # #51d27c
-const D_BTN_GREEN_BRD := Color(0.173, 0.561, 0.302)  # #2c8f4d
-const D_BTN_GREEN_LDG := Color(0.137, 0.478, 0.247)  # #237a3f
-const D_BTN_GREEN_TXT := Color(0.055, 0.188, 0.098)  # #0e3019
-const D_BTN_RED       := Color(0.937, 0.408, 0.365)  # #ef685d
-const D_BTN_RED_BRD   := Color(0.749, 0.247, 0.216)  # #bf3f37
-const D_BTN_RED_LDG   := Color(0.620, 0.208, 0.180)  # #9e352e
-const D_BTN_RED_TXT   := Color(1.000, 0.953, 0.945)  # #fff3f1
+# Candy-Buttons (finaler Design-Handoff): dunkle Innenfläche, farbige Outline + farbiger Text.
+# Alle drei Knöpfe teilen sich dieselbe dunkle Fläche und denselben dunklen 3D-Sockel –
+# nur Rahmen- und Textfarbe unterscheiden sie (blau · grün · rot).
+const D_BTN_FACE      := Color(0.137, 0.157, 0.188)  # #232830 dunkle Innenfläche
+const D_BTN_FACE_H    := Color(0.153, 0.176, 0.212)  # #272d36 Hover-Fläche
+const D_BTN_LEDGE     := Color(0.078, 0.086, 0.106)  # #14161b 3D-Sockel (harter Schatten)
+const D_BTN_BLUE_BRD  := Color(0.345, 0.471, 0.941)  # #5878f0 Optionen-Rahmen
+const D_BTN_BLUE_TXT  := Color(0.557, 0.643, 1.000)  # #8ea4ff Optionen-Text
+const D_BTN_GREEN_BRD := Color(0.271, 0.769, 0.424)  # #45c46c SPIELEN-Rahmen
+const D_BTN_GREEN_TXT := Color(0.373, 0.851, 0.541)  # #5fd98a SPIELEN-Text
+const D_BTN_RED_BRD   := Color(0.886, 0.341, 0.298)  # #e2574c Beenden-Rahmen
+const D_BTN_RED_TXT   := Color(0.961, 0.537, 0.498)  # #f5897f Beenden-Text
 
 var settings := ConfigFile.new()
+
+# Hintergrund-Shader: Auflösung wird übergeben, damit die Straße bei jedem
+# Fenster-Seitenverhältnis gleich bleibt (stretch/aspect = "expand"). Der „horizon"
+# wird auf die Höhe der blauen Linie unter dem Titel gesetzt – dort startet die Straße.
+var _bg_mat:    ShaderMaterial
+var _bg_rect:   ColorRect
+var _blue_line: TextureRect
+var _title_vb:  VBoxContainer
+# Ruhe-Y des Titels (er schwebt von hier aus nach oben; die blaue Linie bleibt fix darunter).
+const TITLE_BASE_Y    := 70.0
+const TITLE_FLOAT_AMP := 7.0   # Hub nach oben in px (wie im Design: translateY -7px)
+const TITLE_FLOAT_DUR := 6.0   # Sekunden pro voller Auf-/Ab-Zyklus (wie im Design)
+var _title_phase := 0.0        # läuft 0..1, treibt das Schweben in _process()
 
 var _main_panel:    Control
 var _options_panel: Control
@@ -157,6 +169,18 @@ func _ready() -> void:
 	_show_main()
 	_apply_settings()
 	_refresh_profiles()
+	# Nach dem ersten Layout den Straßen-Horizont auf die blaue Linie setzen.
+	call_deferred("_update_bg")
+
+
+# Kontinuierliches, butterweiches Titel-Schweben: jeder Frame ist ein Stützpunkt.
+# Cosinus-Hub (0 → -AMP → 0) hat überall stetige Geschwindigkeit, also kein „Springen".
+func _process(delta: float) -> void:
+	if _title_vb == null:
+		return
+	_title_phase = fmod(_title_phase + delta / TITLE_FLOAT_DUR, 1.0)
+	var off := -0.5 * TITLE_FLOAT_AMP * (1.0 - cos(TAU * _title_phase))
+	_title_vb.position.y = TITLE_BASE_Y + off
 
 
 # ── Hintergrund ───────────────────────────────────────────────────────────────
@@ -166,12 +190,40 @@ func _build_background() -> void:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bg.color = C_BG   # Fallback, falls der Shader nicht lädt
+	_bg_rect = bg
 	var sh := load(Paths.SHADER_MAINMENU_BG)
 	if sh != null:
 		var mat := ShaderMaterial.new()
 		mat.shader = sh
 		bg.material = mat
+		_bg_mat = mat
+		# Auflösung + Horizont an den Shader geben und bei jeder Größenänderung neu setzen.
+		bg.resized.connect(_update_bg)
+		_update_bg()
 	add_child(bg)
+
+
+# Übergibt Pixelgröße (seitenverhältnis-korrekte Straße) und Horizont (Höhe der
+# blauen Linie = wo die Straße zu spawnen beginnt) an den Hintergrund-Shader.
+func _update_bg() -> void:
+	_layout_title_line()
+	if _bg_mat == null or _bg_rect == null:
+		return
+	var s := _bg_rect.size
+	if s.x <= 1.0 or s.y <= 1.0:
+		return
+	_bg_mat.set_shader_parameter("resolution", s)
+	if _blue_line != null and _blue_line.is_inside_tree():
+		# Mitte der blauen Linie als UV-Anteil → Straße startet exakt dort.
+		var y := _blue_line.position.y + _blue_line.size.y * 0.5
+		_bg_mat.set_shader_parameter("horizon", clampf(y / s.y, 0.05, 0.92))
+
+
+# Setzt die blaue Linie fix unter den ruhenden Titel (unabhängig vom Schweben).
+func _layout_title_line() -> void:
+	if _blue_line == null or _title_vb == null:
+		return
+	_blue_line.position.y = TITLE_BASE_Y + _title_vb.size.y + 16.0
 
 
 # ── Hauptmenü ─────────────────────────────────────────────────────────────────
@@ -194,33 +246,35 @@ func _build_main_panel() -> Control:
 	ver_box.add_child(ver_lbl)
 	ver_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 30)
 
-	# ── Titel „ROAD TYCOON" (Sticker-Look, leicht schwebend) ──
+	# ── Titel „ROAD TYCOON" (Sticker-Look) – NUR der Text schwebt, die Linie bleibt fix ──
 	var title_vb := VBoxContainer.new()
 	title_vb.alignment = BoxContainer.ALIGNMENT_CENTER
 	title_vb.add_theme_constant_override("separation", 2)
 	title_vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(title_vb)
+	_title_vb = title_vb
 
 	var line1 := _sticker_label("ROAD", D_TITLE_BLUE, D_TITLE_BLUE_OUT)
 	title_vb.add_child(line1)
 	var line2 := _sticker_label("TYCOON", D_TITLE_CREAM, D_TITLE_CREAM_OUT)
 	title_vb.add_child(line2)
 
-	_add_spacer(title_vb, 22)
-
-	var blue_line := TextureRect.new()
-	blue_line.texture = _blue_line_tex(560, 3)
-	blue_line.custom_minimum_size = Vector2(560, 3)
-	blue_line.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-	blue_line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	title_vb.add_child(blue_line)
-
 	title_vb.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 0)
-	title_vb.position.y = 118
-	# sanftes Schweben (±7 px), wie im Design
-	var float_tw := create_tween().set_loops()
-	float_tw.tween_property(title_vb, "position:y", 111.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	float_tw.tween_property(title_vb, "position:y", 118.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	title_vb.position.y = TITLE_BASE_Y
+	# Schweben läuft kontinuierlich in _process() (jeder Frame = ein Stützpunkt) →
+	# keine harten Wendepunkte mehr. Werte siehe TITLE_FLOAT_* / _process().
+
+	# Blaue Linie: eigenständig & statisch, sitzt fix unter dem Titel (bewegt sich NICHT mit).
+	_blue_line = TextureRect.new()
+	_blue_line.texture = _blue_line_tex(440, 3)
+	_blue_line.custom_minimum_size = Vector2(440, 3)
+	_blue_line.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	_blue_line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_blue_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_blue_line)
+	_blue_line.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 0)
+	# Y wird in _layout_title_line() unter den Titel gesetzt; danach den Straßen-Horizont nachziehen.
+	_blue_line.resized.connect(_update_bg)
 
 	# ── Profil-Auswahl (oben links, ohne Label) ──
 	var prof_row := HBoxContainer.new()
@@ -260,28 +314,28 @@ func _build_main_panel() -> Control:
 	# ── Menü-Box unten: Optionen · SPIELEN · Beenden ──
 	var menu_wrap := CenterContainer.new()
 	menu_wrap.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	menu_wrap.offset_top    = -210
-	menu_wrap.offset_bottom = -44
+	menu_wrap.offset_top    = -150
+	menu_wrap.offset_bottom = -38
 	root.add_child(menu_wrap)
 
 	var menu_box := PanelContainer.new()
-	menu_box.add_theme_stylebox_override("panel", _design_box_style(D_MENU_BG, D_BOX_BORDER, D_MENU_LEDGE, 26, 4, 22, 26))
+	menu_box.add_theme_stylebox_override("panel", _design_box_style(D_MENU_BG, D_BOX_BORDER, D_MENU_LEDGE, 22, 4, 16, 20))
 	menu_wrap.add_child(menu_box)
 
 	var brow := HBoxContainer.new()
 	brow.alignment = BoxContainer.ALIGNMENT_CENTER
-	brow.add_theme_constant_override("separation", 22)
+	brow.add_theme_constant_override("separation", 16)
 	menu_box.add_child(brow)
 
-	var opt_btn := _candy_btn("Optionen", D_BTN_BLUE, D_BTN_BLUE_BRD, D_BTN_BLUE_LDG, D_BTN_BLUE_TXT, 27, 16, 24, _show_options)
+	var opt_btn := _candy_btn("Optionen", D_BTN_FACE, D_BTN_BLUE_BRD, D_BTN_LEDGE, D_BTN_BLUE_TXT, 20, 11, 20, _show_options)
 	opt_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	brow.add_child(opt_btn)
 
-	var play_btn := _candy_btn("SPIELEN", D_BTN_GREEN, D_BTN_GREEN_BRD, D_BTN_GREEN_LDG, D_BTN_GREEN_TXT, 40, 28, 34, _on_play_pressed)
+	var play_btn := _candy_btn("SPIELEN", D_BTN_FACE, D_BTN_GREEN_BRD, D_BTN_LEDGE, D_BTN_GREEN_TXT, 29, 18, 30, _on_play_pressed)
 	play_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	brow.add_child(play_btn)
 
-	var quit_btn := _candy_btn("Beenden", D_BTN_RED, D_BTN_RED_BRD, D_BTN_RED_LDG, D_BTN_RED_TXT, 27, 16, 24, _on_quit)
+	var quit_btn := _candy_btn("Beenden", D_BTN_FACE, D_BTN_RED_BRD, D_BTN_LEDGE, D_BTN_RED_TXT, 20, 11, 20, _on_quit)
 	quit_btn.size_flags_vertical = Control.SIZE_SHRINK_END
 	brow.add_child(quit_btn)
 
@@ -334,13 +388,13 @@ func _sticker_label(text: String, col: Color, outline: Color) -> Label:
 	lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
 	lbl.text = text
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.add_theme_font_size_override("font_size", 92)
+	lbl.add_theme_font_size_override("font_size", 72)
 	lbl.add_theme_color_override("font_color", col)
-	lbl.add_theme_constant_override("outline_size", 12)
+	lbl.add_theme_constant_override("outline_size", 10)
 	lbl.add_theme_color_override("font_outline_color", outline)
 	lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.45))
 	lbl.add_theme_constant_override("shadow_offset_x", 0)
-	lbl.add_theme_constant_override("shadow_offset_y", 8)
+	lbl.add_theme_constant_override("shadow_offset_y", 6)
 	return lbl
 
 
@@ -369,10 +423,10 @@ func _candy_btn(text: String, face: Color, border: Color, ledge: Color, fg: Colo
 	btn.text = text
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.add_theme_stylebox_override("normal",  _candy_sb(face,                 border, ledge, pad_v, pad_h, false))
-	btn.add_theme_stylebox_override("hover",   _candy_sb(face.lightened(0.06), border, ledge, pad_v, pad_h, false))
-	btn.add_theme_stylebox_override("pressed", _candy_sb(face.darkened(0.04),  border, ledge, pad_v, pad_h, true))
-	btn.add_theme_stylebox_override("focus",   _candy_sb(face,                 border, ledge, pad_v, pad_h, false))
+	btn.add_theme_stylebox_override("normal",  _candy_sb(face,         border, ledge, pad_v, pad_h, false))
+	btn.add_theme_stylebox_override("hover",   _candy_sb(D_BTN_FACE_H, border, ledge, pad_v, pad_h, false))
+	btn.add_theme_stylebox_override("pressed", _candy_sb(face,         border, ledge, pad_v, pad_h, true))
+	btn.add_theme_stylebox_override("focus",   _candy_sb(face,         border, ledge, pad_v, pad_h, false))
 	btn.add_theme_color_override("font_color",       fg)
 	btn.add_theme_color_override("font_hover_color", fg)
 	btn.add_theme_color_override("font_pressed_color", fg)
@@ -385,12 +439,11 @@ func _candy_sb(face: Color, border: Color, ledge: Color, pad_v: int, pad_h: int,
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = face
 	sb.set_corner_radius_all(16)
+	# Gleichmäßige farbige Outline rundum – die Farbe trägt der Knopf, nicht die Fläche.
 	sb.border_color = border
-	sb.border_width_left  = 4
-	sb.border_width_right = 4
-	sb.border_width_top    = 4
+	sb.set_border_width_all(4)
+	# Dunkler 3D-Sockel als harter (unscharfer) Schatten unter dem Knopf (box-shadow 0 Npx 0).
 	# Gedrückt: Sockel schrumpft, Inhalt rutscht nach unten → Button „sinkt".
-	sb.border_width_bottom = 4 if pressed else 9
 	sb.shadow_color  = ledge
 	sb.shadow_size   = 0
 	sb.shadow_offset = Vector2(0, 3 if pressed else 7)
@@ -405,6 +458,10 @@ func _candy_sb(face: Color, border: Color, ledge: Color, pad_v: int, pad_h: int,
 func _style_profile_box(opt: OptionButton) -> void:
 	var sb   := _design_box_style(D_BOX_BG, D_BOX_BORDER, D_BOX_LEDGE, 14, 4, 11, 18)
 	var sb_h := _design_box_style(D_BOX_BG.lightened(0.10), D_BOX_BORDER, D_BOX_LEDGE, 14, 4, 11, 18)
+	# Mehr Luft rechts, damit der Dropdown-Pfeil nicht am Rand klebt.
+	sb.content_margin_right = 30
+	sb_h.content_margin_right = 30
+	opt.add_theme_constant_override("arrow_margin", 8)
 	opt.add_theme_stylebox_override("normal",  sb)
 	opt.add_theme_stylebox_override("hover",   sb_h)
 	opt.add_theme_stylebox_override("pressed", sb_h)

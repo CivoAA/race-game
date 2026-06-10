@@ -47,6 +47,9 @@ window/size/min_height=270
 [gui]
 
 theme/custom="res://ui_theme.tres"
+; Aus: sonst rasten Controls auf ganze Pixel ein → das Titel-Schweben „stuft"/springt.
+; Aus = subpixel-glattes Animieren (Schrift bleibt bei Anti-Aliasing unverändert scharf).
+common/snap_controls_to_pixels=false
 
 [physics]
 
