@@ -1508,10 +1508,15 @@ func _ws_options(id: String) -> Array:
 				{"name": "Gold",       "color": Color(0.83, 0.68, 0.21)},
 			]
 		"pattern":
-			# Muster über die Lack-Maske. idx = car_pattern (0 = keins, 1 = Streifen). Erweiterbar.
+			# Muster über die Lack-Maske. idx = car_pattern (= pattern_mode im Shader, 0 = keins).
+			# "kind" steuert nur die kleine Vorschau-Grafik der Karte; "gradient" blendet in die Farbe.
 			return [
-				{"name": "Keins",    "icon": Icons.CIRCLE_X},
-				{"name": "Streifen", "stripes": true},
+				{"name": "Keins",     "icon": Icons.CIRCLE_X},
+				{"name": "Streifen",  "kind": "stripes"},
+				{"name": "Diagonal",  "kind": "diagonal"},
+				{"name": "Karo",      "kind": "checker"},
+				{"name": "Punkte",    "kind": "dots"},
+				{"name": "Verlauf",   "kind": "gradient"},
 			]
 	return []
 
@@ -1740,8 +1745,8 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		sw.color    = opt.color
 		sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(sw)
-	elif opt.get("stripes", false):
-		# Kleine Streifen-Vorschau: aktuelle Lackfarbe mit schwarzen Streifen.
+	elif opt.has("kind"):
+		# Kleine Muster-Vorschau auf der aktuellen Lackfarbe (Standardfarbe, falls kein Lack aktiv).
 		var base_col: Color = Economy.get_car_paint_color() if Economy.is_car_paint_on() else Color(0.55, 0.57, 0.62)
 		var bg := ColorRect.new()
 		bg.position = Vector2(pad, pad)
@@ -1749,15 +1754,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		bg.color    = base_col
 		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(bg)
-		var stripes := 5
-		var sw_w := (w - 2.0 * pad) / float(stripes * 2 - 1)
-		for s in range(stripes):
-			var st := ColorRect.new()
-			st.position = Vector2(pad + s * 2.0 * sw_w, pad)
-			st.size     = Vector2(sw_w, content_h)
-			st.color    = Economy.get_car_pattern_color()
-			st.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			bg.add_child(st)
+		_build_pattern_preview(bg, String(opt.kind), Vector2(w - 2.0 * pad, content_h), base_col)
 	else:
 		var icon := Label.new()
 		icon.position = Vector2(0, pad)
@@ -1782,6 +1779,26 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 	else:
 		card.tooltip_text = opt.name
 
+	# Gesperrte (noch nicht gekaufte) Kosmetik abdunkeln + Schloss/Preis zeigen.
+	if _is_option_locked(cat, opt, idx):
+		var veil := ColorRect.new()
+		veil.position = Vector2(pad, pad)
+		veil.size     = Vector2(w - 2.0 * pad, content_h)
+		veil.color    = Color(0.0, 0.0, 0.0, 0.5)
+		veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(veil)
+		var lock := Label.new()
+		lock.position = Vector2(pad, pad)
+		lock.size     = Vector2(w - 2.0 * pad, content_h)
+		lock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lock.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+		lock.add_theme_font_size_override("font_size", 16 if show_label else 13)
+		lock.add_theme_color_override("font_color", C_TEXT)
+		lock.text = "%s\n%d %s" % [Icons.LOCK, Economy.COSMETIC_COST, Icons.TROPHY] if show_label else Icons.LOCK
+		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(lock)
+		card.tooltip_text = "%s – kaufen für %d Trophäen" % [opt.name, Economy.COSMETIC_COST]
+
 	card.gui_input.connect(func(e: InputEvent):
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			_on_ws_option_selected(cat, idx)
@@ -1789,17 +1806,115 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 	return card
 
 
+# Ist diese Garage-Option noch gesperrt (Kosmetik, die erst mit Trophäen gekauft werden muss)?
+# „Original"-Lack (kein Color) und Muster „Keins" (idx 0) sind immer frei.
+func _is_option_locked(cat: String, opt: Dictionary, idx: int) -> bool:
+	if cat == "paint":
+		return opt.has("color") and not Economy.is_paint_unlocked(opt.color)
+	if cat == "pattern":
+		return not Economy.is_pattern_unlocked(idx)
+	return false
+
+
+# Mini-Vorschau eines Musters auf einer Karte (rein dekorativ). parent ist die Farbfläche (base_col).
+func _build_pattern_preview(parent: Control, kind: String, sz: Vector2, base_col: Color) -> void:
+	var patt := Economy.get_car_pattern_color()
+	match kind:
+		"stripes":
+			var n := 5
+			var sw := sz.x / float(n * 2 - 1)
+			for s in range(n):
+				var st := ColorRect.new()
+				st.position = Vector2(s * 2.0 * sw, 0)
+				st.size     = Vector2(sw, sz.y)
+				st.color    = patt
+				st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				parent.add_child(st)
+		"diagonal":
+			# Diagonale Balken über versetzte, gedrehte Rechtecke angedeutet.
+			var n2 := 6
+			var step := sz.x / float(n2)
+			for s in range(n2 + 4):
+				var st := ColorRect.new()
+				st.color = patt
+				st.size  = Vector2(step * 0.5, sz.y * 2.0)
+				st.position = Vector2((s - 2) * step, -sz.y * 0.5)
+				st.rotation = -0.6
+				st.pivot_offset = Vector2.ZERO
+				st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				parent.add_child(st)
+			parent.clip_contents = true
+		"checker":
+			var cols := 4
+			var rows := 3
+			var cwd := sz.x / float(cols)
+			var chd := sz.y / float(rows)
+			for ry in range(rows):
+				for cx in range(cols):
+					if (cx + ry) % 2 == 0:
+						continue
+					var sq := ColorRect.new()
+					sq.position = Vector2(cx * cwd, ry * chd)
+					sq.size     = Vector2(cwd, chd)
+					sq.color    = patt
+					sq.mouse_filter = Control.MOUSE_FILTER_IGNORE
+					parent.add_child(sq)
+		"dots":
+			var cols2 := 4
+			var rows2 := 3
+			var cwd2 := sz.x / float(cols2)
+			var chd2 := sz.y / float(rows2)
+			var d := minf(cwd2, chd2) * 0.5
+			for ry in range(rows2):
+				for cx in range(cols2):
+					var dotp := Panel.new()
+					var dsb := StyleBoxFlat.new()
+					dsb.bg_color = patt
+					dsb.set_corner_radius_all(int(d / 2.0))
+					dotp.add_theme_stylebox_override("panel", dsb)
+					dotp.position = Vector2(cx * cwd2 + (cwd2 - d) / 2.0, ry * chd2 + (chd2 - d) / 2.0)
+					dotp.size     = Vector2(d, d)
+					dotp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+					parent.add_child(dotp)
+		"gradient":
+			# Vertikaler Verlauf von base_col (oben) nach pattern_color (unten) über Stufen.
+			var steps := 8
+			for s in range(steps):
+				var t := float(s) / float(steps - 1)
+				var seg := ColorRect.new()
+				seg.position = Vector2(0, t * sz.y)
+				seg.size     = Vector2(sz.x, sz.y / float(steps) + 1.0)
+				seg.color    = base_col.lerp(patt, t)
+				seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				parent.add_child(seg)
+
+
 func _on_ws_option_selected(cat: String, idx: int) -> void:
+	var opts = _ws_options(cat)
+	var opt: Dictionary = opts[idx] if idx >= 0 and idx < opts.size() else {}
+	# Gesperrte Kosmetik erst mit Trophäen freischalten. Reicht das Guthaben nicht, nur Hinweis zeigen.
+	if _is_option_locked(cat, opt, idx):
+		var bought := Economy.buy_paint(opt.color) if cat == "paint" else Economy.buy_pattern(idx)
+		if not bought:
+			_flash_garage_summary("Zu wenig Trophäen – %d nötig (Erfolge bringen welche)." % Economy.COSMETIC_COST)
+			return
+		_refresh_garage_trophies()
 	_ws_sel[cat] = idx
 	# Lackierung/Muster persistent merken → 3D-Autos (Vorschau wie ingame) übernehmen es live.
 	if cat == "paint":
-		var opts = _ws_options("paint")
-		var col = opts[idx].get("color", null) if idx >= 0 and idx < opts.size() else null
+		var col = opt.get("color", null)
 		Economy.set_car_paint(col != null, col if col != null else Economy.get_car_paint_color())
 	elif cat == "pattern":
 		Economy.set_car_pattern(idx)
 	_rebuild_garage_options()
 	_apply_ws_config()
+
+
+# Kurzer Hinweistext in der Vorschau-Zusammenfassung (z. B. bei zu wenig Trophäen). Wird beim
+# nächsten _update_garage_summary() (Auswahländerung) wieder überschrieben.
+func _flash_garage_summary(msg: String) -> void:
+	if _garage_summary_lbl != null:
+		_garage_summary_lbl.text = msg
 
 
 func _update_garage_summary() -> void:
@@ -2018,13 +2133,15 @@ func _apply_ws_config() -> void:
 	var col = null
 	if Economy.get_car_tier() == 0 and pi >= 0 and pi < opts.size():
 		col = opts[pi].get("color", null)
+	# Material auch ohne Lack anlegen, sobald ein Muster gewählt ist (Muster auf Standardfarbe).
+	var want_mat := col != null or Economy.get_car_pattern() != 0
 	for m in _preview_meshes:
 		if not is_instance_valid(m):
 			continue
-		if col == null:
-			(m as MeshInstance3D).material_override = null
+		if want_mat:
+			(m as MeshInstance3D).material_override = _make_paint_material(col if col != null else Economy.get_car_paint_color())
 		else:
-			(m as MeshInstance3D).material_override = _make_paint_material(col)
+			(m as MeshInstance3D).material_override = null
 	_update_garage_summary()
 
 
@@ -2041,6 +2158,7 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
 		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
 	mat.set_shader_parameter("paint_color", col)
+	mat.set_shader_parameter("paint_on", Economy.is_car_paint_on())
 	# Muster (0 = keins) nur über die Maskenbereiche legen.
 	mat.set_shader_parameter("pattern_mode", Economy.get_car_pattern())
 	mat.set_shader_parameter("pattern_color", Economy.get_car_pattern_color())

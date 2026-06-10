@@ -376,6 +376,8 @@ const ACHIEVEMENT_ORDER = [
 # Trophäen: eigene Erfolgs-Währung. Jeder freigeschaltete Erfolg bringt ACH_REWARD Trophäen.
 # Nur in der Garage angezeigt (slot-gebunden, kein Spieleffekt – reine Sammel-Währung).
 const ACH_REWARD = 100
+# Kosten je freischaltbarer Kosmetik (Lackfarbe / Muster), bezahlt mit Trophäen (ach_currency).
+const COSMETIC_COST = 250
 
 var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
@@ -387,9 +389,14 @@ var ach_currency: int = 0   # Trophäen aus Erfolgen (slot-gebunden, nur in der 
 # Kosmetik: Auto-Lackierung (Werkstatt). car_paint_on=false → Originaltextur (keine Umfärbung).
 var car_paint_on:    bool  = false
 var car_paint_color: Color = Color(0.85, 0.15, 0.12)
-# Kosmetik: Muster über die Lack-Maske (0 = keins, 1 = Streifen). pattern_color = Schwarz.
+# Kosmetik: Muster über die Lack-Maske (0 = keins, 1 = Streifen …). pattern_color = Schwarz.
 var car_pattern:       int   = 0
 var car_pattern_color: Color = Color(0.06, 0.06, 0.08)
+# Mit Trophäen freigeschaltete Kosmetik (slot-/profil-gebunden, siehe [[profile_isolation]]).
+# unlocked_paints: html-Hex (rrggbb) → true; unlocked_patterns: Muster-Index (int) → true.
+# „Original"-Lack und Muster „Keins" (Index 0) sind immer gratis und stehen NICHT in den Dicts.
+var unlocked_paints:   Dictionary = {}
+var unlocked_patterns: Dictionary = {}
 
 # Auto-Prestige-Stufe (überlebt normales Prestige; nur „Neues Spiel"/reset_slot löscht sie).
 # 0 = Standard-Auto, 1 = eric, … (siehe CAR_TIER_MODELS). Ab Stufe ≥1 fährt NUR das Tier-Auto.
@@ -1099,16 +1106,25 @@ func format_currency(value) -> String:
 	var v = float(value)
 	var sign_str = "-" if v < 0.0 else ""
 	v = absf(v)
+	# Kleine Beträge in allen Notationen als reine Zahl (e-/Suffix-Form ist hier unleserlich).
 	if v < 1000.0:
 		return sign_str + str(int(round(v)))
+	# Gewähltes Geld-Zahlenformat (globale Anzeige-Einstellung in Display).
+	var mode := Display.money_notation
+	if mode == Display.MoneyNotation.SCIENTIFIC:
+		# Beliebiger Exponent, Mantisse in [1,10): z. B. 1.23e7.
+		var sexp = int(floor(log(v) / log(10.0)))
+		return sign_str + _trim_num(v / pow(10.0, sexp)) + "e" + str(sexp)
+	elif mode == Display.MoneyNotation.ENGINEER:
+		# Exponent in 3er-Schritten, Mantisse in [1,1000): z. B. 12.3e6.
+		var eexp = (int(floor(log(v) / log(10.0))) / 3) * 3
+		return sign_str + _trim_num(v / pow(10.0, eexp)) + "e" + str(eexp)
+	# STANDARD: Suffixe K/M/B/T …; jenseits der Tabelle wissenschaftlich.
 	var tier = int(floor(log(v) / log(1000.0)))
 	if tier >= 1 and tier < _CURR_SUFFIX.size():
-		var scaled = v / pow(1000.0, tier)
-		return sign_str + _trim_num(scaled) + _CURR_SUFFIX[tier]
-	# Sehr groß → wissenschaftliche Notation (z. B. 1.23e40)
+		return sign_str + _trim_num(v / pow(1000.0, tier)) + _CURR_SUFFIX[tier]
 	var exp = int(floor(log(v) / log(10.0)))
-	var mant = v / pow(10.0, exp)
-	return sign_str + ("%.2fe%d" % [mant, exp])
+	return sign_str + _trim_num(v / pow(10.0, exp)) + "e" + str(exp)
 
 
 # Zahl mit bis zu 2 Nachkommastellen, ohne überflüssige Nullen ("12.30"→"12.3", "5.00"→"5").
@@ -1539,6 +1555,12 @@ func get_ach_currency() -> int:
 	return ach_currency
 
 
+# Debug/Cheat: Trophäen (Erfolgs-Währung) direkt gutschreiben (Cheat-Button). Speichert sofort.
+func add_ach_currency(n: int) -> void:
+	ach_currency += n
+	save_game()
+
+
 func get_achievement_count() -> int:
 	return ACHIEVEMENTS.size()
 
@@ -1629,6 +1651,49 @@ func set_car_pattern(idx: int) -> void:
 	car_paint_changed.emit()
 
 
+# ── Kosmetik-Freischaltung (mit Trophäen) ─────────────────────────────────────────
+# Lackfarben werden über ihren Hex-Wert identifiziert (UI-unabhängig, stabil bei Umsortierung).
+
+func _paint_key(col: Color) -> String:
+	return col.to_html(false)
+
+
+# Eine Lackfarbe ist nutzbar, wenn sie gekauft wurde. „Original" (kein Color) gilt separat als gratis.
+func is_paint_unlocked(col: Color) -> bool:
+	return bool(unlocked_paints.get(_paint_key(col), false))
+
+
+# Muster „Keins" (0) ist immer frei; alle anderen müssen gekauft werden.
+func is_pattern_unlocked(idx: int) -> bool:
+	return idx == 0 or bool(unlocked_patterns.get(idx, false))
+
+
+# Kauft eine Lackfarbe für COSMETIC_COST Trophäen. Gibt true zurück, wenn sie danach freigeschaltet
+# ist (bereits gekauft → true ohne Abbuchung, zu wenig Trophäen → false).
+func buy_paint(col: Color) -> bool:
+	var k := _paint_key(col)
+	if bool(unlocked_paints.get(k, false)):
+		return true
+	if ach_currency < COSMETIC_COST:
+		return false
+	ach_currency -= COSMETIC_COST
+	unlocked_paints[k] = true
+	save_game()
+	return true
+
+
+# Kauft ein Muster für COSMETIC_COST Trophäen (analog zu buy_paint).
+func buy_pattern(idx: int) -> bool:
+	if is_pattern_unlocked(idx):
+		return true
+	if ach_currency < COSMETIC_COST:
+		return false
+	ach_currency -= COSMETIC_COST
+	unlocked_patterns[idx] = true
+	save_game()
+	return true
+
+
 # ── Persistenz ──────────────────────────────────────────────────────────────────
 
 # Strecke (Grid-State) merken – wird vom 2D-Bauplan bei Änderungen gesetzt.
@@ -1677,6 +1742,8 @@ func save_game_to_slot(slot: int) -> void:
 		"car_paint_on":    car_paint_on,
 		"car_paint_color": car_paint_color,
 		"car_pattern":     car_pattern,
+		"unlocked_paints":   unlocked_paints,
+		"unlocked_patterns": unlocked_patterns,
 		"car_tier":        car_tier,
 		"super_car_count": super_car_count,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
@@ -1727,6 +1794,10 @@ func load_game_from_slot(slot: int) -> void:
 				var cpc        = data.get("car_paint_color", car_paint_color)
 				car_paint_color = cpc if typeof(cpc) == TYPE_COLOR else car_paint_color
 				car_pattern    = int(data.get("car_pattern", 0))
+				var up         = data.get("unlocked_paints", {})
+				unlocked_paints = up.duplicate() if typeof(up) == TYPE_DICTIONARY else {}
+				var upat       = data.get("unlocked_patterns", {})
+				unlocked_patterns = upat.duplicate() if typeof(upat) == TYPE_DICTIONARY else {}
 				car_tier       = int(data.get("car_tier", 0))
 				# Migration: alter Bool-Unlock (super_car_on) → 1 Super-Auto.
 				super_car_count = int(data.get("super_car_count", 1 if bool(data.get("super_car_on", false)) else 0))
@@ -1784,6 +1855,8 @@ func _reset_state_to_defaults() -> void:
 	car_paint_color = Color(0.85, 0.15, 0.12)
 	car_pattern     = 0
 	car_pattern_color = Color(0.06, 0.06, 0.08)
+	unlocked_paints   = {}   # gekaufte Kosmetik ist PROFIL-gebunden → bei Slot-Wechsel/Reset leeren
+	unlocked_patterns = {}
 	car_tier        = 0   # Werkstatt-Auto („2. Auto") ist PROFIL-gebunden
 	super_car_count = 0
 	_slot_name      = ""

@@ -9,9 +9,17 @@ extends Node
 # Modi für die ×-Marker auf den Baufeldern.
 enum MultiplierMode { ALL, AFFECTED, NONE }
 
+# Zahlenformat für Geldbeträge (Economy.format_currency liest diesen Wert):
+#   STANDARD     = Suffixe K/M/B/T … (Standard)
+#   SCIENTIFIC   = wissenschaftlich, beliebiger Exponent (z. B. 1.23e7)
+#   ENGINEER     = Ingenieurnotation, Exponent in 3er-Schritten (z. B. 12.3e6, 1.5e12)
+enum MoneyNotation { STANDARD, SCIENTIFIC, ENGINEER }
+
 signal multiplier_mode_changed(mode: int)
+signal money_notation_changed(mode: int)
 
 var multiplier_mode: int = MultiplierMode.AFFECTED
+var money_notation: int = MoneyNotation.STANDARD
 
 var _layer:     CanvasLayer
 var _fps_lbl:   Label
@@ -66,9 +74,15 @@ func set_multiplier_mode(mode: int) -> void:
 	multiplier_mode_changed.emit(multiplier_mode)
 
 
+func set_money_notation(mode: int) -> void:
+	money_notation = clampi(mode, 0, 2)
+	money_notation_changed.emit(money_notation)
+
+
 # ── Startwerte laden ────────────────────────────────────────────────────────────
 
 func _load_from_settings() -> void:
 	_settings.load(Paths.SETTINGS_FILE)
 	_fps_lbl.visible   = bool(_settings.get_value("options", "show_fps", false))
 	multiplier_mode    = clampi(int(_settings.get_value("options", "show_multiplier", MultiplierMode.AFFECTED)), 0, 2)
+	money_notation     = clampi(int(_settings.get_value("options", "money_notation", MoneyNotation.STANDARD)), 0, 2)

@@ -60,7 +60,9 @@ func _collect_meshes(node: Node) -> void:
 # Verläufe bleiben) bei gesetzter Farbe, sonst Originaltextur (kein Override).
 func _apply_paint() -> void:
 	var mat: ShaderMaterial = null
-	if Economy.is_car_paint_on():
+	# Maskenmaterial auch ohne Lack anlegen, sobald ein Muster gewählt ist – so wirkt das
+	# Muster auch auf der Original-(Standard-)Farbe (paint_on=false im Shader).
+	if Economy.is_car_paint_on() or Economy.get_car_pattern() != 0:
 		mat = _make_paint_material(Economy.get_car_paint_color())
 	for m in _meshes:
 		if is_instance_valid(m):
@@ -77,7 +79,8 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
 		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
 	mat.set_shader_parameter("paint_color", col)
-	# Muster (0 = keins) nur über die gefärbten Maskenbereiche legen.
+	mat.set_shader_parameter("paint_on", Economy.is_car_paint_on())
+	# Muster (0 = keins) nur über die Maskenbereiche legen.
 	mat.set_shader_parameter("pattern_mode", Economy.get_car_pattern())
 	mat.set_shader_parameter("pattern_color", Economy.get_car_pattern_color())
 	return mat
