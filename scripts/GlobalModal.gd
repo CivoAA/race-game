@@ -877,7 +877,6 @@ func _build_cat_upgrades(parent: Control, x: int, h: int, w: int) -> void:
 
 const ACH_LEFT_W = 250    # Breite der Beschreibungs-Spalte links
 const ACH_TILE   = 88     # Kachelgröße (quadratisch)
-const ACH_COLS   = 4      # Spalten im Kachelraster
 
 var _ach_data:     Array = []
 var _ach_tiles:    Array = []   # je {"btn": Button, "sb": StyleBoxFlat, "done": bool}
@@ -896,7 +895,12 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 		{"icon": Icons.BOLT,   "name": "Schnellster Fahrer", "desc": "Beende ein Rennen in unter 60 Sekunden.",    "reward": "+500 "   + Icons.COIN, "done": false},
 		{"icon": Icons.TOOLS,  "name": "Streckenbauer",      "desc": "Erstelle 10 verschiedene Strecken.",         "reward": "+1.000 " + Icons.COIN, "done": false},
 		{"icon": Icons.FLAME,  "name": "Unaufhaltsam",       "desc": "Gewinne 5 Rennen in Folge ohne Niederlage.", "reward": "+2.000 " + Icons.COIN, "done": false},
-		{"icon": Icons.WIND,   "name": "Vollgas",            "desc": "Erreiche die maximale Geschwindigkeit.",     "reward": "+750 "   + Icons.COIN, "done": false},
+		{"icon": Icons.WIND,   "name": "Vollgas",            "desc": "Erreiche die maximale Geschwindigkeit.",     "reward": "+750 "    + Icons.COIN, "done": false},
+		{"icon": Icons.COINS,  "name": "Millionär",          "desc": "Besitze zum ersten Mal 1.000.000 Währung.",  "reward": "+5.000 "  + Icons.COIN, "done": false},
+		{"icon": Icons.TROPHY, "name": "Champion",           "desc": "Gewinne insgesamt 50 Rennen.",               "reward": "+10.000 " + Icons.COIN, "done": false},
+		{"icon": Icons.STAR,   "name": "Prestige-Meister",   "desc": "Führe deinen ersten Prestige durch.",        "reward": "+5 "      + Icons.STAR, "done": false},
+		{"icon": Icons.ROAD,   "name": "Architekt",          "desc": "Baue eine Strecke mit 100 Feldern.",         "reward": "+3.000 "  + Icons.COIN, "done": false},
+		{"icon": Icons.INFINITY,"name": "Grenzenlos",        "desc": "Schalte den Endlos-Modus frei.",             "reward": "+1.500 "  + Icons.COIN, "done": false},
 	]
 	_ach_tiles.clear()
 	_ach_selected = -1
@@ -1011,8 +1015,10 @@ func _build_ach_grid() -> Control:
 	scroll.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 
-	var grid := GridContainer.new()
-	grid.columns = ACH_COLS
+	# HFlowContainer statt GridContainer: bricht die fix großen Kacheln automatisch um,
+	# sodass je nach Fensterbreite so viele nebeneinander passen, wie Platz haben.
+	var grid := HFlowContainer.new()
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	scroll.add_child(grid)
