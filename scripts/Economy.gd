@@ -402,6 +402,10 @@ var unlocked_patterns: Dictionary = {}
 # 0 = Standard-Auto, 1 = eric, … (siehe CAR_TIER_MODELS). Ab Stufe ≥1 fährt NUR das Tier-Auto.
 var car_tier: int = 0
 
+# Reiner Test-Schalter (Garage „Muster" → Knopf „Test-Auto"): zwingt das Blender-Testmodell.
+# Nicht gespeichert, lebt nur in der Session – bewusst kein Feature, nur zum Ausprobieren.
+var test_blender_car: bool = false
+
 # Anzahl gekaufter Super-Autos („Auto 2"). LEGACY: nicht mehr per Shop kaufbar (durch car_tier ersetzt),
 # Feld bleibt nur für die Save-Migration erhalten.
 var super_car_count: int   = 0

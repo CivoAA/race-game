@@ -11,9 +11,17 @@ const MODEL_SCALE = Vector3(0.18, 0.18, 0.18)
 # darum hier 0.0, sonst stapeln sich beide Offsets und das Auto schwebt über der Fahrbahn.
 const CAR_Y = 0.0
 
+# Das Blender-Testmodell ist um 90° verdreht exportiert (fährt mit der rechten Tür voran) →
+# nur dieses Modell um die Hochachse korrigieren. Falls dann die LINKE Tür vorn ist: Vorzeichen drehen.
+const TEST_CAR_YAW_FIX = -90.0
+
 var model: Node3D = null
 var _meshes: Array = []
 var _paint_shader: Shader = null
+var _flat_shader: Shader = null
+# Blender-Testmodell hat keine Lack-Maske, sondern flache Material-Farben → Umfärben per „Color-Key"
+# (nur die Karosserie-Materialfläche, das helle Grün) statt Masken-Shader.
+var _color_key: bool = false
 
 # Super-Auto („Auto 2"): eigenes Modell (eric_car), KEINE Werkstatt-Lackierung. Von CarController
 # vor dem add_child() gesetzt, damit _load_model() in _ready() schon das richtige Modell wählt.
@@ -30,11 +38,19 @@ func _ready() -> void:
 func _load_model() -> void:
 	# Tier-Auto (is_super) nutzt das Modell der aktuellen Auto-Prestige-Stufe; normale Autos
 	# das Test-Auto (mit Umfärb-Maske für die Werkstatt-Lackierung).
+	# Reiner Test-Schalter (Garage „Test-Auto"): überschreibt alles mit dem Blender-Testmodell.
 	var path := Economy.get_car_tier_model() if is_super else Paths.MODEL_TEST_CAR
+	if Economy.test_blender_car:
+		path = Paths.MODEL_TEST_CAR_BLENDER
+	_color_key = (path == Paths.MODEL_TEST_CAR_BLENDER)
 	if ResourceLoader.exists(path):
 		var scene = load(path)
 		model = scene.instantiate()
-		model.scale = MODEL_SCALE
+		# Das Blender-Testmodell ist ~4× zu groß exportiert → nur dieses auf ¼ herunterskalieren.
+		model.scale = (MODEL_SCALE * 0.25) if path == Paths.MODEL_TEST_CAR_BLENDER else MODEL_SCALE
+		# … und um 90° verdreht → nur dieses Modell zurückdrehen, damit die Front nach vorne zeigt.
+		if path == Paths.MODEL_TEST_CAR_BLENDER:
+			model.rotation_degrees.y = TEST_CAR_YAW_FIX
 		model.position.y = CAR_Y
 		add_child(model)
 		_meshes.clear()
@@ -59,6 +75,10 @@ func _collect_meshes(node: Node) -> void:
 # Wendet die in der Werkstatt gewählte Lackierung an: Masken-Shader (nur Karosserie,
 # Verläufe bleiben) bei gesetzter Farbe, sonst Originaltextur (kein Override).
 func _apply_paint() -> void:
+	# Blender-Testmodell: kein Masken-Shader, sondern nur die grüne Karosserie-Fläche umfärben.
+	if _color_key:
+		_apply_paint_colorkey()
+		return
 	var mat: ShaderMaterial = null
 	# Maskenmaterial auch ohne Lack anlegen, sobald ein Muster gewählt ist – so wirkt das
 	# Muster auch auf der Original-(Standard-)Farbe (paint_on=false im Shader).
@@ -67,6 +87,60 @@ func _apply_paint() -> void:
 	for m in _meshes:
 		if is_instance_valid(m):
 			(m as MeshInstance3D).material_override = mat
+
+
+# Färbt/mustert im Blender-Testmodell NUR die grüne Karosserie-Materialfläche um (per Surface-Override),
+# alle anderen Flächen bleiben unangetastet. Lack aus + kein Muster → Override weg (Original-Grün zurück).
+func _apply_paint_colorkey() -> void:
+	for m in _meshes:
+		if not is_instance_valid(m):
+			continue
+		var mi := m as MeshInstance3D
+		var mesh := mi.mesh
+		if mesh == null:
+			continue
+		for si in mesh.get_surface_count():
+			var src := mesh.surface_get_material(si)
+			if _is_test_body_material(src):
+				mi.set_surface_override_material(si, _make_body_material(src))
+
+
+# Baut das Lack-/Muster-Material für die Karosserie-Fläche. Grundfarbe = Lackfarbe (Lack an) bzw.
+# Originalfarbe der Fläche (Lack aus). Ohne Lack UND ohne Muster → null (Originalmaterial behalten).
+func _make_body_material(orig: Material) -> ShaderMaterial:
+	var paint_on := Economy.is_car_paint_on()
+	var pat := Economy.get_car_pattern()
+	if not paint_on and pat == 0:
+		return null
+	if _flat_shader == null and ResourceLoader.exists(Paths.SHADER_CAR_PAINT_FLAT):
+		_flat_shader = load(Paths.SHADER_CAR_PAINT_FLAT)
+	var base: Color = Economy.get_car_paint_color()
+	if not paint_on and orig is BaseMaterial3D:
+		base = (orig as BaseMaterial3D).albedo_color
+	var mat := ShaderMaterial.new()
+	mat.shader = _flat_shader
+	mat.set_shader_parameter("body_color", base)
+	mat.set_shader_parameter("pattern_mode", pat)
+	mat.set_shader_parameter("pattern_color", Economy.get_car_pattern_color())
+	if orig is BaseMaterial3D:
+		mat.set_shader_parameter("metallic_v", (orig as BaseMaterial3D).metallic)
+		mat.set_shader_parameter("roughness_v", (orig as BaseMaterial3D).roughness)
+	return mat
+
+
+# Erkennt die umfärbbare Karosserie-Fläche: zuerst über den Material-Namen, ersatzweise über die
+# Farbe (kräftig grün: hoher Grünanteil, wenig Rot/Blau) – schließt die gelbgrünen „Light"-Teile aus.
+func _is_test_body_material(mat: Material) -> bool:
+	if mat == null:
+		return false
+	if mat.resource_name == Paths.TEST_CAR_BODY_MATERIAL:
+		return true
+	if mat is BaseMaterial3D:
+		# Grün klar dominant (Verhältnis-Test → robust gegen linear/sRGB); schließt das gelbgrüne
+		# „Light"-Material (hoher Rotanteil) aus.
+		var c := (mat as BaseMaterial3D).albedo_color
+		return c.g > 0.4 and c.g > c.r * 1.8 and c.g > c.b * 1.8
+	return false
 
 
 func _make_paint_material(col: Color) -> ShaderMaterial:
