@@ -147,7 +147,7 @@ func _do_rebuild() -> void:
 	_lock_overlay           = null;  _lock_hint_lbl       = null
 	_ws_options_box         = null;  _ws_summary_lbl      = null
 	_garage_options_box     = null;  _garage_summary_lbl  = null
-	_garage_trophy_lbl      = null
+	_garage_trophy_lbl      = null;  _test_car_btn        = null
 	_garage_tab_btns.clear(); _garage_active_tab = 0
 	_statistik_vbox         = null;  _stat_value_lbls.clear()
 	_tile_preview_pivots.clear();    _tiles_grid = null
@@ -1454,6 +1454,7 @@ var _garage_tab_btns:    Array[Button] = []
 var _garage_options_box: Control       = null
 var _garage_summary_lbl: Label         = null
 var _garage_trophy_lbl:  Label         = null   # Trophäen-Stand (Erfolgs-Währung), nur hier sichtbar
+var _test_car_btn:       Button        = null   # Reiner Test: schaltet das Blender-Testmodell an/aus
 
 # Container beider Tabs (für das Umhängen der gemeinsamen Vorschau) + die Vorschau selbst.
 var _werkstatt_container: Control = null
@@ -1599,6 +1600,17 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	container.add_child(_garage_trophy_lbl)
 	_refresh_garage_trophies()
 
+	# Reiner Test-Knopf (nur im Muster-Tab sichtbar): schaltet das Blender-Testmodell an/aus.
+	_test_car_btn = Button.new()
+	_test_car_btn.position = Vector2(_vw() - 150 - 16, 12)
+	_test_car_btn.size     = Vector2(150, 36)
+	_test_car_btn.focus_mode = Control.FOCUS_NONE
+	_test_car_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_test_car_btn.visible  = (_garage_tabs()[_garage_active_tab].id == "pattern")
+	_test_car_btn.pressed.connect(_on_toggle_test_car)
+	container.add_child(_test_car_btn)
+	_update_test_car_btn()
+
 	_sync_paint_selection_from_economy()
 	_rebuild_garage_options()
 
@@ -1658,7 +1670,28 @@ func _on_garage_tab(idx: int) -> void:
 	_garage_active_tab = idx
 	for i in _garage_tab_btns.size():
 		_style_ws_tab(_garage_tab_btns[i], i == idx)
+	if _test_car_btn != null:
+		_test_car_btn.visible = (_garage_tabs()[idx].id == "pattern")
 	_rebuild_garage_options()
+
+
+# Reiner Test: Blender-Testmodell an-/ausschalten und die 3D-Vorschau sofort neu aufbauen.
+func _on_toggle_test_car() -> void:
+	Economy.test_blender_car = not Economy.test_blender_car
+	if _preview_model != null:
+		_preview_model.queue_free()
+		_preview_model = null
+	_load_preview_model()
+	_frame_preview_camera()
+	_apply_ws_config()
+	_update_test_car_btn()
+
+
+func _update_test_car_btn() -> void:
+	if _test_car_btn == null:
+		return
+	_test_car_btn.text = "%s  Test-Auto: %s" % [Icons.CAR, ("AN" if Economy.test_blender_car else "AUS")]
+	_style_ws_tab(_test_car_btn, Economy.test_blender_car)
 
 
 # Beim Öffnen des Modals: Werkstatt/Garage an den Economy-Zustand angleichen. Nach einem
@@ -2058,7 +2091,8 @@ func _load_preview_model() -> void:
 	_preview_meshes.clear()
 	var model: Node3D = null
 	# Modell der aktuellen Auto-Prestige-Stufe (Stufe 0 = Test-Auto mit Umfärb-Maske).
-	var mpath := Economy.get_car_tier_model()
+	# Reiner Test-Schalter (Garage „Test-Auto"): überschreibt mit dem Blender-Testmodell.
+	var mpath := Paths.MODEL_TEST_CAR_BLENDER if Economy.test_blender_car else Economy.get_car_tier_model()
 	if ResourceLoader.exists(mpath):
 		model = (load(mpath) as PackedScene).instantiate()
 	else:
@@ -2126,6 +2160,11 @@ func _frame_preview_camera() -> void:
 # gelegt: nur die roten Maskenbereiche (Karosserie) werden umgefärbt, die
 # Hell-Dunkel-Verläufe der Originaltextur bleiben erhalten.
 func _apply_ws_config() -> void:
+	# Blender-Testmodell: keine Maske, nur die grüne Karosserie-Fläche umfärben (Color-Key).
+	if Economy.test_blender_car:
+		_apply_preview_colorkey()
+		_update_garage_summary()
+		return
 	# Lack/Muster brauchen die Umfärb-Maske (nur Test-Auto, Stufe 0). Höhere Tier-Modelle haben
 	# keine Maske → Originaltextur zeigen (kein Override), wie ingame.
 	var opts = _ws_options("paint")
@@ -2145,8 +2184,62 @@ func _apply_ws_config() -> void:
 	_update_garage_summary()
 
 
+# Vorschau des Blender-Testmodells: färbt NUR die grüne Karosserie-Materialfläche um (Surface-Override),
+# gesteuert über die gewählte Lackfarbe in der „Lackierung". „Original" → Override weg (Grün zurück).
+func _apply_preview_colorkey() -> void:
+	for m in _preview_meshes:
+		if not is_instance_valid(m):
+			continue
+		var mi := m as MeshInstance3D
+		var mesh := mi.mesh
+		if mesh == null:
+			continue
+		for si in mesh.get_surface_count():
+			var src := mesh.surface_get_material(si)
+			if _is_test_body_material(src):
+				mi.set_surface_override_material(si, _make_body_material(src))
+
+
+# Wie in Car3D: Lack-/Muster-Material für die Karosserie-Fläche (Lackfarbe bzw. Originalfarbe +
+# optionales Muster). Ohne Lack und ohne Muster → null (Originalmaterial behalten).
+func _make_body_material(orig: Material) -> ShaderMaterial:
+	var paint_on := Economy.is_car_paint_on()
+	var pat := Economy.get_car_pattern()
+	if not paint_on and pat == 0:
+		return null
+	if _flat_shader == null and ResourceLoader.exists(Paths.SHADER_CAR_PAINT_FLAT):
+		_flat_shader = load(Paths.SHADER_CAR_PAINT_FLAT)
+	var base: Color = Economy.get_car_paint_color()
+	if not paint_on and orig is BaseMaterial3D:
+		base = (orig as BaseMaterial3D).albedo_color
+	var mat := ShaderMaterial.new()
+	mat.shader = _flat_shader
+	mat.set_shader_parameter("body_color", base)
+	mat.set_shader_parameter("pattern_mode", pat)
+	mat.set_shader_parameter("pattern_color", Economy.get_car_pattern_color())
+	if orig is BaseMaterial3D:
+		mat.set_shader_parameter("metallic_v", (orig as BaseMaterial3D).metallic)
+		mat.set_shader_parameter("roughness_v", (orig as BaseMaterial3D).roughness)
+	return mat
+
+
+# Erkennt die umfärbbare Karosserie-Fläche (heller Grün-Korpus) per Material-Name, ersatzweise per Farbe.
+func _is_test_body_material(mat: Material) -> bool:
+	if mat == null:
+		return false
+	if mat.resource_name == Paths.TEST_CAR_BODY_MATERIAL:
+		return true
+	if mat is BaseMaterial3D:
+		# Grün klar dominant (Verhältnis-Test → robust gegen linear/sRGB); schließt das gelbgrüne
+		# „Light"-Material (hoher Rotanteil) aus.
+		var c := (mat as BaseMaterial3D).albedo_color
+		return c.g > 0.4 and c.g > c.r * 1.8 and c.g > c.b * 1.8
+	return false
+
+
 # Shader-Material für die Maskenlackierung (Albedo + Maske gecacht).
 var _paint_shader: Shader = null
+var _flat_shader: Shader = null   # Lack/Muster für flache Material-Farben (Blender-Testmodell)
 
 func _make_paint_material(col: Color) -> ShaderMaterial:
 	if _paint_shader == null and ResourceLoader.exists(Paths.SHADER_CAR_PAINT):

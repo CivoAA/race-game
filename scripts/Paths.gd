@@ -29,6 +29,11 @@ const MODEL_DEFAULT_CAR = "res://assets/3D-models/cars/default_car/car.glb"
 # Test-Auto mit Umfärb-Maske (Werkstatt-Lackierung). Albedo + Maske teilen sich die UVs.
 const MODEL_TEST_CAR    = "res://assets/3D-models/cars/test_car/car.glb"
 
+# Reines Test-Modell aus Blender – nur zum Ausprobieren (Garage-Knopf „Test-Auto"), keine Maske/Features.
+const MODEL_TEST_CAR_BLENDER = "res://assets/3D-models/cars/test_car_blender/test_car_blender.glb"
+# Name der Karosserie-Materialfläche im Blender-Testmodell (das „helle Grün") – nur diese wird umgefärbt.
+const TEST_CAR_BODY_MATERIAL = "Car_main_color"
+
 # Super-Auto („Auto 2") – eigenes Modell, keine Werkstatt-Lackierung (eigene gebackene Texturen).
 const MODEL_ERIC_CAR    = "res://assets/3D-models/cars/eric_car/Car_eric.glb"
 const TEX_CAR_ALBEDO    = "res://assets/3D-models/cars/test_car/car_0.png"
@@ -36,6 +41,8 @@ const TEX_CAR_MASK      = "res://assets/3D-models/cars/test_car/car_mask.png"
 
 # Shader: färbt nur die maskierten (roten) Bereiche um, behält Hell-Dunkel-Verläufe.
 const SHADER_CAR_PAINT  = "res://shaders/car_paint.gdshader"
+# Shader: Lack + Muster für FLACHE Material-Farben (Blender-Testmodell, keine Maske/Textur).
+const SHADER_CAR_PAINT_FLAT = "res://shaders/car_paint_flat.gdshader"
 
 # Shader: animierter Hauptmenü-Hintergrund (Perspektiv-Straße + Glows).
 const SHADER_MAINMENU_BG = "res://shaders/mainmenu_bg.gdshader"
