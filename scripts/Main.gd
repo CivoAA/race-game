@@ -23,7 +23,7 @@ const C_LINE     := Color(0.247, 0.255, 0.278)   # #3f4147
 
 # Build-Panel-Konstanten – vertikales, scrollbares Panel am LINKEN Rand
 const BUILD_PANEL_X   = 0
-const BUILD_PANEL_W   = 168
+const BUILD_PANEL_W   = 196                      # etwas breiter → 2-Spalten-Icon-Raster
 const BUILD_PANEL_TOP = 50                       # bündig an der Top-Nav (0–50)
 # Untere Werkzeug-Buttons (Hammer = Baumenü öffnen, Papierkorb = löschen).
 # Gleiche Größe; sitzen über der 42px-Run-Bar.
@@ -125,6 +125,14 @@ var _status_lbl:    Label       = null
 var _hint_lbl:      Label       = null
 var _fahren_btn:    Button      = null
 var _build_cards:   Array       = []
+var _hover_popup:    Panel = null     # schwebende Effekt-Box rechts neben der gehoverten Tile-Karte
+var _hover_name_lbl: Label = null
+var _hover_eff_lbl:  Label = null
+var _hover_idx:      int   = -1       # aktuell gehoverte Karte (gegen Flackern beim Kartenwechsel)
+var _nomoney_popup:  Panel = null     # rotes „Zu wenig Geld"-Popup beim Platzierversuch
+var _nomoney_lbl:    Label = null
+var _nomoney_tween:  Tween = null
+var _last_build_currency: int = -1    # für Live-Refresh der „zu teuer"-Markierung bei Geldänderung
 var _trash_panel:   Panel       = null   # Papierkorb (nur Slow-Modus)
 var _rotate_btn:    Button      = null   # Drehen-Knopf (Touch/Handy, beide Modi)
 var _hammer_btn:    Button      = null   # Baumenü-Umschalter (persistent, unten links)
@@ -464,34 +472,35 @@ func _setup_build_panel() -> void:
 	_build_layer.visible = false
 	add_child(_build_layer)
 
+	# ── Rechteckiger Block am linken Rand (flach, bündig, rechte Trennkante) ──
+	const PADX = 8
 	var panel_h := _build_panel_bot - BUILD_PANEL_TOP
+	var inner_w := float(BUILD_PANEL_W - 2 * PADX)
 
-	# Hintergrund – vertikales Panel am linken Rand
 	var bg := Panel.new()
 	bg.position = Vector2(BUILD_PANEL_X, BUILD_PANEL_TOP)
 	bg.size     = Vector2(BUILD_PANEL_W, panel_h)
 	var bg_sb := StyleBoxFlat.new()
-	bg_sb.bg_color            = C_BG
+	bg_sb.bg_color           = C_BG
 	bg_sb.border_width_right  = 1
 	bg_sb.border_color        = C_LINE
 	bg_sb.set_corner_radius_all(0)
 	bg.add_theme_stylebox_override("panel", bg_sb)
 	_build_layer.add_child(bg)
 
-	# ── Kopfzeile mit flachem, eckigem ✕ oben rechts ────────────────────────────
+	# ── Kopfzeile: „🔨 BAUMODUS" links, flaches ✕ rechts ────────────────────────
 	var mode_lbl := Label.new()
 	mode_lbl.text = Icons.HAMMER + "  BAUMODUS"
-	mode_lbl.position = Vector2(12, BUILD_PANEL_TOP + 9)
-	mode_lbl.size = Vector2(BUILD_PANEL_W - 48, 22)
+	mode_lbl.position = Vector2(PADX + 4, BUILD_PANEL_TOP + 9)
+	mode_lbl.size = Vector2(inner_w - 40, 22)
 	mode_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	mode_lbl.add_theme_font_size_override("font_size", 13)
 	mode_lbl.add_theme_color_override("font_color", C_ACCENT)
 	_build_layer.add_child(mode_lbl)
 
-	# Flacher, eckiger ✕-Button im Panel (ragt nicht heraus, kompakt)
 	const X_SZ = 24
 	var close_btn := Button.new()
-	close_btn.position = Vector2(BUILD_PANEL_W - X_SZ - 8, BUILD_PANEL_TOP + 8)
+	close_btn.position = Vector2(BUILD_PANEL_W - X_SZ - PADX, BUILD_PANEL_TOP + 8)
 	close_btn.size     = Vector2(X_SZ, X_SZ)
 	close_btn.text     = Icons.X
 	close_btn.focus_mode = Control.FOCUS_NONE
@@ -500,7 +509,7 @@ func _setup_build_panel() -> void:
 	close_btn.add_theme_font_size_override("font_size", 13)
 	var x_n := StyleBoxFlat.new()
 	x_n.bg_color = C_SURFACE2
-	x_n.set_corner_radius_all(8)
+	x_n.set_corner_radius_all(6)
 	var x_h := x_n.duplicate() as StyleBoxFlat
 	x_h.bg_color = C_ACCENT_RD
 	close_btn.add_theme_stylebox_override("normal",  x_n)
@@ -513,8 +522,8 @@ func _setup_build_panel() -> void:
 	_build_layer.add_child(close_btn)
 
 	var hdr_line := ColorRect.new()
-	hdr_line.position = Vector2(8, BUILD_PANEL_TOP + 36)
-	hdr_line.size     = Vector2(BUILD_PANEL_W - 16, 1)
+	hdr_line.position = Vector2(PADX, BUILD_PANEL_TOP + 36)
+	hdr_line.size     = Vector2(inner_w, 1)
 	hdr_line.color    = C_LINE
 	_build_layer.add_child(hdr_line)
 
@@ -523,27 +532,25 @@ func _setup_build_panel() -> void:
 	_fahren_btn.visible = false
 	_build_layer.add_child(_fahren_btn)
 
-	# ── Fußbereich (eigene Box): Auswahl-Status + dauerhafte Steuerungs-Hinweise ─
-	# Oben der aktuelle Status, darunter dauerhaft die Tastenkürzel (Drehen).
-	# Damit es nicht doppelt steht, zeigt die Ziehen-Statuszeile selbst keine Kürzel.
-	const FOOTER_H  = 90
+	# ── Footer: Auswahl/Status oben, Effekt/Hinweis unten ───────────────────────
+	const FOOTER_H = 88
 	var footer_top := _build_panel_bot - FOOTER_H
 	var footer := Panel.new()
-	footer.position = Vector2(6, footer_top)
-	footer.size     = Vector2(BUILD_PANEL_W - 12, FOOTER_H - 6)
+	footer.position = Vector2(PADX, footer_top)
+	footer.size     = Vector2(inner_w, FOOTER_H - 6)
 	var foot_sb := StyleBoxFlat.new()
 	foot_sb.bg_color     = C_SURFACE
 	foot_sb.border_color = C_LINE
 	foot_sb.set_border_width_all(1)
-	foot_sb.set_corner_radius_all(10)
+	foot_sb.set_corner_radius_all(6)
 	footer.add_theme_stylebox_override("panel", foot_sb)
 	_build_layer.add_child(footer)
 
-	var foot_inner_w := BUILD_PANEL_W - 12 - 16
+	var foot_inner_w := inner_w - 16
 
 	_status_lbl = Label.new()
 	_status_lbl.position = Vector2(8, 6)
-	_status_lbl.size     = Vector2(foot_inner_w, 32)
+	_status_lbl.size     = Vector2(foot_inner_w, 30)
 	_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
@@ -552,14 +559,14 @@ func _setup_build_panel() -> void:
 	footer.add_child(_status_lbl)
 
 	var foot_div := ColorRect.new()
-	foot_div.position = Vector2(8, 41)
+	foot_div.position = Vector2(8, 39)
 	foot_div.size     = Vector2(foot_inner_w, 1)
 	foot_div.color    = C_LINE
 	footer.add_child(foot_div)
 
 	_hint_lbl = Label.new()
-	_hint_lbl.position = Vector2(8, 45)
-	_hint_lbl.size     = Vector2(foot_inner_w, 38)
+	_hint_lbl.position = Vector2(8, 43)
+	_hint_lbl.size     = Vector2(foot_inner_w, FOOTER_H - 6 - 47)
 	_hint_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
@@ -567,23 +574,24 @@ func _setup_build_panel() -> void:
 	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	footer.add_child(_hint_lbl)
 
-	# ── Vertikaler Scroll für Tile-Karten (zwischen Kopf und Fußbox) ────────────
+	# ── Scrollbares 2-Spalten-Icon-Raster zwischen Kopf und Fuß ─────────────────
 	var scroll_top := BUILD_PANEL_TOP + 44
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(6, scroll_top)
-	scroll.size     = Vector2(BUILD_PANEL_W - 12, footer_top - 6 - scroll_top)
+	scroll.position = Vector2(PADX, scroll_top)
+	scroll.size     = Vector2(inner_w, footer_top - 6 - scroll_top)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	_build_layer.add_child(scroll)
 
-	var vbox := VBoxContainer.new()
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 7)
-	scroll.add_child(vbox)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	scroll.add_child(grid)
 
 	for i in range(SHOP_SLOT_COUNT):
 		var card := _make_build_card(i)
-		vbox.add_child(card)
+		grid.add_child(card)
 		_build_cards.append(card)
 
 	# Papierkorb – unten rechts über der Run-Bar (nur Slow-Modus)
@@ -594,6 +602,68 @@ func _setup_build_panel() -> void:
 	# Drehen-Knopf – direkt über dem Papierkorb (beide Modi, v. a. für Touch/Handy)
 	_rotate_btn = _make_rotate_card()
 	_build_layer.add_child(_rotate_btn)
+
+	# ── Schwebende Effekt-Box (mit Rahmen), erscheint beim Hovern rechts neben der Karte ──
+	const POP_W = 206
+	const POP_H = 64
+	_hover_popup = Panel.new()
+	_hover_popup.size    = Vector2(POP_W, POP_H)
+	_hover_popup.visible = false
+	_hover_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pop_sb := StyleBoxFlat.new()
+	pop_sb.bg_color     = C_SURFACE
+	pop_sb.border_color = C_ACCENT
+	pop_sb.set_border_width_all(2)
+	pop_sb.set_corner_radius_all(10)
+	pop_sb.shadow_color  = Color(0, 0, 0, 0.5)
+	pop_sb.shadow_size   = 8
+	pop_sb.shadow_offset = Vector2(0, 3)
+	_hover_popup.add_theme_stylebox_override("panel", pop_sb)
+	_build_layer.add_child(_hover_popup)
+
+	_hover_name_lbl = Label.new()
+	_hover_name_lbl.position = Vector2(12, 9)
+	_hover_name_lbl.size     = Vector2(POP_W - 24, 20)
+	_hover_name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hover_name_lbl.clip_text = true
+	_hover_name_lbl.add_theme_font_size_override("font_size", 14)
+	_hover_name_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_hover_popup.add_child(_hover_name_lbl)
+
+	_hover_eff_lbl = Label.new()
+	_hover_eff_lbl.position = Vector2(12, 31)
+	_hover_eff_lbl.size     = Vector2(POP_W - 24, POP_H - 38)
+	_hover_eff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hover_eff_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hover_eff_lbl.add_theme_font_size_override("font_size", 11)
+	_hover_eff_lbl.add_theme_color_override("font_color", Color(0.78, 0.92, 0.66))
+	_hover_popup.add_child(_hover_eff_lbl)
+
+	# ── Rotes „Zu wenig Geld"-Popup (erscheint kurz beim Platzierversuch am Cursor) ──
+	const NM_W = 210
+	const NM_H = 50
+	_nomoney_popup = Panel.new()
+	_nomoney_popup.size    = Vector2(NM_W, NM_H)
+	_nomoney_popup.visible = false
+	_nomoney_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var nm_sb := StyleBoxFlat.new()
+	nm_sb.bg_color     = Color(0.22, 0.09, 0.09)
+	nm_sb.border_color = C_ACCENT_RD
+	nm_sb.set_border_width_all(2)
+	nm_sb.set_corner_radius_all(10)
+	nm_sb.shadow_color  = Color(0, 0, 0, 0.5)
+	nm_sb.shadow_size   = 8
+	_nomoney_popup.add_theme_stylebox_override("panel", nm_sb)
+	_build_layer.add_child(_nomoney_popup)
+
+	_nomoney_lbl = Label.new()
+	_nomoney_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_nomoney_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_nomoney_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_nomoney_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_nomoney_lbl.add_theme_font_size_override("font_size", 12)
+	_nomoney_lbl.add_theme_color_override("font_color", Color(1.0, 0.62, 0.58))
+	_nomoney_popup.add_child(_nomoney_lbl)
 
 
 # Persistenter Hammer-Button unten links (öffnet/schließt das Baumenü).
@@ -730,66 +800,59 @@ func _apply_fahren_style(btn: Button, enabled: bool) -> void:
 	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 
 
-const CARD_H = 58
+const CARD_W = 78
+const CARD_H = 82
 
 func _make_build_card(idx: int) -> Panel:
 	var card := Panel.new()
-	card.custom_minimum_size = Vector2(0, CARD_H)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
-	# Farbiger Icon-Chip links
+	# Großer, tier-farbiger Icon-Chip oben
 	var chip := Panel.new()
 	chip.name = "Chip"
 	chip.position = Vector2(8, 8)
-	chip.size     = Vector2(40, CARD_H - 16)
+	chip.size     = Vector2(CARD_W - 16, 36)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(chip)
 
 	var icon := Label.new()
 	icon.name = "Icon"
 	icon.position = Vector2(8, 8)
-	icon.size     = Vector2(40, CARD_H - 16)
+	icon.size     = Vector2(CARD_W - 16, 36)
 	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	icon.add_theme_font_size_override("font_size", 20)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(icon)
 
-	# Name (oben), Wert (Mitte), Preis/Status (unten) – rechts neben dem Chip
+	# Kurzer Name (ggf. abgeschnitten – voller Name + Effekt stehen im Fuß)
 	var name_lbl := Label.new()
 	name_lbl.name = "Name"
-	name_lbl.anchor_right = 1.0
-	name_lbl.offset_left = 54; name_lbl.offset_right = -10
-	name_lbl.offset_top  = 6;  name_lbl.offset_bottom = 24
-	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_lbl.position = Vector2(3, 47)
+	name_lbl.size     = Vector2(CARD_W - 6, 14)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	name_lbl.clip_text = true
-	name_lbl.add_theme_font_size_override("font_size", 12)
+	name_lbl.add_theme_font_size_override("font_size", 9)
 	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(name_lbl)
 
-	var val_lbl := Label.new()
-	val_lbl.name = "Value"
-	val_lbl.anchor_right = 1.0
-	val_lbl.offset_left = 54; val_lbl.offset_right = -10
-	val_lbl.offset_top  = 24; val_lbl.offset_bottom = 39
-	val_lbl.clip_text = true
-	val_lbl.add_theme_font_size_override("font_size", 9)
-	val_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	val_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(val_lbl)
-
+	# Kurzer Preis/Status unten
 	var price_lbl := Label.new()
 	price_lbl.name = "Price"
-	price_lbl.anchor_right = 1.0
-	price_lbl.offset_left = 54; price_lbl.offset_right = -10
-	price_lbl.offset_top  = 38; price_lbl.offset_bottom = 53
+	price_lbl.position = Vector2(3, 62)
+	price_lbl.size     = Vector2(CARD_W - 6, 15)
+	price_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	price_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	price_lbl.clip_text = true
-	price_lbl.add_theme_font_size_override("font_size", 10)
+	price_lbl.add_theme_font_size_override("font_size", 9)
 	price_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(price_lbl)
 
 	card.gui_input.connect(func(e): _on_shop_slot_gui_input(e, idx))
+	card.mouse_entered.connect(func(): _show_tile_hover(idx))
+	card.mouse_exited.connect(func(): _hide_tile_hover(idx))
 	return card
 
 
@@ -1081,25 +1144,9 @@ func _update_build_ui() -> void:
 		var chip      = card.get_node("Chip")  as Panel
 		var icon_lbl  = card.get_node("Icon")  as Label
 		var name_lbl  = card.get_node("Name")  as Label
-		var val_lbl   = card.get_node("Value") as Label
 		var price_lbl = card.get_node("Price") as Label
 
-		var icon_txt := "━"
-		if item["type"] == "curve":
-			icon_txt = "╰"
-		elif item["tier"] == "ramp":
-			icon_txt = Icons.MOUNTAIN
-		elif item["tier"] == "ice":
-			icon_txt = Icons.SNOWFLAKE
-		elif item["tier"] == "wall":
-			icon_txt = "◗"
-		elif item["tier"] == "loop":
-			icon_txt = "◯"
-		elif item["tier"] == "portal":
-			icon_txt = Icons.CIRCLE_DASHED
-		elif item["tier"] == "stand":
-			icon_txt = Icons.STADIUM
-		icon_lbl.text = icon_txt
+		icon_lbl.text = _tile_icon_glyph(item)
 		name_lbl.text = item["name"]
 
 		# Chip-Farbe je Tier (gesperrt = gedämpft)
@@ -1130,62 +1177,27 @@ func _update_build_ui() -> void:
 		chip.add_theme_stylebox_override("panel", chip_sb)
 		icon_lbl.add_theme_color_override("font_color", chip_fg)
 
-		# Wert- + Preiszeile je Zustand
-		if locked:
-			val_lbl.text   = "Im Shop freischalten"
-			price_lbl.text = Icons.LOCK + " Gesperrt"
-			price_lbl.add_theme_color_override("font_color", Color(0.80, 0.64, 0.46))
-		elif item["tier"] == "dirt":
-			val_lbl.text   = "+%d pro Feld" % _tile_field_earn(item)
-			price_lbl.text = "Kostenlos"
-			price_lbl.add_theme_color_override("font_color", Color(0.64, 0.84, 0.52))
-		elif item["tier"] == "ramp":
-			var dirs = ["→", "↓", "←", "↑"]
-			val_lbl.text   = "Sprung %s  ·  +%d ×%.1f" % [dirs[ramp_preview_rot / 90], int(round(Economy.get_ramp_earn())), Economy.get_ramp_jump_mult()]
-			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
-		elif item["tier"] == "ice":
-			val_lbl.text   = "%s +%.1f Lvl Speed · %d Felder" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(), Economy.get_ice_range()]
-			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
-		elif item["tier"] == "wall":
-			val_lbl.text   = "+%s %s · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Icons.COIN, Economy.get_wall_boost_levels(), Economy.get_wall_range()]
-			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
-		elif item["tier"] == "loop":
-			val_lbl.text   = "%s ×%.1f  ·  andere ×%.1f" % [Icons.CIRCLE, Economy.get_loop_factor(), Economy.get_loop_factor()]
-			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
-		elif item["tier"] == "portal":
-			val_lbl.text   = "+%s %s  ·  %d/%d gesetzt" % [Economy.format_currency(Economy.get_portal_earn()), Icons.COIN, _count_portals(), PORTAL_MAX]
-			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
-		elif item["tier"] == "stand":
-			val_lbl.text   = "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
-			price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-			price_lbl.add_theme_color_override("font_color", C_ACCENT)
-		else:
-			val_lbl.text   = "+%d  ·  ×1.2 pro Feld" % _tile_field_earn(item)
-			# Gratis-Straßen (free_roads): solange Kontingent übrig ist, gratis platzierbar.
-			var free = Economy.get_free_tile_quota(item["type"])
-			var placed = _count_paid_tiles(item["type"])
-			if placed < free:
-				price_lbl.text = "Gratis (%d übrig)" % (free - placed)
-				price_lbl.add_theme_color_override("font_color", Color(0.64, 0.84, 0.52))
-			else:
-				price_lbl.text = "%s %s" % [Economy.format_currency(_tile_price(item)), Icons.COIN]
-				price_lbl.add_theme_color_override("font_color", C_ACCENT)
+		# Kurzer Preis/Status auf der Karte; voller Effekt steht in der Hover-Box (kein Standard-Tooltip).
+		var pr := _tile_price_short(item, locked)
+		price_lbl.text = pr["text"]
+		price_lbl.add_theme_color_override("font_color", pr["color"])
+		var too_expensive: bool = not bool(pr.get("afford", true))
 
 		# Karten-Rahmen je Zustand
 		var style := StyleBoxFlat.new()
-		style.set_corner_radius_all(10)
+		style.set_corner_radius_all(12)
 		if selected:
-			style.bg_color     = Color(0.26, 0.19, 0.05)
+			style.bg_color     = C_ACCENT.darkened(0.62)
 			style.border_color = C_ACCENT
 			style.set_border_width_all(2)
 		elif locked:
-			style.bg_color     = C_SURFACE
-			style.border_color = Color(0.40, 0.28, 0.18)
+			style.bg_color     = C_BG
+			style.border_color = Color(0.34, 0.26, 0.18)
+			style.set_border_width_all(1)
+		elif too_expensive:
+			# Nicht leistbar → rötlich markiert (passt sich live an den Geldstand an).
+			style.bg_color     = Color(0.22, 0.13, 0.13)
+			style.border_color = C_ACCENT_RD.darkened(0.15)
 			style.set_border_width_all(1)
 		else:
 			style.bg_color     = C_SURFACE2
@@ -1195,10 +1207,103 @@ func _update_build_ui() -> void:
 
 		var name_col := C_TEXT
 		if selected:
-			name_col = Color(1.00, 0.92, 0.60)
+			name_col = Color(0.86, 0.90, 1.0)
 		elif locked:
 			name_col = Color(0.82, 0.66, 0.50)
 		name_lbl.add_theme_color_override("font_color", name_col)
+
+
+# Repräsentatives Glyph je Streckenteil (für den Icon-Chip auf der Bau-Karte).
+func _tile_icon_glyph(item: Dictionary) -> String:
+	if item["type"] == "curve":
+		return "╰"
+	match item["tier"]:
+		"ramp":
+			return Icons.MOUNTAIN
+		"ice":
+			return Icons.SNOWFLAKE
+		"wall":
+			return "◗"
+		"loop":
+			return "◯"
+		"portal":
+			return Icons.CIRCLE_DASHED
+		"stand":
+			return Icons.STADIUM
+	return "━"
+
+
+# Voller Effekt-Text eines (freigeschalteten) Teils – für Tooltip + Fußanzeige.
+func _tile_effect_text(item: Dictionary) -> String:
+	match item["tier"]:
+		"ramp":
+			var dirs = ["→", "↓", "←", "↑"]
+			return "Sprung %s  ·  +%d ×%.1f" % [dirs[ramp_preview_rot / 90], int(round(Economy.get_ramp_earn())), Economy.get_ramp_jump_mult()]
+		"ice":
+			return "%s +%.1f Lvl Speed · %d Felder" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(), Economy.get_ice_range()]
+		"wall":
+			return "+%s %s · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Icons.COIN, Economy.get_wall_boost_levels(), Economy.get_wall_range()]
+		"loop":
+			return "%s ×%.1f  ·  andere ×%.1f" % [Icons.CIRCLE, Economy.get_loop_factor(), Economy.get_loop_factor()]
+		"portal":
+			return "+%s %s  ·  %d/%d gesetzt" % [Economy.format_currency(Economy.get_portal_earn()), Icons.COIN, _count_portals(), PORTAL_MAX]
+		"stand":
+			return "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
+		"dirt":
+			return "+%d pro Feld" % _tile_field_earn(item)
+	return "+%d  ·  ×1.2 pro Feld" % _tile_field_earn(item)
+
+
+# Kurzer Preis/Status für die kompakte Bau-Karte → {text, color}.
+func _tile_price_short(item: Dictionary, locked: bool) -> Dictionary:
+	if locked:
+		return {"text": Icons.LOCK + " Shop", "color": Color(0.80, 0.64, 0.46), "afford": true}
+	if item["tier"] == "dirt":
+		return {"text": "frei", "color": Color(0.64, 0.84, 0.52), "afford": true}
+	if item["tier"] == "default":
+		# Gratis-Straßen-Kontingent: solange übrig, gratis platzierbar.
+		var free = Economy.get_free_tile_quota(item["type"])
+		var placed = _count_paid_tiles(item["type"])
+		if placed < free:
+			return {"text": "frei (%d)" % (free - placed), "color": Color(0.64, 0.84, 0.52), "afford": true}
+	# Bezahltes Tile: Preis rot, wenn das Geld (noch) nicht reicht.
+	var price = _tile_price(item)
+	var afford: bool = Economy.get_currency() >= price
+	return {"text": "%s %s" % [Economy.format_currency(price), Icons.COIN], "color": C_ACCENT if afford else C_ACCENT_RD, "afford": afford}
+
+
+# Hover über eine Tile-Karte → schwebende Effekt-Box (mit Rahmen) rechts neben der Karte zeigen.
+# Während eines Drags nicht stören. Der Fuß bleibt unverändert (dauerhaft die Steuerungs-Hinweise).
+func _show_tile_hover(idx: int) -> void:
+	if _drag_active or _hover_popup == null or idx < 0 or idx >= _build_cards.size():
+		return
+	var item = SHOP_ITEMS[idx]
+	var locked = not Economy.is_tile_unlocked(item["key"])
+	_hover_name_lbl.text = String(item["name"])
+	_hover_name_lbl.add_theme_color_override("font_color", C_ACCENT if not locked else Color(0.86, 0.70, 0.52))
+	if locked:
+		_hover_eff_lbl.text = Icons.LOCK + " Im Shop → Streckenteile freischalten"
+		_hover_eff_lbl.add_theme_color_override("font_color", Color(0.82, 0.66, 0.48))
+	else:
+		_hover_eff_lbl.text = _tile_effect_text(item)
+		_hover_eff_lbl.add_theme_color_override("font_color", Color(0.78, 0.92, 0.66))
+
+	# Rechts neben den Block, vertikal auf Kartenhöhe (an den sichtbaren Bereich geklemmt).
+	var card: Control = _build_cards[idx]
+	var pop_h := _hover_popup.size.y
+	var y := card.global_position.y + card.size.y * 0.5 - pop_h * 0.5
+	y = clampf(y, float(BUILD_PANEL_TOP) + 4.0, _build_panel_bot - pop_h - 4.0)
+	_hover_popup.position = Vector2(BUILD_PANEL_W + 6, y)
+	_hover_popup.visible = true
+	_hover_idx = idx
+
+
+# Maus verlässt die Karte → Box ausblenden (nur, wenn nicht inzwischen eine andere Karte gehovert wird).
+func _hide_tile_hover(idx: int) -> void:
+	if _hover_popup != null and idx == _hover_idx:
+		_hover_popup.visible = false
+		_hover_idx = -1
+
 
 func _update_delete_panel_style() -> void:
 	pass  # Kein separater Delete-Panel mehr
@@ -1270,6 +1375,34 @@ func _delete_tile_at(row: int, col: int) -> void:
 
 func _flash_currency() -> void:
 	GameHUD.flash_currency()
+
+
+# Feedback bei einem Platzierversuch ohne genug Geld: Geld-Pille blinkt + rotes Popup am Cursor.
+func _no_money_feedback(price: int) -> void:
+	_flash_currency()
+	_show_no_money_popup(price - Economy.get_currency())
+
+
+# Zeigt das rote „Zu wenig Geld – dir fehlen X 💰"-Popup kurz am Mauszeiger und blendet es aus.
+func _show_no_money_popup(missing: int) -> void:
+	if _nomoney_popup == null:
+		return
+	_nomoney_lbl.text = "Zu wenig Geld\n– dir fehlen %s %s" % [Economy.format_currency(max(missing, 0)), Icons.COIN]
+	var vp := get_viewport().get_visible_rect().size
+	var mp := get_viewport().get_mouse_position()
+	var w := _nomoney_popup.size.x
+	var h := _nomoney_popup.size.y
+	var x := clampf(mp.x - w * 0.5, 4.0, vp.x - w - 4.0)
+	var y := clampf(mp.y - h - 16.0, 4.0, vp.y - h - 4.0)
+	_nomoney_popup.position = Vector2(x, y)
+	_nomoney_popup.visible  = true
+	_nomoney_popup.modulate = Color(1, 1, 1, 1)
+	if _nomoney_tween != null and _nomoney_tween.is_valid():
+		_nomoney_tween.kill()
+	_nomoney_tween = _nomoney_popup.create_tween()
+	_nomoney_tween.tween_interval(0.85)
+	_nomoney_tween.tween_property(_nomoney_popup, "modulate:a", 0.0, 0.35)
+	_nomoney_tween.tween_callback(func(): _nomoney_popup.visible = false)
 
 
 # ── Tile spawnen ───────────────────────────────────────────────────────────────
@@ -1813,6 +1946,13 @@ func _process(_delta: float) -> void:
 	# das wie ein reguläres Loslassen → außerhalb des Grids verschwindet das Tile.
 	if (_drag_active or _grid_drag_pending) and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_slow_left_release(get_global_mouse_position())
+
+	# Baumenü offen: bei Geldänderung die „zu teuer"-Markierung live nachziehen (nur dann, billig).
+	if _build_layer != null and _build_layer.visible:
+		var cur := Economy.get_currency()
+		if cur != _last_build_currency:
+			_last_build_currency = cur
+			_update_build_ui()
 
 
 func _input(event: InputEvent) -> void:
@@ -2737,7 +2877,7 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	var is_paid: bool = item["tier"] != "dirt"
 	if is_paid:
 		if not Economy.spend(price):
-			_flash_currency()
+			_no_money_feedback(price)
 			return
 	# Vorhandenes Tile (außer Start) überschreiben → zählt als Löschvorgang (mit Rückerstattung)
 	if grid[row][col] != null:
@@ -2857,7 +2997,7 @@ func _place_ramp(row: int, col: int) -> void:
 		var end = _ramp_end_pos(row, col, rot)
 		if _ac_in_bounds(end) and _ramp_cell_free(row, col) and _ramp_cell_free(end.x, end.y):
 			if not Economy.spend(price):
-				_flash_currency()
+				_no_money_feedback(price)
 				return
 			_clear_dirt_cell(row, col)
 			_clear_dirt_cell(end.x, end.y)
@@ -2899,7 +3039,7 @@ func _place_wall(row: int, col: int) -> void:
 		var endp = _wall_end_pos(row, col, rot)
 		if _ac_in_bounds(endp) and _ramp_cell_free(row, col) and _ramp_cell_free(endp.x, endp.y):
 			if not Economy.spend(price):
-				_flash_currency()
+				_no_money_feedback(price)
 				return
 			_clear_dirt_cell(row, col)
 			_clear_dirt_cell(endp.x, endp.y)
@@ -2945,7 +3085,7 @@ func _place_stand(row: int, col: int) -> void:
 			tile_selector.set_status("Tribüne ist voll gestapelt (×%d)" % STAND_MAX_STACK)
 			return
 		if not Economy.spend(price):
-			_flash_currency()
+			_no_money_feedback(price)
 			return
 		var nd = existing.duplicate()
 		nd.erase("node")
@@ -2963,7 +3103,7 @@ func _place_stand(row: int, col: int) -> void:
 	if existing != null and existing.get("is_start", false):
 		return
 	if not Economy.spend(price):
-		_flash_currency()
+		_no_money_feedback(price)
 		return
 	if existing != null:
 		var refund = _tile_refund_for(existing)

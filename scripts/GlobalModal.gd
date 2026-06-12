@@ -178,6 +178,7 @@ var _ascend_confirm:      Control       = null   # Auto-Prestige-Bestätigung (W
 var _ascend_confirm_lbl:  Label         = null
 var _cosmetic_confirm:     Control       = null   # Kauf-Bestätigung für Garage-Kosmetik (Farbe/Muster)
 var _cosmetic_confirm_lbl: RichTextLabel = null
+var _cosmetic_yes_btn:     Button        = null   # „Kaufen"-Knopf (ausgegraut bei zu wenig Trophäen)
 var _cosmetic_pending_cat: String        = ""     # "paint" | "pattern" – was gerade bestätigt wird
 var _cosmetic_pending_idx: int           = -1
 
@@ -239,6 +240,7 @@ func _do_rebuild() -> void:
 	_prestige_confirm       = null;  _prestige_confirm_lbl = null
 	_ascend_confirm         = null;  _ascend_confirm_lbl  = null
 	_cosmetic_confirm       = null;  _cosmetic_confirm_lbl = null
+	_cosmetic_yes_btn       = null
 	_cosmetic_pending_cat   = "";    _cosmetic_pending_idx = -1
 	_lock_overlay           = null;  _lock_hint_lbl       = null
 	_ws_options_box         = null;  _ws_summary_lbl      = null
@@ -2151,9 +2153,20 @@ func _open_cosmetic_confirm(cat: String, idx: int, opt: Dictionary) -> void:
 	_cosmetic_pending_idx = idx
 	var kind_word := "die Farbe" if cat == "paint" else "das Muster"
 	var nm := String(opt.get("name", "?"))
+	var have := Economy.get_ach_currency()
+	var can_afford := have >= Economy.COSMETIC_COST
 	# Preis + Währungssymbol in der Währungsfarbe (Trophäen-Gold) hervorheben.
-	_cosmetic_confirm_lbl.text = "[center]Möchten Sie %s \"%s\" für [color=#%s]%d %s[/color] kaufen?[/center]" % [
+	var msg := "[center]Möchten Sie %s \"%s\" für [color=#%s]%d %s[/color] kaufen?" % [
 		kind_word, nm, C_CLAIM_GOLD.to_html(false), Economy.COSMETIC_COST, Icons.TROPHY]
+	if not can_afford:
+		# Hinweis, warum „Kaufen" ausgegraut ist: wie viele Trophäen noch fehlen.
+		var missing := Economy.COSMETIC_COST - have
+		msg += "\n[color=#%s]Dir fehlen %d %s.[/color]" % [C_ACCENT_RD.to_html(false), missing, Icons.TROPHY]
+	msg += "[/center]"
+	_cosmetic_confirm_lbl.text = msg
+	# „Kaufen" ausgrauen, wenn das Trophäen-Guthaben nicht reicht.
+	if _cosmetic_yes_btn != null:
+		_cosmetic_yes_btn.disabled = not can_afford
 	_cosmetic_confirm.visible = true
 
 
@@ -2241,9 +2254,13 @@ func _build_cosmetic_confirm(parent: Control) -> void:
 	yes.add_theme_stylebox_override("normal",  _sbf(C_CLAIM_GOLD.darkened(0.55), C_CLAIM_GOLD))
 	yes.add_theme_stylebox_override("hover",   _sbf(C_CLAIM_GOLD.darkened(0.40), C_CLAIM_GOLD))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_CLAIM_GOLD))
+	# Ausgegrauter Zustand (zu wenig Trophäen): dezenter Rahmen, gedimmter Text. Wird je Öffnen gesetzt.
+	yes.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 	yes.add_theme_color_override("font_color", C_CLAIM_GOLD)
+	yes.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	yes.pressed.connect(_on_cosmetic_confirmed)
 	panel.add_child(yes)
+	_cosmetic_yes_btn = yes
 
 	var no := Button.new()
 	no.position = Vector2(36 + (PW - 60) / 2.0, PH - 58)

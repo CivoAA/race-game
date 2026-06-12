@@ -168,21 +168,27 @@ func _build_bar() -> void:
 		_ui_root.add_child(btn)
 		_tab_btns.append(btn)
 
-		# Run-Indikator: Kreis mit dunklem Ring
-		const DOT_SZ = 10
+		# Run-Indikator: kleine grüne „Live"-LED mit weichem Glühen. Nur sichtbar, WÄHREND die
+		# Strecke fährt – sonst ausgeblendet (kein grauer Dauer-Punkt → ruhigeres Bild).
+		const DOT_SZ = 9
 		var dot := Panel.new()
 		dot.size     = Vector2(DOT_SZ, DOT_SZ)
-		dot.position = btn.position + Vector2(TAB_W - DOT_SZ - 10, (TAB_H - DOT_SZ) / 2.0)
+		dot.position = btn.position + Vector2(TAB_W - DOT_SZ - 11, (TAB_H - DOT_SZ) / 2.0)
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		dot.visible  = false
 		var dot_sb := StyleBoxFlat.new()
-		dot_sb.bg_color = C_RUN_OFF
-		dot_sb.set_corner_radius_all(DOT_SZ / 2)
-		dot_sb.set_border_width_all(2)
-		dot_sb.border_color = C_BG
+		dot_sb.bg_color = C_RUN_ON
+		dot_sb.set_corner_radius_all(5)                       # voller Kreis
+		dot_sb.shadow_color = Color(C_RUN_ON.r, C_RUN_ON.g, C_RUN_ON.b, 0.55)
+		dot_sb.shadow_size  = 5                               # grünes Glühen rundherum
 		dot.add_theme_stylebox_override("panel", dot_sb)
 		_ui_root.add_child(dot)
 		_run_dots.append(dot)
 		_run_dot_sbs.append(dot_sb)
+		# Sanftes „Atmen": Glühen/Helligkeit pulsiert. An die LED gebunden → endet mit ihr.
+		var pulse := dot.create_tween().set_loops()
+		pulse.tween_property(dot, "modulate:a", 0.45, 0.75).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		pulse.tween_property(dot, "modulate:a", 1.0,  0.75).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 	# ── Geld + Statuswerte: links-gepackte Reihe direkt rechts neben „Strecke 3" ──
 	# Reihenfolge: 💰 Geld · ⭐ Prestige · 🏆 Trophäen. Prestige/Trophäen erscheinen erst, sobald
@@ -731,11 +737,11 @@ func _regular_tab_font() -> SystemFont:
 	return _tab_font_regular
 
 
-func _style_tab_btn(btn: Button, active: bool) -> void:
-	# Rechteckige Form: aktiver Tab gefüllt mit Akzent (dunkler Text), inaktive dezent.
+func _style_tab_btn(btn: Button, active: bool, locked: bool = false) -> void:
+	# Auswahl NICHT als volle blaue Fläche, sondern dezent angehobenes, helleres Feld + blauer
+	# Akzent-Unterstrich + heller Text. Ruhiger und kollidiert nicht mit der grünen „Live"-LED.
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = C_ACCENT if active else C_SURFACE
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(6)
 	sb.content_margin_left   = 10
 	sb.content_margin_right  = 10
 	sb.content_margin_top    = 4
@@ -744,6 +750,12 @@ func _style_tab_btn(btn: Button, active: bool) -> void:
 	sb.shadow_color  = Color(0, 0, 0, 0.45)
 	sb.shadow_size   = 3
 	sb.shadow_offset = Vector2(0, 2)
+	if active:
+		sb.bg_color            = C_SURFACE_HI   # nur leicht angehoben – kein Blau-Block
+		sb.border_width_bottom = 3
+		sb.border_color        = C_ACCENT       # blauer Unterstrich = ausgewählt
+	else:
+		sb.bg_color = C_SURFACE
 	btn.add_theme_stylebox_override("normal",  sb)
 	btn.add_theme_stylebox_override("pressed", sb)
 	btn.add_theme_stylebox_override("focus",   sb)
@@ -751,37 +763,48 @@ func _style_tab_btn(btn: Button, active: bool) -> void:
 	if not active:
 		sb_h.bg_color = C_SURFACE_HI
 	btn.add_theme_stylebox_override("hover", sb_h)
-	btn.add_theme_color_override("font_color", C_BG if active else C_TEXT_DIM)
-	btn.add_theme_font_size_override("font_size", 13)
-	# Schrift bewusst in normaler Stärke (nicht fett) – wirkt auf den Tabs ruhiger.
-	# Der 3D-Look kommt allein vom Pillen-Schatten oben.
-	btn.add_theme_font_override("font", _regular_tab_font())
-	# Disabled (gesperrte Strecke)
+	# Aktiver Tab: heller Text (auf hellem Feld). Inaktiv: gedimmt.
+	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
+	# Gesperrte Tabs zeigen nur das Schloss → die Icon-Schrift verwenden (die System-Tab-Schrift hat
+	# kein Schloss-Glyph und würde ein Tofu-/Fehlerkästchen zeigen). Freigeschaltete: normale Schrift.
+	if locked and Icons.FONT != null:
+		btn.add_theme_font_override("font", Icons.FONT)
+	else:
+		btn.add_theme_font_override("font", _regular_tab_font())
+	# Gesperrte Strecke: nur ein GROSSES Schloss (kein Text) und deutlich stärker ausgegraut –
+	# flacher Knopf (kein Schatten), dunkleres Feld, stark gedimmtes Schloss. Sonst normale Größe.
 	var sb_dis := sb.duplicate() as StyleBoxFlat
-	sb_dis.bg_color = C_SURFACE.darkened(0.2)
+	sb_dis.border_width_bottom = 0
+	if locked:
+		sb_dis.bg_color    = C_SURFACE.darkened(0.45)
+		sb_dis.shadow_size = 0
+	else:
+		sb_dis.bg_color = C_SURFACE.darkened(0.2)
 	btn.add_theme_stylebox_override("disabled", sb_dis)
-	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM.darkened(0.15))
+	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM.darkened(0.35) if locked else C_TEXT_DIM.darkened(0.15))
+	btn.add_theme_font_size_override("font_size", 24 if locked else 13)
 
 
 func _set_run_dot(i: int, on: bool) -> void:
-	if i < _run_dot_sbs.size():
-		_run_dot_sbs[i].bg_color = C_RUN_ON if on else C_RUN_OFF
+	# Die LED ist immer grün+glühend; „aus" bedeutet einfach: nicht sichtbar.
+	if i < _run_dots.size():
+		_run_dots[i].visible = on
 
 
 func _refresh_tabs() -> void:
 	var unlocked := Economy.get_unlocked_tracks()
 	for i in TRACK_COUNT:
 		var is_locked := i >= unlocked
-		# Gesperrte Strecken (per Prestige „Extra-Strecke" freischaltbar) zeigen ein Schloss.
-		# tr() übersetzt den Format-String („Strecke %d" → „Track %d") vor dem Einsetzen
-		# der Nummer; auto_translate ist für die Tabs aus (siehe _build_bar).
+		# Gesperrte Strecken (per Prestige „Extra-Strecke" freischaltbar): nur ein großes Schloss,
+		# OHNE Text, deutlich ausgegraut. Freigeschaltete sehen exakt aus wie Strecke 1.
+		# tr() übersetzt den Format-String („Strecke %d" → „Track %d") vor dem Einsetzen der Nummer.
 		var tab_label := tr("Strecke %d") % (i + 1)
-		_tab_btns[i].text     = (Icons.LOCK + " " + tab_label) if is_locked else tab_label
-		_style_tab_btn(_tab_btns[i], i == _active_tab)
+		_tab_btns[i].text     = Icons.LOCK if is_locked else tab_label
+		_style_tab_btn(_tab_btns[i], i == _active_tab, is_locked)
 		# Tabs bleiben auch in der 3D-Ansicht aktiv – nur gesperrte Strecken sind nicht wählbar.
 		_tab_btns[i].disabled = is_locked
-		_run_dots[i].visible  = not is_locked
-		_set_run_dot(i, Economy.is_run_active(i))
+		# Grüne „Live"-LED nur, wenn die (freigeschaltete) Strecke gerade fährt.
+		_set_run_dot(i, Economy.is_run_active(i) and not is_locked)
 
 
 func _refresh_view_buttons() -> void:
