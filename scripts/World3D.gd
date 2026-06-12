@@ -239,6 +239,8 @@ func _setup_hud() -> void:
 	bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bar_status.add_theme_font_size_override("font_size", 12)
 	bar_status.add_theme_color_override("font_color", Color(0.580, 0.608, 0.643))
+	# Dekoratives (leeres) Label – darf die Maus NICHT abfangen, sonst kein Hover-Tooltip der pbar.
+	bar_status.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bottom_bar.add_child(bar_status)
 
 	# Der Renn-Timer wird von GameHUD in der oberen Leiste neben der Währung gezeigt

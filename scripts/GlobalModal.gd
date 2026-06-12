@@ -1173,7 +1173,7 @@ func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
 	head_row.add_child(_hpad(12))
 	_ach_progress_lbl = Label.new()
 	_ach_progress_lbl.add_theme_font_size_override("font_size", 13)
-	_ach_progress_lbl.add_theme_color_override("font_color", C_ACCENT)
+	_ach_progress_lbl.add_theme_color_override("font_color", C_CLAIM_GOLD)   # Gold wie die Erfolgswährung
 	_emboss(_ach_progress_lbl)
 	head_row.add_child(_ach_progress_lbl)
 
@@ -1345,8 +1345,11 @@ func _select_achievement(idx: int) -> void:
 		var tdone: bool = t["done"]
 		var tclaim: bool = t.get("claimable", false)
 		var tclaimed: bool = tdone and not tclaim   # erreicht UND Währung schon eingesammelt
-		# Rahmen: gewählt = blau, einsammelbar = gold, eingesammelt = grün, erreicht = gedämpft, sonst Linie.
-		if sel:
+		# Rahmen: gewähltes grünes (eingesammeltes) Feld = dunkelgrün-grau (Blau passt nicht aufs Grün),
+		# sonst gewählt = blau, einsammelbar = gold, eingesammelt = grün, erreicht = gedämpft, sonst Linie.
+		if sel and tclaimed:
+			tsb.border_color = C_CLAIMED_SEL
+		elif sel:
 			tsb.border_color = C_ACCENT
 		elif tclaim:
 			tsb.border_color = C_CLAIM_GOLD
@@ -1393,6 +1396,8 @@ const C_CLAIM_DARK := Color(0.20, 0.15, 0.02)
 # Eingesammelt (Währung abgeholt) = grün markiert: kräftiger Rahmen/Text + dunkelgrüne Füllung.
 const C_CLAIMED_GREEN := Color(0.30, 0.78, 0.42)
 const C_CLAIMED_BG    := Color(0.12, 0.22, 0.15)
+# Auswahl-Rahmen auf einem eingesammelten (grünen) Feld: dunkelgrün-grau statt Blau (Blau passt nicht aufs Grün).
+const C_CLAIMED_SEL   := Color(0.36, 0.46, 0.38)
 
 # Setzt Sichtbarkeit, Text und Stil des Einsammeln-Knopfs für den gewählten Erfolg.
 #   • noch nicht erreicht → versteckt
@@ -2144,9 +2149,9 @@ func _open_cosmetic_confirm(cat: String, idx: int, opt: Dictionary) -> void:
 	_cosmetic_pending_idx = idx
 	var kind_word := "die Farbe" if cat == "paint" else "das Muster"
 	var nm := String(opt.get("name", "?"))
-	# Preis + Währungssymbol in der Währungsfarbe (Trophäen-Blau) hervorheben.
+	# Preis + Währungssymbol in der Währungsfarbe (Trophäen-Gold) hervorheben.
 	_cosmetic_confirm_lbl.text = "[center]Möchten Sie %s \"%s\" für [color=#%s]%d %s[/color] kaufen?[/center]" % [
-		kind_word, nm, C_ACCENT.to_html(false), Economy.COSMETIC_COST, Icons.TROPHY]
+		kind_word, nm, C_CLAIM_GOLD.to_html(false), Economy.COSMETIC_COST, Icons.TROPHY]
 	_cosmetic_confirm.visible = true
 
 
@@ -2198,7 +2203,7 @@ func _build_cosmetic_confirm(parent: Control) -> void:
 	panel.size     = Vector2(PW, PH)
 	var psb := StyleBoxFlat.new()
 	psb.bg_color = C_BG
-	psb.border_color = C_ACCENT          # Währungsfarbe (Trophäen-Blau) als Rahmen
+	psb.border_color = C_CLAIM_GOLD          # Währungsfarbe (Trophäen-Gold) als Rahmen
 	psb.set_border_width_all(2)
 	psb.set_corner_radius_all(8)
 	panel.add_theme_stylebox_override("panel", psb)
@@ -2209,7 +2214,7 @@ func _build_cosmetic_confirm(parent: Control) -> void:
 	title.size     = Vector2(PW, 30)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", C_ACCENT)
+	title.add_theme_color_override("font_color", C_CLAIM_GOLD)
 	title.text = "%s  KAUFEN?" % Icons.TROPHY
 	_emboss(title, 0.7)
 	panel.add_child(title)
@@ -2231,10 +2236,10 @@ func _build_cosmetic_confirm(parent: Control) -> void:
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
 	yes.text = Icons.TROPHY + "  Kaufen"
-	yes.add_theme_stylebox_override("normal",  _sbf(C_ACCENT_MU.darkened(0.2), C_ACCENT))
-	yes.add_theme_stylebox_override("hover",   _sbf(C_ACCENT_MU, C_ACCENT))
-	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
-	yes.add_theme_color_override("font_color", C_TEXT)
+	yes.add_theme_stylebox_override("normal",  _sbf(C_CLAIM_GOLD.darkened(0.55), C_CLAIM_GOLD))
+	yes.add_theme_stylebox_override("hover",   _sbf(C_CLAIM_GOLD.darkened(0.40), C_CLAIM_GOLD))
+	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_CLAIM_GOLD))
+	yes.add_theme_color_override("font_color", C_CLAIM_GOLD)
 	yes.pressed.connect(_on_cosmetic_confirmed)
 	panel.add_child(yes)
 

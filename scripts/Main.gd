@@ -368,6 +368,8 @@ func _setup_run_bar() -> void:
 	_run_bar_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_run_bar_status.add_theme_font_size_override("font_size", 12)
 	_run_bar_status.add_theme_color_override("font_color", C_TEXT_DIM)
+	# Reiner Status-Text – darf die Maus NICHT abfangen, sonst kein Hover-Tooltip der pbar.
+	_run_bar_status.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_run_bar.add_child(_run_bar_status)
 
 	_run_bar_btn = Button.new()

@@ -196,8 +196,8 @@ func _build_bar() -> void:
 	var tabs_right := float(TAB_X0 + TRACK_COUNT * (TAB_W + TAB_GAP))
 	var x          := tabs_right + 8.0
 
-	# 💰 Geld – immer sichtbar, bündig rechts neben „Strecke 3".
-	_currency_lbl = _make_bar_pill(x, pill_y, MONEY_W, Color(1.0, 0.86, 0.22))
+	# 💰 Geld – immer sichtbar, bündig rechts neben „Strecke 3". Grün als Geld-Währungsfarbe.
+	_currency_lbl = _make_bar_pill(x, pill_y, MONEY_W, Color(0.40, 0.85, 0.45))
 	_currency_lbl.text = "%s  %s" % [Icons.COIN, Economy.format_currency(Economy.get_currency())]
 	_money_pill_cx = x + MONEY_W / 2.0   # Mitte der Geld-Pille → darunter erscheint das „+N 💰"-Popup
 	x += MONEY_W + PILL_GAP
@@ -208,9 +208,9 @@ func _build_bar() -> void:
 		_prestige_lbl.text = "%s %s" % [Icons.STAR, Economy.format_currency(Economy.get_prestige_points())]
 		x += STAT_W + PILL_GAP
 
-	# 🏆 Trophäen – erst ab dem ersten freigeschalteten Erfolg. Blau wie der Erfolge-Tab (C_ACCENT).
+	# 🏆 Trophäen – erst ab dem ersten freigeschalteten Erfolg. Gold wie das Erfolge-Tab-Icon.
 	if Economy.get_unlocked_achievement_count() > 0:
-		_trophy_lbl = _make_bar_pill(x, pill_y, STAT_W, C_ACCENT)
+		_trophy_lbl = _make_bar_pill(x, pill_y, STAT_W, Color(1.00, 0.82, 0.30))
 		_trophy_lbl.text = "%s %s" % [Icons.TROPHY, Economy.format_currency(Economy.get_ach_currency())]
 		x += STAT_W + PILL_GAP
 
