@@ -50,7 +50,7 @@ const SHOP_ITEMS = [
 	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 15000,  "base_price": 3000,   "growth": 4.0, "upgrade": "straightbonus"},
 	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 500000, "base_price": 100000,  "growth": 3.5, "upgrade": "icebonus"},
-	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice",         "unlock": 500000, "base_price": 105000,  "growth": 3.5, "upgrade": "icebonus"},
+	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice_curve",   "unlock": 525000, "base_price": 105000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
 	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
@@ -1404,18 +1404,6 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		dlbl.add_theme_constant_override("outline_size", 2)
 		dlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 		node.add_child(dlbl)
-	elif data.get("type", "") in ["ice", "ice_curve"]:
-		# Eis (Gerade/Kurve): ❄-Marke (gibt kein Geld, macht schneller). Eis-Tönung steckt im Artwork.
-		var rot_rad = deg_to_rad(data.get("rotation", 0))
-		var ilbl = Label.new()
-		ilbl.text = Icons.SNOWFLAKE
-		ilbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2).rotated(-rot_rad)
-		ilbl.rotation_degrees = -data.get("rotation", 0)
-		ilbl.add_theme_color_override("font_color", Color(0.85, 0.96, 1.0))
-		ilbl.add_theme_font_size_override("font_size", 14)
-		ilbl.add_theme_constant_override("outline_size", 3)
-		ilbl.add_theme_color_override("font_outline_color", Color(0, 0.18, 0.30, 0.85))
-		node.add_child(ilbl)
 	elif data.get("variant_label", "") != "":
 		var rot_rad = deg_to_rad(data.get("rotation", 0))
 		var vlbl = Label.new()
