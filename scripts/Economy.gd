@@ -470,6 +470,7 @@ const TILE_UNLOCK_COST = {
 	"def_straight": 15000,
 	"def_curve":    30000,
 	"ice":          500000,
+	"ice_curve":    525000,    # Eiskurve: 5 % teurer als die Eisgerade (auch beim Freischalten)
 	"ramp":         25000000,
 	"wall":         500000000,
 	"loop":         15000000000,

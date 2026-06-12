@@ -614,6 +614,7 @@ func _tile_entries() -> Array:
 		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+50 Ertrag · ×1.2", "upgrade": "straightbonus", "field_earn_base": 50},
 		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+50 Ertrag · ×1.2", "upgrade": "curvebonus", "field_earn_base": 50},
 		{"name": "Eisgerade",    "key": "ice",         "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
+		{"name": "Eiskurve",     "key": "ice_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "film": true, "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
 		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		{"name": "Steilwandkurve","key": "wall",       "model": "",                                 "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
 		{"name": "Looping",      "key": "loop",        "model": "",                                 "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
