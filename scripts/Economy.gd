@@ -1116,10 +1116,16 @@ func format_currency(value) -> String:
 	# Gewähltes Geld-Zahlenformat (globale Anzeige-Einstellung in Display).
 	var mode := Display.money_notation
 	if mode == Display.MoneyNotation.SCIENTIFIC:
+		# e-Form erst ab 1e7 (darunter reine Zahl, damit der Shop nicht schon bei "1e3" startet).
+		if v < 1e7:
+			return sign_str + str(int(round(v)))
 		# Beliebiger Exponent, Mantisse in [1,10): z. B. 1.23e7.
 		var sexp = int(floor(log(v) / log(10.0)))
 		return sign_str + _trim_num(v / pow(10.0, sexp)) + "e" + str(sexp)
 	elif mode == Display.MoneyNotation.ENGINEER:
+		# e-Form erst ab 1e9 (darunter reine Zahl, damit der Shop nicht schon bei "1e3" startet).
+		if v < 1e9:
+			return sign_str + str(int(round(v)))
 		# Exponent in 3er-Schritten, Mantisse in [1,1000): z. B. 12.3e6.
 		var eexp = (int(floor(log(v) / log(10.0))) / 3) * 3
 		return sign_str + _trim_num(v / pow(10.0, eexp)) + "e" + str(eexp)
