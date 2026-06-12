@@ -176,6 +176,10 @@ var _prestige_confirm:    Control       = null   # Bestätigungs-Overlay
 var _prestige_confirm_lbl: Label        = null
 var _ascend_confirm:      Control       = null   # Auto-Prestige-Bestätigung (Werkstatt)
 var _ascend_confirm_lbl:  Label         = null
+var _cosmetic_confirm:     Control       = null   # Kauf-Bestätigung für Garage-Kosmetik (Farbe/Muster)
+var _cosmetic_confirm_lbl: RichTextLabel = null
+var _cosmetic_pending_cat: String        = ""     # "paint" | "pattern" – was gerade bestätigt wird
+var _cosmetic_pending_idx: int           = -1
 
 # Sperr-Overlay für noch nicht freigeschaltete Tabs (Prestige/Werkstatt). Liegt über dem
 # Inhalt und zeigt nur ein Schloss + Hinweistext. TEMP: Freischalt-Bedingung kommt aus
@@ -234,6 +238,8 @@ func _do_rebuild() -> void:
 	_prestige_fill          = null;  _prestige_fill_mat   = null
 	_prestige_confirm       = null;  _prestige_confirm_lbl = null
 	_ascend_confirm         = null;  _ascend_confirm_lbl  = null
+	_cosmetic_confirm       = null;  _cosmetic_confirm_lbl = null
+	_cosmetic_pending_cat   = "";    _cosmetic_pending_idx = -1
 	_lock_overlay           = null;  _lock_hint_lbl       = null
 	_ws_options_box         = null;  _ws_summary_lbl      = null
 	_garage_options_box     = null;  _garage_summary_lbl  = null
@@ -399,6 +405,7 @@ func _build_modal() -> void:
 
 	_build_prestige_confirm(panel)
 	_build_ascend_confirm(panel)
+	_build_cosmetic_confirm(panel)
 	_build_lock_overlay(panel)   # zuletzt → liegt über dem Inhalt der gesperrten Tabs
 
 	_show_modal_tab(0)
@@ -2113,13 +2120,10 @@ func _build_pattern_preview(parent: Control, kind: String, sz: Vector2, base_col
 func _on_ws_option_selected(cat: String, idx: int) -> void:
 	var opts = _ws_options(cat)
 	var opt: Dictionary = opts[idx] if idx >= 0 and idx < opts.size() else {}
-	# Gesperrte Kosmetik erst mit Trophäen freischalten. Reicht das Guthaben nicht, nur Hinweis zeigen.
+	# Gesperrte Kosmetik nicht sofort kaufen, sondern erst per Modal bestätigen lassen.
 	if _is_option_locked(cat, opt, idx):
-		var bought := Economy.buy_paint(opt.color) if cat == "paint" else Economy.buy_pattern(idx)
-		if not bought:
-			_flash_garage_summary("Zu wenig Trophäen – %d nötig (Erfolge bringen welche)." % Economy.COSMETIC_COST)
-			return
-		_refresh_garage_trophies()
+		_open_cosmetic_confirm(cat, idx, opt)
+		return
 	_ws_sel[cat] = idx
 	# Lackierung/Muster persistent merken → 3D-Autos (Vorschau wie ingame) übernehmen es live.
 	if cat == "paint":
@@ -2129,6 +2133,124 @@ func _on_ws_option_selected(cat: String, idx: int) -> void:
 		Economy.set_car_pattern(idx)
 	_rebuild_garage_options()
 	_apply_ws_config()
+
+
+# Öffnet das Kauf-Bestätigungs-Modal für eine gesperrte Kosmetik (Farbe/Muster). Merkt sich die
+# ausstehende Auswahl; gekauft wird erst nach Klick auf „Kaufen" (_on_cosmetic_confirmed).
+func _open_cosmetic_confirm(cat: String, idx: int, opt: Dictionary) -> void:
+	if _cosmetic_confirm == null or _cosmetic_confirm_lbl == null:
+		return
+	_cosmetic_pending_cat = cat
+	_cosmetic_pending_idx = idx
+	var kind_word := "die Farbe" if cat == "paint" else "das Muster"
+	var nm := String(opt.get("name", "?"))
+	# Preis + Währungssymbol in der Währungsfarbe (Trophäen-Blau) hervorheben.
+	_cosmetic_confirm_lbl.text = "[center]Möchten Sie %s \"%s\" für [color=#%s]%d %s[/color] kaufen?[/center]" % [
+		kind_word, nm, C_ACCENT.to_html(false), Economy.COSMETIC_COST, Icons.TROPHY]
+	_cosmetic_confirm.visible = true
+
+
+# „Kaufen" im Kosmetik-Modal: Trophäen abbuchen und – bei Erfolg – die Kosmetik direkt auswählen
+# und anwenden. Reicht das Guthaben nicht, Modal schließen und kurzen Hinweis zeigen.
+func _on_cosmetic_confirmed() -> void:
+	var cat := _cosmetic_pending_cat
+	var idx := _cosmetic_pending_idx
+	_cosmetic_confirm.visible = false
+	if cat == "" or idx < 0:
+		return
+	var opts = _ws_options(cat)
+	var opt: Dictionary = opts[idx] if idx < opts.size() else {}
+	var bought := Economy.buy_paint(opt.color) if cat == "paint" else Economy.buy_pattern(idx)
+	if not bought:
+		_flash_garage_summary("Zu wenig Trophäen – %d nötig (Erfolge bringen welche)." % Economy.COSMETIC_COST)
+		return
+	_refresh_garage_trophies()
+	_ws_sel[cat] = idx
+	if cat == "paint":
+		var col = opt.get("color", null)
+		Economy.set_car_paint(col != null, col if col != null else Economy.get_car_paint_color())
+	elif cat == "pattern":
+		Economy.set_car_pattern(idx)
+	_rebuild_garage_options()
+	_apply_ws_config()
+
+
+func _build_cosmetic_confirm(parent: Control) -> void:
+	# Wie das Prestige-/Ascend-Overlay: dimmt den Modal-Inhalt und zentriert ein Bestätigungs-Panel.
+	var ph_area := _vh() - TOP_H - BOT_H
+	_cosmetic_confirm = Control.new()
+	_cosmetic_confirm.position = Vector2(0, 0)
+	_cosmetic_confirm.size     = Vector2(_vw(), ph_area)
+	_cosmetic_confirm.visible  = false
+	parent.add_child(_cosmetic_confirm)
+
+	var dim := ColorRect.new()
+	dim.position     = Vector2(0, 0)
+	dim.size         = Vector2(_vw(), ph_area)
+	dim.color        = Color(0, 0, 0, 0.78)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_cosmetic_confirm.add_child(dim)
+
+	const PW = 460
+	const PH = 230
+	var panel := Panel.new()
+	panel.position = Vector2((_vw() - PW) / 2.0, (ph_area - PH) / 2.0)
+	panel.size     = Vector2(PW, PH)
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = C_BG
+	psb.border_color = C_ACCENT          # Währungsfarbe (Trophäen-Blau) als Rahmen
+	psb.set_border_width_all(2)
+	psb.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", psb)
+	_cosmetic_confirm.add_child(panel)
+
+	var title := Label.new()
+	title.position = Vector2(0, 22)
+	title.size     = Vector2(PW, 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", C_ACCENT)
+	title.text = "%s  KAUFEN?" % Icons.TROPHY
+	_emboss(title, 0.7)
+	panel.add_child(title)
+
+	_cosmetic_confirm_lbl = RichTextLabel.new()
+	_cosmetic_confirm_lbl.bbcode_enabled = true
+	_cosmetic_confirm_lbl.fit_content    = true
+	_cosmetic_confirm_lbl.scroll_active  = false
+	_cosmetic_confirm_lbl.position = Vector2(24, 74)
+	_cosmetic_confirm_lbl.size     = Vector2(PW - 48, 90)
+	_cosmetic_confirm_lbl.add_theme_font_size_override("normal_font_size", 15)
+	_cosmetic_confirm_lbl.add_theme_color_override("default_color", C_TEXT)
+	panel.add_child(_cosmetic_confirm_lbl)
+
+	var yes := Button.new()
+	yes.position = Vector2(24, PH - 58)
+	yes.size     = Vector2((PW - 60) / 2.0, 40)
+	yes.focus_mode = Control.FOCUS_NONE
+	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	yes.add_theme_font_size_override("font_size", 14)
+	yes.text = Icons.TROPHY + "  Kaufen"
+	yes.add_theme_stylebox_override("normal",  _sbf(C_ACCENT_MU.darkened(0.2), C_ACCENT))
+	yes.add_theme_stylebox_override("hover",   _sbf(C_ACCENT_MU, C_ACCENT))
+	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
+	yes.add_theme_color_override("font_color", C_TEXT)
+	yes.pressed.connect(_on_cosmetic_confirmed)
+	panel.add_child(yes)
+
+	var no := Button.new()
+	no.position = Vector2(36 + (PW - 60) / 2.0, PH - 58)
+	no.size     = Vector2((PW - 60) / 2.0, 40)
+	no.focus_mode = Control.FOCUS_NONE
+	no.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	no.add_theme_font_size_override("font_size", 14)
+	no.text = "Abbrechen"
+	no.add_theme_stylebox_override("normal",  _sbf(C_SURFACE, C_ACCENT_MU))
+	no.add_theme_stylebox_override("hover",   _sbf(C_SURFACE2, C_ACCENT))
+	no.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_ACCENT))
+	no.add_theme_color_override("font_color", C_TEXT)
+	no.pressed.connect(func(): _cosmetic_confirm.visible = false)
+	panel.add_child(no)
 
 
 # Kurzer Hinweistext in der Vorschau-Zusammenfassung (z. B. bei zu wenig Trophäen). Wird beim
