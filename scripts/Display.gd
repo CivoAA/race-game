@@ -25,6 +25,11 @@ var money_notation: int = MoneyNotation.STANDARD
 # Aktuell hängt nur die Prestige-Button-Animation daran (an=einfarbig, aus=Glitzer+Wasser); später
 # sollen hier weitere Effekte gebündelt werden.
 var performance_mode: bool = false
+# Erfolgs-Popups unten links beim Freischalten eines Erfolgs (Standard an).
+var achievement_popups: bool = true
+# Shop-Hinweis-„Rad": das Lade-Rad mit Erklärtexten beim Verweilen über Shop-Teilen/Upgrades
+# (Standard an). Betrifft NUR dieses Rad-System; andere Hinweise bleiben unabhängig davon.
+var shop_hints: bool = true
 
 var _layer:     CanvasLayer
 var _fps_lbl:   Label
@@ -90,6 +95,14 @@ func set_performance_mode(on: bool) -> void:
 	performance_mode_changed.emit(performance_mode)
 
 
+func set_achievement_popups(on: bool) -> void:
+	achievement_popups = on
+
+
+func set_shop_hints(on: bool) -> void:
+	shop_hints = on
+
+
 # ── Startwerte laden ────────────────────────────────────────────────────────────
 
 func _load_from_settings() -> void:
@@ -98,3 +111,5 @@ func _load_from_settings() -> void:
 	multiplier_mode    = clampi(int(_settings.get_value("options", "show_multiplier", MultiplierMode.AFFECTED)), 0, 2)
 	money_notation     = clampi(int(_settings.get_value("options", "money_notation", MoneyNotation.STANDARD)), 0, 2)
 	performance_mode   = bool(_settings.get_value("options", "performance_mode", false))
+	achievement_popups = bool(_settings.get_value("options", "achievement_popups", true))
+	shop_hints         = bool(_settings.get_value("options", "shop_hints", true))

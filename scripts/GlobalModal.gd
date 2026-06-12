@@ -345,8 +345,9 @@ func _process(delta: float) -> void:
 		_refresh_affordability()
 		_refresh_modal_money()
 
-	# Hinweise: nur im Shop-Tab (Streckenteile = Kat 0, Upgrades = Kat 1). Sonst ausblenden.
-	if _active_modal_tab == 0:
+	# Hinweis-„Rad": nur im Shop-Tab (Streckenteile = Kat 0, Upgrades = Kat 1) UND wenn in den
+	# Einstellungen aktiviert (Standard an). Sonst ausblenden / nicht aufladen.
+	if _active_modal_tab == 0 and Display.shop_hints:
 		_update_upgrade_hint(delta)
 	elif _hint_id != "" or _hover_id != "":
 		_clear_upgrade_hover()

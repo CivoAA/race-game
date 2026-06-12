@@ -1079,7 +1079,10 @@ func gain_currency(amount: int) -> void:
 func _on_achievement_unlocked(id: String) -> void:
 	if _trophy_lbl == null:
 		_build_ui()
-	_show_achievement_toast(id)
+	# Popup unten links nur, wenn in den Einstellungen aktiviert (Standard an). Das 🏆-Badge oben
+	# erscheint unabhängig davon.
+	if Display.achievement_popups:
+		_show_achievement_toast(id)
 
 
 # Kleines Popup unten links (links von der Seitenleiste, über der unteren Run-Bar mit dem Fahren-Knopf):

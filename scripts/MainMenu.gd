@@ -129,6 +129,8 @@ var _music_min_switch: CuteToggle
 var _fps_switch:       CuteToggle
 var _mult_option:       OptionButton
 var _notation_option:   OptionButton
+var _ach_popup_switch:  CuteToggle   # Erfolgs-Popups unten links
+var _shop_hint_switch:  CuteToggle   # Shop-Hinweis-„Rad"
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
@@ -1146,16 +1148,18 @@ func _build_options_panel() -> Control:
 	_notation_option.item_selected.connect(_on_notation_changed)
 	notation_row.add_child(_notation_option)
 
+	# Erfolgs-Popups unten links beim Freischalten eines Erfolgs (Standard an).
+	_ach_popup_switch = _add_toggle_row(v2, "Erfolgs-Popups:")
+	_ach_popup_switch.toggled.connect(_on_ach_popup_toggled)
+
+	# Shop-Hinweis-„Rad" (Lade-Rad mit Erklärtexten beim Verweilen über Shop-Teilen/Upgrades).
+	_shop_hint_switch = _add_toggle_row(v2, "Shop-Hinweise:")
+	_shop_hint_switch.toggled.connect(_on_shop_hint_toggled)
+
 	_add_hline(v2)
 	_add_section_label(v2, "CHEAT-MODUS")
 	_cheat_switch = _add_toggle_row(v2, "Cheat-Modus:")
 	_cheat_switch.toggled.connect(_on_cheat_toggled)
-	var cheat_hint := Label.new()
-	cheat_hint.text = "Zeigt den Endlos-Modus (%s) und den +1B %s Button in der oberen Leiste an." % [Icons.INFINITY, Icons.STAR]
-	cheat_hint.add_theme_font_size_override("font_size", 11)
-	cheat_hint.add_theme_color_override("font_color", C_TEXT_DIM)
-	cheat_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	v2.add_child(cheat_hint)
 
 	# Kategorie 3 – Steuerung
 	var v3 := _new_settings_cat(holder)
@@ -1531,6 +1535,8 @@ func _sync_settings_ui() -> void:
 	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
 	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
 	_notation_option.selected         = clampi(int(settings.get_value("options", "money_notation", Display.MoneyNotation.STANDARD)), 0, 2)
+	_ach_popup_switch.button_pressed  = bool(settings.get_value("options", "achievement_popups", true))
+	_shop_hint_switch.button_pressed  = bool(settings.get_value("options", "shop_hints", true))
 
 	_loading_settings = false
 
@@ -1608,6 +1614,20 @@ func _on_fps_toggled(pressed: bool) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "show_fps", pressed)
 	Display.set_fps_visible(pressed)
+	_settings_dirty = true
+
+
+func _on_ach_popup_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "achievement_popups", pressed)
+	Display.set_achievement_popups(pressed)
+	_settings_dirty = true
+
+
+func _on_shop_hint_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "shop_hints", pressed)
+	Display.set_shop_hints(pressed)
 	_settings_dirty = true
 
 
