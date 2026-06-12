@@ -17,9 +17,14 @@ enum MoneyNotation { STANDARD, SCIENTIFIC, ENGINEER }
 
 signal multiplier_mode_changed(mode: int)
 signal money_notation_changed(mode: int)
+signal performance_mode_changed(on: bool)
 
 var multiplier_mode: int = MultiplierMode.AFFECTED
 var money_notation: int = MoneyNotation.STANDARD
+# Performance-Modus (Vorstufe): schaltet unnötige Animationen ab, damit das Spiel flüssiger läuft.
+# Aktuell hängt nur die Prestige-Button-Animation daran (an=einfarbig, aus=Glitzer+Wasser); später
+# sollen hier weitere Effekte gebündelt werden.
+var performance_mode: bool = false
 
 var _layer:     CanvasLayer
 var _fps_lbl:   Label
@@ -79,6 +84,12 @@ func set_money_notation(mode: int) -> void:
 	money_notation_changed.emit(money_notation)
 
 
+# Performance-Modus setzen (Vorstufe: wirkt vorerst nur auf die Prestige-Button-Animation).
+func set_performance_mode(on: bool) -> void:
+	performance_mode = on
+	performance_mode_changed.emit(performance_mode)
+
+
 # ── Startwerte laden ────────────────────────────────────────────────────────────
 
 func _load_from_settings() -> void:
@@ -86,3 +97,4 @@ func _load_from_settings() -> void:
 	_fps_lbl.visible   = bool(_settings.get_value("options", "show_fps", false))
 	multiplier_mode    = clampi(int(_settings.get_value("options", "show_multiplier", MultiplierMode.AFFECTED)), 0, 2)
 	money_notation     = clampi(int(_settings.get_value("options", "money_notation", MoneyNotation.STANDARD)), 0, 2)
+	performance_mode   = bool(_settings.get_value("options", "performance_mode", false))

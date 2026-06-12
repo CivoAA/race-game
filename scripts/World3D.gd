@@ -219,9 +219,19 @@ func _setup_hud() -> void:
 	_finish_btn.pressed.connect(_on_finish_run_pressed)
 	_bottom_bar.add_child(_finish_btn)
 
+	# Kurzer, mittiger Prestige-Fortschrittsbalken. Horizontal zentriert er sich selbst (feste
+	# Maximalbreite); side_reserve identisch zum 2D-Bauplan → in 2D und 3D exakt gleiche Lage
+	# (springt beim Ansichtswechsel nicht). Höhe 12 px, mittig in der 42-px-Leiste.
+	var pbar := PrestigeBar.new()
+	pbar.side_reserve  = 244.0
+	pbar.anchor_top    = 1.0; pbar.offset_top    = -27
+	pbar.anchor_bottom = 1.0; pbar.offset_bottom = -15
+	_bottom_bar.add_child(pbar)
+
 	# Status-Text rechts neben dem Button (dezent), füllt die Leiste.
 	var bar_status := Label.new()
-	bar_status.text = "Runde läuft – Strecke %d" % (_active_track_idx + 1)
+	# Status-Text entfernt (war: "Runde läuft – Strecke %d" % (_active_track_idx + 1)).
+	bar_status.text = ""
 	bar_status.anchor_left   = 0.0; bar_status.offset_left   = 192
 	bar_status.anchor_right  = 1.0; bar_status.offset_right  = -8
 	bar_status.anchor_top    = 1.0; bar_status.offset_top    = -BAR_H

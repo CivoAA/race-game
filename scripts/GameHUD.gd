@@ -45,6 +45,10 @@ var _tab_btns:     Array[Button]    = []
 var _run_dots:     Array[Panel]         = []
 var _run_dot_sbs:  Array[StyleBoxFlat]  = []   # je Punkt eigene Stylebox (zum Umfärben)
 var _currency_lbl: Label            = null
+var _prestige_lbl: Label            = null   # ⭐-Punkte-Badge (erst ab dem ersten Prestige)
+var _trophy_lbl:   Label            = null   # 🏆-Trophäen-Badge (erst ab dem ersten Erfolg)
+var _money_pill_cx: float           = 0.0    # Mittenpunkt der Geld-Pille (für das „+N 💰"-Popup darunter)
+var _ach_toast:    Control          = null   # aktuelles Erfolgs-Popup unten links (nur eins gleichzeitig)
 var _timer_lbl:    Label            = null   # Renn-Timer (nur in der 3D-Fahrt sichtbar)
 var _timer_box:    Panel            = null   # Pille hinter dem Timer-Label
 var _view_2d_btn:  Button           = null
@@ -71,15 +75,18 @@ func _ready() -> void:
 	_build_ui()
 	# Runden-Gutschrift (Auto über die Startlinie) – auch im 2D-Hintergrund den "+X"-Effekt zeigen.
 	Economy.lap_credited.connect(_on_lap_credited)
-	# Prestige kann Strecken freischalten → Tabs neu bewerten (Sperre/Beschriftung).
-	Economy.prestige_changed.connect(_refresh_tabs)
+	# Prestige kann Strecken freischalten UND das ⭐-Badge erstmals erscheinen lassen → Leiste neu bauen.
+	Economy.prestige_changed.connect(_build_ui)
+	# Erfolg freigeschaltet → 🏆-Badge ggf. erstmals einblenden + Erfolgs-Popup unten links zeigen.
+	Economy.achievement_unlocked.connect(_on_achievement_unlocked)
 	# Profilwechsel → komplette Leiste neu bauen, damit Strecken-Tabs UND die Nav-Sperren
 	# (Prestige/Werkstatt: Schloss vs. Stern) den Zustand des NEUEN Profils widerspiegeln.
 	Economy.slot_changed.connect(func(_s): _build_ui())
 	# Ein Tab (Prestige/Werkstatt) wurde freigeschaltet → Nav neu bauen, damit das Schloss verschwindet.
 	Economy.tab_unlock_changed.connect(func(): _build_ui())
-	# Cheat-Modus-Einstellung blendet die Cheat-Buttons (∞ und +1B ⭐) ein/aus.
-	Economy.cheat_mode_changed.connect(_refresh_cheat_visibility)
+	# Cheat-Modus-Einstellung blendet die Cheat-Buttons (∞ und +1B ⭐) ein/aus. Neu aufbauen, damit
+	# der Renn-Timer korrekt rechts neben der Werte-Reihe geklemmt wird (Cheat-Breite ein/aus).
+	Economy.cheat_mode_changed.connect(_build_ui)
 	# Bei Layout-Wechsel (Portrait ↔ Landscape) oder Viewport-Resize alles neu aufbauen.
 	RUI.layout_changed.connect(_on_layout_changed)
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -103,6 +110,8 @@ func _build_ui() -> void:
 	_run_dots.clear()
 	_run_dot_sbs.clear()
 	_currency_lbl = null
+	_prestige_lbl = null
+	_trophy_lbl   = null
 	_timer_lbl    = null
 	_timer_box    = null
 	_endless_btn   = null
@@ -175,75 +184,51 @@ func _build_bar() -> void:
 		_run_dots.append(dot)
 		_run_dot_sbs.append(dot_sb)
 
-	# Währung – zentriert im freien Bereich zwischen Tab-Ende und Content-Rechtsrand
-	const MONEY_PILL_W = 116
-	const BADGE_W      = 46
-	const MONEY_GAP    = 4
-	var group_w    := MONEY_PILL_W + MONEY_GAP + BADGE_W
+	# ── Geld + Statuswerte: links-gepackte Reihe direkt rechts neben „Strecke 3" ──
+	# Reihenfolge: 💰 Geld · ⭐ Prestige · 🏆 Trophäen. Prestige/Trophäen erscheinen erst, sobald
+	# man sie zum ersten Mal erreicht hat, und rücken lückenlos auf (nie ein Loch dazwischen).
+	const PILL_H   = 32
+	const MONEY_W  = 116
+	const STAT_W   = 92    # Prestige-/Trophäen-Badge
+	const DEBUG_W  = 46    # „+1B ⭐"-Cheat-Badge
+	const PILL_GAP = 6
+	var pill_y     := (BAR_H - PILL_H) / 2.0
 	var tabs_right := float(TAB_X0 + TRACK_COUNT * (TAB_W + TAB_GAP))
-	var free_cx    := (tabs_right + 8.0 + RUI.content_w() - 8.0) / 2.0
-	var group_x    := free_cx - group_w / 2.0
-	var pill_y     := (BAR_H - 32) / 2.0
+	var x          := tabs_right + 8.0
 
-	var cur_box := Panel.new()
-	cur_box.position = Vector2(group_x, pill_y)
-	cur_box.size     = Vector2(MONEY_PILL_W, 32)
-	var cur_sb := StyleBoxFlat.new()
-	cur_sb.bg_color     = C_SURFACE
-	cur_sb.set_border_width_all(1)
-	cur_sb.border_color = C_LINE
-	cur_sb.set_corner_radius_all(16)
-	cur_box.add_theme_stylebox_override("panel", cur_sb)
-	_ui_root.add_child(cur_box)
+	# 💰 Geld – immer sichtbar, bündig rechts neben „Strecke 3".
+	_currency_lbl = _make_bar_pill(x, pill_y, MONEY_W, Color(1.0, 0.86, 0.22))
+	_currency_lbl.text = "%s  %s" % [Icons.COIN, Economy.format_currency(Economy.get_currency())]
+	_money_pill_cx = x + MONEY_W / 2.0   # Mitte der Geld-Pille → darunter erscheint das „+N 💰"-Popup
+	x += MONEY_W + PILL_GAP
 
-	_currency_lbl = Label.new()
-	_currency_lbl.position = Vector2(group_x, 0)
-	_currency_lbl.size     = Vector2(MONEY_PILL_W, BAR_H)
-	_currency_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_currency_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_currency_lbl.add_theme_font_size_override("font_size", 16)
-	_currency_lbl.add_theme_color_override("font_color", Color(1.0, 0.86, 0.22))
-	_ui_root.add_child(_currency_lbl)
+	# ⭐ Prestige-Punkte – erst ab dem ersten Prestige (bzw. den ersten Punkten). Lila wie der Prestige-Tab.
+	if Economy.get_prestige_count() > 0 or Economy.get_prestige_points() > 0:
+		_prestige_lbl = _make_bar_pill(x, pill_y, STAT_W, Color(0.74, 0.48, 0.97))
+		_prestige_lbl.text = "%s %s" % [Icons.STAR, Economy.format_currency(Economy.get_prestige_points())]
+		x += STAT_W + PILL_GAP
 
-	# Renn-Timer – liegt NEBEN der Währung (nicht darüber) und wird komplett aus der
-	# Währungsgeometrie abgeleitet, damit beide in jeder Fenstergröße/Auflösung
-	# nebeneinander bleiben. Der Timer sitzt rechts neben der gesamten Geld-Gruppe
-	# (inkl. +1B-Badge-Slot) und wird am Inhalts-Rechtsrand geklemmt, damit er nie
-	# unter die rechte Seitenleiste rutscht oder über deren Rand hinausläuft.
-	# Sichtbar nur in der 3D-Fahrt der gerade gezeigten Strecke (siehe _refresh_timer).
-	const TIMER_W = 122
-	var timer_x := group_x + group_w + MONEY_GAP * 3
-	# Rechtsbündig begrenzen: rechte Kante nie über den Inhaltsbereich (= vor der Seitenleiste).
-	timer_x = minf(timer_x, RUI.content_w() - 8.0 - TIMER_W)
-	# Aber nie die Geld-Gruppe überlappen (bei sehr schmalen Layouts geht Lesbarkeit vor).
-	timer_x = maxf(timer_x, group_x + group_w + MONEY_GAP)
+	# 🏆 Trophäen – erst ab dem ersten freigeschalteten Erfolg. Blau wie der Erfolge-Tab (C_ACCENT).
+	if Economy.get_unlocked_achievement_count() > 0:
+		_trophy_lbl = _make_bar_pill(x, pill_y, STAT_W, C_ACCENT)
+		_trophy_lbl.text = "%s %s" % [Icons.TROPHY, Economy.format_currency(Economy.get_ach_currency())]
+		x += STAT_W + PILL_GAP
 
-	_timer_box = Panel.new()
-	_timer_box.position = Vector2(timer_x, pill_y)
-	_timer_box.size     = Vector2(TIMER_W, 32)
-	var tmr_sb := StyleBoxFlat.new()
-	tmr_sb.bg_color     = C_SURFACE
-	tmr_sb.set_border_width_all(1)
-	tmr_sb.border_color = C_LINE
-	tmr_sb.set_corner_radius_all(16)
-	_timer_box.add_theme_stylebox_override("panel", tmr_sb)
-	_ui_root.add_child(_timer_box)
+	# Ende der sichtbaren Werte-Reihe (Geld/⭐/🏆) – Basis für die Timer-Klemmung.
+	var badges_end := x
 
-	_timer_lbl = Label.new()
-	_timer_lbl.position = Vector2(timer_x, 0)
-	_timer_lbl.size     = Vector2(TIMER_W, BAR_H)
-	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_timer_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	_timer_lbl.add_theme_font_size_override("font_size", 16)
-	_timer_lbl.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
-	_ui_root.add_child(_timer_lbl)
-	_refresh_timer()
+	# Endlos-Toggle (Cheat) hinten an die Reihe anhängen.
+	_endless_btn = _make_btn_in(Icons.INFINITY, Vector2(x, (BAR_H - BTN_H) / 2.0), 34, BTN_H)
+	_endless_btn.pressed.connect(_on_endless_toggled)
+	_ui_root.add_child(_endless_btn)
+	_refresh_endless_btn()
+	x += 34 + PILL_GAP
 
 	# „+1B"-Badge (Cheat-Modus)
 	_debug_btn = Button.new()
 	_debug_btn.text     = "+1B " + Icons.STAR
-	_debug_btn.position = Vector2(group_x + MONEY_PILL_W + MONEY_GAP, pill_y)
-	_debug_btn.size     = Vector2(BADGE_W, 32)
+	_debug_btn.position = Vector2(x, pill_y)
+	_debug_btn.size     = Vector2(DEBUG_W, PILL_H)
 	_debug_btn.focus_mode = Control.FOCUS_NONE
 	_debug_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_debug_btn.add_theme_font_size_override("font_size", 12)
@@ -266,17 +251,65 @@ func _build_bar() -> void:
 		Economy.add_ach_currency(1000)
 	)
 	_ui_root.add_child(_debug_btn)
+	x += DEBUG_W + PILL_GAP
 
-	# Endlos-Modus-Toggle (links neben Währungsanzeige)
-	var endless_x := group_x - BTN_GAP * 2 - 34
-	_endless_btn = _make_btn_in(Icons.INFINITY, Vector2(endless_x, (BAR_H - BTN_H) / 2.0), 34, BTN_H)
-	_endless_btn.pressed.connect(_on_endless_toggled)
-	_ui_root.add_child(_endless_btn)
-	_refresh_endless_btn()
+	# Renn-Timer – rechtsbündig am Inhalts-Rand (= vor der Seitenleiste), aber nie über die
+	# sichtbare Werte-Reihe. Die Cheat-Buttons zählen nur dann zur Reihe, wenn der Cheat-Modus
+	# aktiv ist (sonst sind sie unsichtbar und dürfen den Timer nicht nach rechts schieben).
+	# Sichtbar nur in der 3D-Fahrt der gerade gezeigten Strecke (siehe _refresh_timer).
+	var row_end := x if Economy.cheat_mode else badges_end
+	const TIMER_W = 122
+	var timer_x := maxf(RUI.content_w() - 8.0 - TIMER_W, row_end)
+
+	_timer_box = Panel.new()
+	_timer_box.position = Vector2(timer_x, pill_y)
+	_timer_box.size     = Vector2(TIMER_W, PILL_H)
+	var tmr_sb := StyleBoxFlat.new()
+	tmr_sb.bg_color     = C_SURFACE
+	tmr_sb.set_border_width_all(1)
+	tmr_sb.border_color = C_LINE
+	tmr_sb.set_corner_radius_all(16)
+	_timer_box.add_theme_stylebox_override("panel", tmr_sb)
+	_ui_root.add_child(_timer_box)
+
+	_timer_lbl = Label.new()
+	_timer_lbl.position = Vector2(timer_x, 0)
+	_timer_lbl.size     = Vector2(TIMER_W, BAR_H)
+	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_timer_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_timer_lbl.add_theme_font_size_override("font_size", 16)
+	_timer_lbl.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+	_ui_root.add_child(_timer_lbl)
+	_refresh_timer()
 
 	_refresh_tabs()
 	_refresh_view_buttons()
 	_refresh_cheat_visibility()
+
+
+# Kleine Status-Pille (Panel + zentriertes Label) für Geld/⭐/🏆 in der oberen Leiste.
+# Fügt Panel und Label zu _ui_root hinzu und gibt das Label zurück (Text setzt der Aufrufer).
+func _make_bar_pill(x: float, y: float, w: float, font_color: Color) -> Label:
+	var box := Panel.new()
+	box.position = Vector2(x, y)
+	box.size     = Vector2(w, 32)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = C_SURFACE
+	sb.set_border_width_all(1)
+	sb.border_color = C_LINE
+	sb.set_corner_radius_all(16)
+	box.add_theme_stylebox_override("panel", sb)
+	_ui_root.add_child(box)
+
+	var lbl := Label.new()
+	lbl.position = Vector2(x, 0)
+	lbl.size     = Vector2(w, BAR_H)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 16)
+	lbl.add_theme_color_override("font_color", font_color)
+	_ui_root.add_child(lbl)
+	return lbl
 
 
 # ── Rechte Seitenleiste / Navigation ────────────────────────────────────────────
@@ -782,6 +815,10 @@ func _process(_delta: float) -> void:
 
 	if _currency_lbl != null:
 		_currency_lbl.text = "%s  %s" % [Icons.COIN, Economy.format_currency(Economy.get_currency())]
+	if _prestige_lbl != null:
+		_prestige_lbl.text = "%s %s" % [Icons.STAR, Economy.format_currency(Economy.get_prestige_points())]
+	if _trophy_lbl != null:
+		_trophy_lbl.text = "%s %s" % [Icons.TROPHY, Economy.format_currency(Economy.get_ach_currency())]
 	_refresh_timer()
 	for i in TRACK_COUNT:
 		if i < _run_dot_sbs.size():
@@ -991,9 +1028,10 @@ func gain_currency(amount: int) -> void:
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 	tw.parallel().tween_property(_currency_lbl, "modulate", Color(1, 1, 1), 0.25)
 
+	# „+N 💰" direkt UNTER der Geld-Pille (horizontal an deren Mitte ausgerichtet), nach unten driftend.
 	var fl := Label.new()
 	fl.text = "+%s %s" % [Economy.format_currency(amount), Icons.COIN]
-	fl.position = Vector2(RUI.content_w() / 2.0 - 60, BAR_H)
+	fl.position = Vector2(_money_pill_cx - 60.0, BAR_H + 2.0)
 	fl.size     = Vector2(120, 26)
 	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
@@ -1003,7 +1041,95 @@ func gain_currency(amount: int) -> void:
 	fl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	add_child(fl)
 	var t := create_tween()
-	t.tween_property(fl, "position:y", float(BAR_H) - 20.0, 0.85) \
+	t.tween_property(fl, "position:y", float(BAR_H) + 22.0, 0.85) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	t.parallel().tween_property(fl, "modulate:a", 0.0, 0.85)
 	t.tween_callback(fl.queue_free)
+
+
+# ── Erfolgs-Popup (unten links) ─────────────────────────────────────────────────
+# Über Economy.achievement_unlocked ausgelöst. Das erste Achievement blendet zusätzlich das
+# 🏆-Badge in der oberen Leiste ein (Neuaufbau nur dann nötig – danach reicht das _process-Update).
+func _on_achievement_unlocked(id: String) -> void:
+	if _trophy_lbl == null:
+		_build_ui()
+	_show_achievement_toast(id)
+
+
+# Kleines Popup unten links (links von der Seitenleiste, über der unteren Run-Bar mit dem Fahren-Knopf):
+# Icon, Name und Trophäen-Belohnung des Erfolgs. Die Belohnung kommt datengetrieben aus Economy
+# (get_achievement_reward) – kann künftig je Erfolg variieren. Es ist immer nur EIN Popup sichtbar.
+func _show_achievement_toast(id: String) -> void:
+	if _ach_toast != null and is_instance_valid(_ach_toast):
+		_ach_toast.queue_free()
+
+	const TW = 300
+	const TH = 66
+	var bottom_h: float = float(RUI.BOTTOM_NAV_H) if RUI.is_portrait() else float(BOT_H)
+	var base_y: float   = RUI.vh() - bottom_h - 12.0 - TH
+
+	var toast := Panel.new()
+	toast.size     = Vector2(TW, TH)
+	toast.position = Vector2(12, base_y + 16.0)
+	toast.modulate = Color(1, 1, 1, 0)
+	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE   # darf nie Klicks (z. B. Fahren-Knopf) abfangen
+	var sb := StyleBoxFlat.new()
+	sb.bg_color      = C_SURFACE_HI
+	sb.border_color  = C_ACCENT
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(10)
+	sb.shadow_color  = Color(0, 0, 0, 0.5)
+	sb.shadow_size   = 6
+	sb.shadow_offset = Vector2(0, 3)
+	toast.add_theme_stylebox_override("panel", sb)
+	add_child(toast)
+	_ach_toast = toast
+
+	# Erfolgs-Icon links (eigenes Icon-Font-Glyph aus GlobalModal – Quelle der Wahrheit für Icons).
+	var ico := Label.new()
+	ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ico.position = Vector2(12, 13)
+	ico.size     = Vector2(40, 40)
+	ico.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ico.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	ico.add_theme_font_size_override("font_size", 30)
+	if Icons.FONT != null:
+		ico.add_theme_font_override("font", Icons.FONT)
+	ico.add_theme_color_override("font_color", C_ACCENT)
+	ico.text = GlobalModal.icon_for_achievement(id)
+	toast.add_child(ico)
+
+	var cap := Label.new()
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cap.position = Vector2(62, 7)
+	cap.size     = Vector2(TW - 74, 16)
+	cap.add_theme_font_size_override("font_size", 10)
+	cap.add_theme_color_override("font_color", C_ACCENT)
+	cap.text = "ERFOLG FREIGESCHALTET"
+	toast.add_child(cap)
+
+	var nm := Label.new()
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nm.position = Vector2(62, 22)
+	nm.size     = Vector2(TW - 74, 22)
+	nm.add_theme_font_size_override("font_size", 15)
+	nm.add_theme_color_override("font_color", C_TEXT)
+	nm.text = String(Economy.ACHIEVEMENTS.get(id, {}).get("name", id))
+	toast.add_child(nm)
+
+	var rw := Label.new()
+	rw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rw.position = Vector2(62, 43)
+	rw.size     = Vector2(TW - 74, 18)
+	rw.add_theme_font_size_override("font_size", 12)
+	rw.add_theme_color_override("font_color", C_ACCENT)
+	rw.text = "+%d %s" % [Economy.get_achievement_reward(id), Icons.TROPHY]
+	toast.add_child(rw)
+
+	# Einblenden (hochgleiten + einblenden), kurz halten, ausblenden, entfernen.
+	var t := create_tween()
+	t.tween_property(toast, "position:y", base_y, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(toast, "modulate:a", 1.0, 0.25)
+	t.tween_interval(2.4)
+	t.tween_property(toast, "modulate:a", 0.0, 0.45)
+	t.tween_callback(toast.queue_free)

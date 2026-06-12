@@ -208,18 +208,20 @@ const GRID_STEPS = [
 ]
 
 # ── Prestige ────────────────────────────────────────────────────────────────────
-# Punkte pro Prestige: FLACHE Basis + optionale Verdienst-Skalierung.
+# Punkte pro Prestige: FLACHE Basis + optionale Geld-Skalierung.
 #   Basis    = 1 + „points2"-Knoten (+1) + „points3"-Knoten (+1)  → 1 / 2 / 3
-#   Extra    = nur wenn der „scaling"-Knoten gekauft ist: floor(sqrt(prestige_earned / K)) − 1
-#              (bei genau K = 100k also +0, ab 400k +1, ab 900k +2 …).
+#   Extra    = nur wenn der „scaling"-Knoten gekauft ist: floor(sqrt(Geld / K)) − 1
+#              (bei genau K = 2 Mio. also +0, ab 8 Mio. +1, ab 18 Mio. +2 …).
 #   Ergebnis = (Basis + Extra) · Auto-Stufen-Bonus (get_car_point_mult).
-# Der Prestige-Button rastet ab prestige_earned ≥ K (= 100k) ein. K ist die Geld-Stellschraube.
-const PRESTIGE_K = 100000.0
+# Der Prestige-Button rastet ab dem GELD AUF DEM KONTO ≥ K (= 2 Mio.) ein – nicht mehr nach
+# „seit letztem Prestige verdient". K ist die Geld-Stellschraube.
+const PRESTIGE_K = 2000000.0
 
-# TEMP – Tab-Freischaltung: Verdienst-Schwellen (prestige_earned, seit letztem Prestige) ab denen
-# der Prestige- bzw. Werkstatt-Tab DAUERHAFT freigeschaltet wird. Siehe _check_tab_unlocks().
+# TEMP – Tab-Freischaltung: Schwellen, ab denen der Prestige- bzw. Werkstatt-Tab DAUERHAFT
+# freigeschaltet wird. Prestige nach GELD AUF DEM KONTO (gleiche Schwelle wie der Gate),
+# Werkstatt weiterhin nach „seit letztem Prestige verdient". Siehe _check_tab_unlocks().
 # ENTFERNEN, sobald es einen Erfolge-Tab gibt – die Freischaltung dann dort auslösen.
-const PRESTIGE_TAB_UNLOCK_EARN  = 100000.0          # 100k
+const PRESTIGE_TAB_UNLOCK_EARN  = 2000000.0         # 2 Mio. (Geld auf dem Konto)
 const WERKSTATT_TAB_UNLOCK_EARN = 100000000000.0    # 100b
 
 # Tech-Baum: Knoten werden mit ⭐ bezahlt. Freigeschaltet wird POSITIONSBASIERT: der Knoten an
@@ -1430,13 +1432,13 @@ func is_prestige_node_unlocked(id: String) -> bool:
 
 
 # ── TEMP: Tab-Freischaltung ──────────────────────────────────────────────────────
-# Prestige- und Werkstatt-Tab starten gesperrt und werden dauerhaft frei, sobald prestige_earned
-# (seit letztem Prestige) die jeweilige Schwelle erreicht. Wird live aus _credit_laps und beim
-# Laden geprüft. ENTFERNEN, sobald ein Erfolge-Tab existiert – die Freischaltung dann dort über
-# den jeweiligen Erfolg auslösen (einfach is_*_tab_unlocked aus dem Erfolgsstatus ableiten).
+# Prestige- und Werkstatt-Tab starten gesperrt und werden dauerhaft frei: Prestige sobald das GELD
+# AUF DEM KONTO die Schwelle (= Gate) erreicht, Werkstatt sobald prestige_earned (seit letztem
+# Prestige) seine Schwelle erreicht. Wird live aus _credit_laps und beim Laden geprüft. ENTFERNEN,
+# sobald ein Erfolge-Tab existiert – die Freischaltung dann dort über den jeweiligen Erfolg auslösen.
 func _check_tab_unlocks() -> void:
 	var changed := false
-	if not prestige_tab_unlocked and float(prestige_earned) >= PRESTIGE_TAB_UNLOCK_EARN:
+	if not prestige_tab_unlocked and float(_currency) >= PRESTIGE_TAB_UNLOCK_EARN:
 		prestige_tab_unlocked = true
 		changed = true
 	if not werkstatt_tab_unlocked and float(prestige_earned) >= WERKSTATT_TAB_UNLOCK_EARN:
@@ -1513,15 +1515,15 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 
 
 # Punkte, die ein Prestige JETZT einbringt: flache Basis (1 + points2 + points3) plus – nur wenn der
-# „scaling"-Knoten gekauft ist – ein verdienstabhängiger Zusatz floor(sqrt(verdient/K))−1. Alles
-# zum Schluss × Auto-Stufen-Bonus. Gate: erst ab prestige_earned ≥ K (= 100k).
+# „scaling"-Knoten gekauft ist – ein geldabhängiger Zusatz floor(sqrt(Geld/K))−1. Alles zum Schluss
+# × Auto-Stufen-Bonus. Gate: erst ab dem GELD AUF DEM KONTO ≥ K (= 2 Mio.).
 func prestige_pending_points() -> int:
-	if float(prestige_earned) < PRESTIGE_K:
+	if float(_currency) < PRESTIGE_K:
 		return 0
 	var flat := 1 + get_prestige_node_level("points2") + get_prestige_node_level("points3")
 	var extra := 0
 	if get_prestige_node_level("scaling") >= 1:
-		extra = maxi(0, int(floor(sqrt(float(prestige_earned) / PRESTIGE_K))) - 1)
+		extra = maxi(0, int(floor(sqrt(float(_currency) / PRESTIGE_K))) - 1)
 	return int(float(flat + extra) * get_car_point_mult())
 
 
@@ -1589,9 +1591,15 @@ func unlock_achievement(id: String) -> void:
 	if not ACHIEVEMENTS.has(id) or is_achievement_unlocked(id):
 		return
 	unlocked_achievements[id] = true
-	ach_currency += ACH_REWARD   # Trophäen-Belohnung (nur Garage)
+	ach_currency += get_achievement_reward(id)   # Trophäen-Belohnung (datengetrieben je Erfolg)
 	save_game()
 	achievement_unlocked.emit(id)
+
+
+# Trophäen-Belohnung eines Erfolgs. Aktuell für alle gleich (ACH_REWARD); ein optionales Feld
+# "reward" je Eintrag in ACHIEVEMENTS überschreibt das pro Erfolg (für künftig variable Belohnungen).
+func get_achievement_reward(id: String) -> int:
+	return int(ACHIEVEMENTS.get(id, {}).get("reward", ACH_REWARD))
 
 
 # Prüft alle schwellenbasierten Erfolge einer Metrik gegen den aktuellen Wert und schaltet die
@@ -1881,15 +1889,25 @@ func reset_slot(slot: int) -> void:
 
 
 func rename_slot(slot: int, new_name: String) -> void:
-	if not slot_exists(slot):
-		return
-	var f = FileAccess.open(get_save_path(slot), FileAccess.READ)
-	if f == null:
-		return
-	var data = str_to_var(f.get_as_text())
-	f.close()
-	if typeof(data) != TYPE_DICTIONARY:
-		return
+	var data: Dictionary
+	if slot_exists(slot):
+		var f = FileAccess.open(get_save_path(slot), FileAccess.READ)
+		if f == null:
+			return
+		var parsed = str_to_var(f.get_as_text())
+		f.close()
+		if typeof(parsed) != TYPE_DICTIONARY:
+			return
+		data = parsed
+	else:
+		# Slot existiert noch nicht (z. B. direkt nach dem Löschen): frisches
+		# Standard-Profil anlegen, damit der Name sofort gespeichert wird. Der
+		# nächste Spielstart lädt dieses Profil dann (statt es neu zu resetten)
+		# und behält den Namen – ohne den aktuell geladenen Zustand anzutasten.
+		data = {
+			"currency":  START_CURRENCY,
+			"timestamp": Time.get_datetime_string_from_system(false, true),
+		}
 	data["name"] = new_name
 	var fw = FileAccess.open(get_save_path(slot), FileAccess.WRITE)
 	if fw == null:

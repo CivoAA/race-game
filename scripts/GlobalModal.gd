@@ -81,9 +81,97 @@ var _needs_rebuild: bool    = false  # Viewport hat sich geändert → Modal bei
 
 # ── Prestige-Tab ────────────────────────────────────────────────────────────────
 var _prestige_tree_box:   HBoxContainer = null   # Knoten-Karten (links → rechts), für Neuaufbau
-var _prestige_points_lbl: Label         = null
-var _prestige_earned_lbl: Label         = null
-var _prestige_btn:        Button        = null   # „PRESTIGE → +N ⭐"
+var _prestige_points_lbl: Label         = null   # Kopf oben links: „N Prestiges durchgeführt"
+var _prestige_btn:        Button        = null   # Fortschritts-Button „PRESTIGE → +N ⭐"
+var _prestige_fill:       ColorRect      = null   # Fortschrittsfüllung (Shader: Form + Reveal + Effekt)
+var _prestige_fill_mat:   ShaderMaterial = null   # Material der Füllung (progress/mode/base_color)
+var _prestige_btn_lbl:    Label          = null   # Text-Overlay über der Füllung
+
+# EIN Shader rendert Form (runde Ecken via SDF), Füllstand (links→rechts) und den animierten Effekt.
+# Aktiv genutzt: 0 Einfarbig (= Performance-Modus, keine Animation) und 5 Glitzer+Wasser (Standard).
+# Der Modus wird in _refresh_prestige_action aus Display.performance_mode abgeleitet. Die übrigen
+# Effekte (1 Streifen · 2 Glitzer · 3 Wasser · 4 Streifen+Glitzer) bleiben als wiederverwendbare
+# Bausteine erhalten, werden aktuell aber nicht ausgewählt.
+const PRESTIGE_FILL_SHADER := """
+shader_type canvas_item;
+
+uniform float progress : hint_range(0.0, 1.0) = 0.0;
+uniform vec2  size_px = vec2(360.0, 56.0);
+uniform float radius_px = 8.0;
+uniform vec4  base_color : source_color = vec4(0.74, 0.48, 0.97, 0.85);
+uniform int   mode = 2;
+
+float rrect_sd(vec2 p, vec2 hs, float r) {
+	vec2 q = abs(p) - hs + vec2(r);
+	return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - r;
+}
+
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+
+// Diagonale, wandernde Streifen.
+vec3 shade_stripes(vec3 base, vec2 px, float t) {
+	float s = sin((px.x + px.y - t * 42.0) * 0.20) * 0.5 + 0.5;
+	float stripe = smoothstep(0.1, 0.9, s);
+	return mix(base * 0.65, base * 1.35, stripe);
+}
+
+// Funkelnde Zellen + sanfter Sheen-Lauf – ADDITIV (zum Drauflegen auf andere Effekte).
+vec3 glitter_add(vec3 base, vec2 px, float t) {
+	vec3 add = vec3(0.0);
+	vec2 cell = floor(px / 4.0);
+	float tw = hash21(cell);
+	float spark = pow(max(0.0, sin(t * 2.2 + tw * 6.2831)), 28.0);
+	spark *= step(0.55, hash21(cell + 7.3));
+	add += vec3(1.0, 0.96, 0.75) * spark * 1.6;
+	float sheen = sin((px.x - t * 70.0) * 0.035) * 0.5 + 0.5;
+	add += base * sheen * 0.18;
+	return add;
+}
+
+// „Gedrehtes" Wasser: Oberfläche = rechte (Füllstands-)Kante. Hell rechts → dunkler nach links,
+// vertikal wandernde Wellen, helle Oberkante ein paar Pixel INNERHALB der Kante (sonst unsichtbar).
+vec3 shade_water(vec3 base, vec2 px, float fillX, vec2 sz, float t) {
+	float depth = clamp((fillX - px.x) / max(1.0, sz.x), 0.0, 1.0);
+	vec3 col = mix(base * 1.18, base * 0.55, depth);
+	float r1 = sin(px.y * 0.5 + t * 2.5) * 0.5 + 0.5;
+	float r2 = sin(px.y * 0.27 - t * 1.7 + px.x * 0.05) * 0.5 + 0.5;
+	col += base * r1 * r2 * 0.15;
+	float d = fillX - px.x;
+	float crest = smoothstep(2.0, 5.0, d) * (1.0 - smoothstep(5.0, 12.0, d));
+	col += vec3(1.0, 1.0, 0.92) * crest * 0.6;
+	return col;
+}
+
+void fragment() {
+	vec2 px = UV * size_px;
+	float sd = rrect_sd(px - size_px * 0.5, size_px * 0.5, radius_px);
+	float shape = 1.0 - smoothstep(-1.0, 1.0, sd);
+	float fillX = progress * size_px.x;
+	float reveal = 1.0 - smoothstep(fillX - 1.5, fillX + 0.5, px.x);
+	float a = shape * reveal;
+	if (a <= 0.001) {
+		discard;
+	}
+	vec3 base = base_color.rgb;
+	vec3 col = base;
+	if (mode == 1) {
+		col = shade_stripes(base, px, TIME);
+	} else if (mode == 2) {
+		col = base + glitter_add(base, px, TIME);
+	} else if (mode == 3) {
+		col = shade_water(base, px, fillX, size_px, TIME);
+	} else if (mode == 4) {
+		col = shade_stripes(base, px, TIME) + glitter_add(base, px, TIME);
+	} else if (mode == 5) {
+		col = shade_water(base, px, fillX, size_px, TIME) + glitter_add(base, px, TIME);
+	}
+	COLOR = vec4(col, base_color.a * a);
+}
+"""
 var _prestige_confirm:    Control       = null   # Bestätigungs-Overlay
 var _prestige_confirm_lbl: Label        = null
 var _ascend_confirm:      Control       = null   # Auto-Prestige-Bestätigung (Werkstatt)
@@ -141,7 +229,8 @@ func _do_rebuild() -> void:
 	_modal_money_lbl        = null
 	_werkstatt_container    = null;  _garage_container    = null
 	_prestige_tree_box      = null;  _prestige_points_lbl = null
-	_prestige_earned_lbl    = null;  _prestige_btn        = null
+	_prestige_btn           = null;  _prestige_btn_lbl    = null
+	_prestige_fill          = null;  _prestige_fill_mat   = null
 	_prestige_confirm       = null;  _prestige_confirm_lbl = null
 	_ascend_confirm         = null;  _ascend_confirm_lbl  = null
 	_lock_overlay           = null;  _lock_hint_lbl       = null
@@ -1022,6 +1111,11 @@ func _ach_icon_for(id: String) -> String:
 	return Icons.TROPHY
 
 
+# Öffentlicher Zugriff auf das Erfolgs-Icon (z. B. für den Achievement-Toast in der GameHUD).
+func icon_for_achievement(id: String) -> String:
+	return _ach_icon_for(id)
+
+
 # Baut die Anzeige-Daten aus der zentralen Erfolgs-Definition in Economy (Quelle der Wahrheit).
 # done-Status ist slot-gebunden → kommt aus Economy.is_achievement_unlocked.
 func _build_ach_data() -> Array:
@@ -1590,15 +1684,8 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	_build_preview_frame(container)
 	_garage_summary_lbl = _make_preview_summary(container)
 
-	# Trophäen-Stand (Erfolgs-Währung) – bewusst NUR in der Garage sichtbar.
-	_garage_trophy_lbl = Label.new()
-	_garage_trophy_lbl.position = Vector2(16, 16)
-	_garage_trophy_lbl.size     = Vector2(220, 24)
-	_garage_trophy_lbl.add_theme_font_size_override("font_size", 15)
-	_garage_trophy_lbl.add_theme_color_override("font_color", C_ACCENT)
-	_emboss(_garage_trophy_lbl)
-	container.add_child(_garage_trophy_lbl)
-	_refresh_garage_trophies()
+	# Trophäen-Stand steht jetzt dauerhaft in der oberen Leiste (🏆-Badge) → hier keine eigene
+	# Anzeige mehr. _garage_trophy_lbl bleibt null; _refresh_garage_trophies() ist dann ein No-Op.
 
 	# Reiner Test-Knopf (nur im Muster-Tab sichtbar): schaltet das Blender-Testmodell an/aus.
 	_test_car_btn = Button.new()
@@ -1988,8 +2075,8 @@ func _build_autos_options() -> void:
 	btn.disabled = not can
 	btn.text = "%s  Auto upgraden" % Icons.ARROW_BIG_UP
 	if can:
-		btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
-		btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+		btn.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
+		btn.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
 		btn.add_theme_color_override("font_color", C_STAR)
 		btn.pressed.connect(_on_ascend_pressed)
@@ -2553,7 +2640,9 @@ func _rebuild_shop_upgrades() -> void:
 # Eigener Top-Level-Tab: oben ein Kopfbereich (⭐-Punkte + großer „PRESTIGE → +N"-Knopf),
 # darunter der horizontal scrollbare Tech-Baum (Knoten links → rechts, Pfeile dazwischen).
 
-const C_STAR := Color(1.00, 0.82, 0.20)   # Gold für Prestige-Punkte
+const C_STAR       := Color(0.74, 0.48, 0.97)   # Prestige-Lila (Sternfarbe) – klar abgegrenzt von Geld-Gold
+const C_STAR_BG    := Color(0.20, 0.12, 0.30)   # dunkles Lila: gefüllter Prestige-Button-Hintergrund (normal)
+const C_STAR_BG_HI := Color(0.28, 0.17, 0.40)   # dunkles Lila: Prestige-Button-Hintergrund (hover)
 
 func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
@@ -2562,30 +2651,53 @@ func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 	_tab_panels.append(container)
 
 	# ── Kopfbereich ──────────────────────────────────────────────────────────
+	# Oben links nur noch die Anzahl bisheriger Prestiges (die ⭐-Punkte stehen jetzt in der
+	# oberen Leiste). Der große Auslöser rechts ist ein Fortschrittsbalken: er füllt sich von
+	# links nach rechts mit dem Geld auf dem Konto, bis 2 Mio. erreicht sind.
 	_prestige_points_lbl = Label.new()
 	_prestige_points_lbl.position = Vector2(24, 14)
-	_prestige_points_lbl.size     = Vector2(420, 30)
+	_prestige_points_lbl.size     = Vector2(420, 54)
 	_prestige_points_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_prestige_points_lbl.add_theme_font_size_override("font_size", 22)
 	_prestige_points_lbl.add_theme_color_override("font_color", C_STAR)
 	container.add_child(_prestige_points_lbl)
 
-	_prestige_earned_lbl = Label.new()
-	_prestige_earned_lbl.position = Vector2(24, 46)
-	_prestige_earned_lbl.size     = Vector2(560, 22)
-	_prestige_earned_lbl.add_theme_font_size_override("font_size", 12)
-	_prestige_earned_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	container.add_child(_prestige_earned_lbl)
-
-	# Großer Prestige-Auslöser rechts oben.
+	# Großer Prestige-Auslöser rechts oben (Fortschrittsbalken + Text-Overlay).
 	_prestige_btn = Button.new()
 	_prestige_btn.position = Vector2(_vw() - 24 - 360, 12)
 	_prestige_btn.size     = Vector2(360, 56)
 	_prestige_btn.focus_mode = Control.FOCUS_NONE
 	_prestige_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	_prestige_btn.add_theme_font_size_override("font_size", 16)
+	_prestige_btn.clip_contents = true   # Sicherheits-Clip: hält Maske/Füllung/Text in der Buttonfläche
 	_prestige_btn.pressed.connect(_on_prestige_pressed)
 	container.add_child(_prestige_btn)
+
+	# Fortschrittsfüllung: EIN Shader zeichnet zugleich die runde Buttonform (SDF, gleiche Rundung 8),
+	# den Füllstand (links→rechts, senkrechte Kante) und einen animierten Effekt. Liegt UNTER dem Text.
+	var fill_sh := Shader.new()
+	fill_sh.code = PRESTIGE_FILL_SHADER
+	_prestige_fill_mat = ShaderMaterial.new()
+	_prestige_fill_mat.shader = fill_sh
+	_prestige_fill_mat.set_shader_parameter("size_px",   _prestige_btn.size)
+	_prestige_fill_mat.set_shader_parameter("radius_px", 8.0)
+	_prestige_fill = ColorRect.new()
+	_prestige_fill.position     = Vector2(0, 0)
+	_prestige_fill.size         = _prestige_btn.size   # volle Buttonfläche; Shader maskiert Form + Reveal
+	_prestige_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prestige_fill.material     = _prestige_fill_mat
+	_prestige_btn.add_child(_prestige_fill)
+
+	# Text-Overlay (zentriert, über der Füllung).
+	_prestige_btn_lbl = Label.new()
+	_prestige_btn_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_prestige_btn_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prestige_btn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prestige_btn_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_prestige_btn_lbl.add_theme_font_size_override("font_size", 16)
+	# Dunkle Kontur, damit der Text über der animierten Gold-Füllung UND dem dunklen Rest lesbar bleibt.
+	_prestige_btn_lbl.add_theme_constant_override("outline_size", 4)
+	_prestige_btn_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_prestige_btn.add_child(_prestige_btn_lbl)
 
 	# Trennlinie
 	var line := ColorRect.new()
@@ -2630,26 +2742,38 @@ func _rebuild_prestige() -> void:
 func _refresh_prestige_action() -> void:
 	if _prestige_points_lbl == null:
 		return
-	_prestige_points_lbl.text = Icons.STAR + " %d Prestige-Punkte" % Economy.get_prestige_points()
+	# Kopf oben links: nur die Anzahl bisheriger Prestiges (⭐-Punkte stehen in der oberen Leiste).
+	_prestige_points_lbl.text = "%s  %d Prestiges durchgeführt" % [Icons.RECYCLE, Economy.get_prestige_count()]
+
 	var pending := Economy.prestige_pending_points()
-	_prestige_earned_lbl.text = "Seit letztem Prestige verdient: %s %s   ·   ×-Bonus aktiv: ×%d   ·   Prestiges: %d" % [
-		Economy.format_currency(Economy.get_prestige_earned()), Icons.COIN, int(Economy.get_prestige_mult()), Economy.get_prestige_count()]
+	var cur     := Economy.get_currency()
+	var target  := Economy.PRESTIGE_K
+	var progress: float = clampf(float(cur) / target, 0.0, 1.0)
+
+	# Füllstand + Effekt an den Shader. Performance-Modus → einfarbig (0, keine Animation),
+	# sonst der animierte Glitzer+Wasser-Effekt (5).
+	_prestige_fill_mat.set_shader_parameter("progress", progress)
+	_prestige_fill_mat.set_shader_parameter("mode", 0 if Display.performance_mode else 5)
 
 	if pending >= 1:
-		_prestige_btn.text     = "%s  PRESTIGE  →  +%d %s" % [Icons.RECYCLE, pending, Icons.STAR]
+		_prestige_btn_lbl.text = "%s  PRESTIGE  →  +%d %s" % [Icons.RECYCLE, pending, Icons.STAR]
 		_prestige_btn.disabled = false
-		_prestige_btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
-		_prestige_btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+		# Volle, leuchtende Prestige-Gold-Füllung.
+		_prestige_fill_mat.set_shader_parameter("base_color", Color(C_STAR.r, C_STAR.g, C_STAR.b, 0.90))
+		_prestige_btn.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
+		_prestige_btn.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 		_prestige_btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
-		_prestige_btn.add_theme_color_override("font_color", C_STAR)
+		_prestige_btn_lbl.add_theme_color_override("font_color", Color(1, 1, 1))
 	else:
-		_prestige_btn.text     = Icons.RECYCLE + "  Noch zu früh für Prestige"
+		# Noch nicht erreicht → Fortschritt (Geld / Ziel). Füllung weiterhin in Prestige-Gold, nur dezenter.
+		_prestige_btn_lbl.text = "%s  %s / %s %s" % [
+			Icons.RECYCLE, Economy.format_currency(cur), Economy.format_currency(int(target)), Icons.COIN]
 		_prestige_btn.disabled = true
-		var sb := _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5))
+		_prestige_fill_mat.set_shader_parameter("base_color", Color(C_STAR.r, C_STAR.g, C_STAR.b, 0.62))
+		var sb := _sbf(C_SURFACE, C_STAR.darkened(0.45))
 		_prestige_btn.add_theme_stylebox_override("normal",   sb)
 		_prestige_btn.add_theme_stylebox_override("disabled", sb)
-		_prestige_btn.add_theme_color_override("font_color",          C_TEXT_DIM)
-		_prestige_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
+		_prestige_btn_lbl.add_theme_color_override("font_color", Color(0.92, 0.94, 0.96))
 
 
 func _populate_prestige_tree() -> void:
@@ -2823,8 +2947,8 @@ func _prestige_prereq_text(id: String) -> String:
 # Stil eines Prestige-Kauf-Knopfs (leistbar = Gold, sonst gedämpft).
 func _style_prestige_buy_btn(btn: Button, can: bool) -> void:
 	if can:
-		btn.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
-		btn.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+		btn.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
+		btn.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
 		btn.add_theme_color_override("font_color", C_STAR)
 	else:
@@ -2902,8 +3026,8 @@ func _build_prestige_confirm(parent: Control) -> void:
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
 	yes.text = Icons.RECYCLE + "  Prestige"
-	yes.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
-	yes.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+	yes.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
+	yes.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
 	yes.add_theme_color_override("font_color", C_STAR)
 	yes.pressed.connect(_on_prestige_confirmed)
@@ -3006,8 +3130,8 @@ func _build_ascend_confirm(parent: Control) -> void:
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
 	yes.text = Icons.ARROW_BIG_UP + "  Upgraden"
-	yes.add_theme_stylebox_override("normal",  _sbf(Color(0.30, 0.24, 0.05), C_STAR))
-	yes.add_theme_stylebox_override("hover",   _sbf(Color(0.40, 0.32, 0.07), C_STAR))
+	yes.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
+	yes.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
 	yes.add_theme_color_override("font_color", C_STAR)
 	yes.pressed.connect(_on_ascend_confirmed)
