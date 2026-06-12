@@ -76,6 +76,7 @@ var _music_min_switch:  CuteToggle
 var _fps_switch:        CuteToggle
 var _mult_option:       OptionButton
 var _notation_option:   OptionButton
+var _perf_switch:       CuteToggle   # Performance-Modus (Vorstufe)
 var _lbl_master_val: Label
 var _lbl_music_val:  Label
 var _lbl_sfx_val:    Label
@@ -461,6 +462,17 @@ func _build_settings_panel() -> Control:
 		_notation_option.add_item(opt)
 	_notation_option.item_selected.connect(_on_notation_changed)
 	notation_row.add_child(_notation_option)
+
+	# Performance-Modus (Vorstufe): schaltet vorerst nur die animierte Prestige-Button-Füllung ab
+	# (an = einfarbig, aus = Glitzer+Wasser). Später sollen hier weitere unnötige Animationen folgen.
+	_perf_switch = _add_toggle_row(v2, "Performance-Modus:")
+	_perf_switch.toggled.connect(_on_performance_toggled)
+	var perf_hint := Label.new()
+	perf_hint.text = "Schaltet unnötige Animationen ab, damit das Spiel flüssiger läuft (aktuell den animierten Prestige-Balken)."
+	perf_hint.add_theme_font_size_override("font_size", 11)
+	perf_hint.add_theme_color_override("font_color", C_TEXT_DIM)
+	perf_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	v2.add_child(perf_hint)
 
 	# Cheats sind jetzt ein Abschnitt der Anzeige-Kategorie (eigener Tab entfällt).
 	_add_hline(v2)
@@ -1114,6 +1126,12 @@ func _sync_settings_ui() -> void:
 	_master_slider.value    = settings.get_value("options", "master_volume", 100.0)
 	_music_slider.value     = settings.get_value("options", "music_volume",  80.0)
 	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
+	# Labels explizit setzen: das value_changed-Signal feuert NICHT, wenn der neue
+	# Wert der aktuellen Slider-Position entspricht (z. B. 0 beim ersten Öffnen) –
+	# sonst bliebe die Prozentanzeige stehen, obwohl Knopf und Audio korrekt sind.
+	_lbl_master_val.text    = "%d%%" % int(_master_slider.value)
+	_lbl_music_val.text     = "%d%%" % int(_music_slider.value)
+	_lbl_sfx_val.text       = "%d%%" % int(_sfx_slider.value)
 	var saved_mode: int = settings.get_value("options", "window_mode", 0)
 	_window_option.selected = saved_mode
 	_update_res_option_state(saved_mode)
@@ -1142,6 +1160,7 @@ func _sync_settings_ui() -> void:
 	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
 	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
 	_notation_option.selected         = clampi(int(settings.get_value("options", "money_notation", Display.MoneyNotation.STANDARD)), 0, 2)
+	_perf_switch.button_pressed       = bool(settings.get_value("options", "performance_mode", false))
 
 	_loading_settings = false
 
@@ -1236,6 +1255,14 @@ func _on_notation_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "money_notation", index)
 	Display.set_money_notation(index)
+	_settings_dirty = true
+
+
+# Performance-Modus umschalten (Vorstufe: wirkt vorerst nur auf die Prestige-Button-Animation).
+func _on_performance_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "performance_mode", pressed)
+	Display.set_performance_mode(pressed)
 	_settings_dirty = true
 
 

@@ -383,6 +383,16 @@ func _setup_run_bar() -> void:
 	_run_bar_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_run_bar_btn.pressed.connect(_on_fahren_pressed)
 	_run_bar.add_child(_run_bar_btn)
+
+	# Kurzer, mittiger Prestige-Fortschrittsbalken. Horizontal zentriert er sich selbst (feste
+	# Maximalbreite); side_reserve identisch zur 3D-Ansicht → in 2D und 3D exakt gleiche Lage
+	# (springt beim Ansichtswechsel nicht). Höhe 12 px, mittig in der 42-px-Leiste.
+	var pbar := PrestigeBar.new()
+	pbar.side_reserve  = 244.0
+	pbar.anchor_top    = 1.0; pbar.offset_top    = -nav_h - 27
+	pbar.anchor_bottom = 1.0; pbar.offset_bottom = -nav_h - 15
+	_run_bar.add_child(pbar)
+
 	_refresh_run_bar()
 
 
@@ -397,11 +407,14 @@ func _refresh_run_bar() -> void:
 		_run_bar_status.add_theme_color_override("font_color", Color(0.25, 0.90, 0.45))
 		_set_run_bar_btn_style(Icons.VIDEO + "  3D-Ansicht", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
 	elif _track_valid:
-		_run_bar_status.text = Icons.CHECK + " Strecke fertig — bereit zum Fahren"
+		# Status-Text entfernt (war: Icons.CHECK + " Strecke fertig — bereit zum Fahren") – leer
+		# statt auskommentiert, damit kein alter Text aus einem vorigen Zustand hängenbleibt.
+		_run_bar_status.text = ""
 		_run_bar_status.add_theme_color_override("font_color", Color(0.35, 0.90, 0.45))
 		_set_run_bar_btn_style("▶  Fahren!", Color(0.08, 0.26, 0.14), Color(0.30, 0.90, 0.50), Color(0.55, 1.0, 0.65))
 	else:
-		_run_bar_status.text = "Strecke bauen und Runde prüfen"
+		# Status-Text entfernt (war: "Strecke bauen und Runde prüfen").
+		_run_bar_status.text = ""
 		_run_bar_status.add_theme_color_override("font_color", C_TEXT_DIM)
 		_set_run_bar_btn_style("▶  Fahren!", C_SURFACE, C_ACCENT_MU.darkened(0.4), C_TEXT_DIM)
 		_run_bar_btn.disabled = not _track_valid
