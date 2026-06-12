@@ -507,6 +507,8 @@ func _notification(what: int) -> void:
 			var lbl = e["btn"].get_meta("txt_lbl", null)
 			if lbl != null and is_instance_valid(lbl):
 				lbl.text = tr(e["label"])
+			# Sperr-Maskierung erneut anwenden → gesperrte Tabs bleiben Schloss/„???" statt Name.
+			_apply_nav_lock(e["btn"], int(e["tab"]))
 	if _pause_nav_btn != null and is_instance_valid(_pause_nav_btn):
 		var pl = _pause_nav_btn.get_meta("txt_lbl", null)
 		if pl != null and is_instance_valid(pl):
@@ -647,6 +649,7 @@ func _apply_nav_lock(btn: Button, tab: int) -> void:
 		ico.modulate = Color(1, 1, 1, 0.55)
 	var lbl = btn.get_meta("txt_lbl", null)
 	if lbl != null and is_instance_valid(lbl) and lbl != ico:
+		lbl.text     = "???"   # Namen verbergen, solange der Tab gesperrt ist
 		lbl.modulate = Color(1, 1, 1, 0.6)
 
 

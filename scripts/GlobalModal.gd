@@ -505,10 +505,11 @@ func _is_tab_locked(idx: int) -> bool:
 
 
 func _tab_lock_hint(idx: int) -> String:
+	# Namen bewusst NICHT nennen, solange gesperrt – nur die Verdienst-Schwelle als Hinweis.
 	if idx == PRESTIGE_TAB:
-		return "Verdiene 100K (seit dem letzten Prestige), um den Prestige-Bereich dauerhaft freizuschalten."
+		return "Verdiene 100K (seit dem letzten Prestige), um diesen Bereich dauerhaft freizuschalten."
 	if idx == WERKSTATT_TAB:
-		return "Verdiene 100B (seit dem letzten Prestige), um die Werkstatt dauerhaft freizuschalten."
+		return "Verdiene 100B (seit dem letzten Prestige), um diesen Bereich dauerhaft freizuschalten."
 	return ""
 
 
