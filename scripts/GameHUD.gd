@@ -1057,14 +1057,14 @@ func _on_achievement_unlocked(id: String) -> void:
 
 
 # Kleines Popup unten links (links von der Seitenleiste, über der unteren Run-Bar mit dem Fahren-Knopf):
-# Icon, Name und Trophäen-Belohnung des Erfolgs. Die Belohnung kommt datengetrieben aus Economy
-# (get_achievement_reward) – kann künftig je Erfolg variieren. Es ist immer nur EIN Popup sichtbar.
+# zeigt nur Icon und Name des freigeschalteten Erfolgs. Die Trophäen werden NICHT automatisch
+# vergeben – man sammelt sie im Erfolge-Tab ein. Es ist immer nur EIN Popup gleichzeitig sichtbar.
 func _show_achievement_toast(id: String) -> void:
 	if _ach_toast != null and is_instance_valid(_ach_toast):
 		_ach_toast.queue_free()
 
 	const TW = 300
-	const TH = 66
+	const TH = 60
 	var bottom_h: float = float(RUI.BOTTOM_NAV_H) if RUI.is_portrait() else float(BOT_H)
 	var base_y: float   = RUI.vh() - bottom_h - 12.0 - TH
 
@@ -1088,7 +1088,7 @@ func _show_achievement_toast(id: String) -> void:
 	# Erfolgs-Icon links (eigenes Icon-Font-Glyph aus GlobalModal – Quelle der Wahrheit für Icons).
 	var ico := Label.new()
 	ico.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ico.position = Vector2(12, 13)
+	ico.position = Vector2(12, 10)
 	ico.size     = Vector2(40, 40)
 	ico.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ico.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
@@ -1101,30 +1101,21 @@ func _show_achievement_toast(id: String) -> void:
 
 	var cap := Label.new()
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cap.position = Vector2(62, 7)
+	cap.position = Vector2(62, 11)
 	cap.size     = Vector2(TW - 74, 16)
 	cap.add_theme_font_size_override("font_size", 10)
 	cap.add_theme_color_override("font_color", C_ACCENT)
-	cap.text = "ERFOLG FREIGESCHALTET"
+	cap.text = "NEUER ERFOLG FREIGESCHALTET"
 	toast.add_child(cap)
 
 	var nm := Label.new()
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	nm.position = Vector2(62, 22)
+	nm.position = Vector2(62, 27)
 	nm.size     = Vector2(TW - 74, 22)
 	nm.add_theme_font_size_override("font_size", 15)
 	nm.add_theme_color_override("font_color", C_TEXT)
 	nm.text = String(Economy.ACHIEVEMENTS.get(id, {}).get("name", id))
 	toast.add_child(nm)
-
-	var rw := Label.new()
-	rw.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rw.position = Vector2(62, 43)
-	rw.size     = Vector2(TW - 74, 18)
-	rw.add_theme_font_size_override("font_size", 12)
-	rw.add_theme_color_override("font_color", C_ACCENT)
-	rw.text = "+%d %s" % [Economy.get_achievement_reward(id), Icons.TROPHY]
-	toast.add_child(rw)
 
 	# Einblenden (hochgleiten + einblenden), kurz halten, ausblenden, entfernen.
 	var t := create_tween()

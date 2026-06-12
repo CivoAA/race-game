@@ -315,6 +315,9 @@ const FREE_ROADS_PER_LEVEL = {"straight": 2, "curve": 4}
 #     frei, sobald der jeweilige Wert die Schwelle erreicht. metric ∈
 #     {currency, prestige_points, prestige_count, lap_earn}.
 # Freischalten ist idempotent + sofort persistiert; achievement_unlocked meldet es der UI live.
+# WICHTIG: Freischalten (= Bedingung erfüllt) schreibt die Trophäen NICHT automatisch gut. Der Spieler
+# muss jeden erreichten Erfolg im Erfolge-Tab manuell EINSAMMELN (claim_achievement) → dann erst gibt's
+# die Trophäen. „Erreicht" (unlocked_achievements) und „eingesammelt" (claimed_achievements) sind getrennt.
 const ACHIEVEMENTS = {
 	"first_race":     {"name": "Erster Start",   "desc": "Starte dein allererstes Rennen."},
 	"tile_road":      {"name": "Streckenbauer",  "desc": "Platziere zum ersten Mal eine Straße (Gerade oder Kurve)."},
@@ -375,7 +378,7 @@ const ACHIEVEMENT_ORDER = [
 	"pp_1000",         # 1.000 ⭐ (sehr spät)
 ]
 
-# Trophäen: eigene Erfolgs-Währung. Jeder freigeschaltete Erfolg bringt ACH_REWARD Trophäen.
+# Trophäen: eigene Erfolgs-Währung. Jeder EINGESAMMELTE Erfolg bringt ACH_REWARD Trophäen.
 # Nur in der Garage angezeigt (slot-gebunden, kein Spieleffekt – reine Sammel-Währung).
 const ACH_REWARD = 100
 # Kosten je freischaltbarer Kosmetik (Lackfarbe / Muster), bezahlt mit Trophäen (ach_currency).
@@ -385,8 +388,9 @@ var _currency:     int        = START_CURRENCY
 var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke des aktiven Tracks (Rückwärtskompatibilität)
 var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
-var unlocked_achievements: Dictionary = {}   # freigeschaltete Erfolge: id → true (slot-gebunden)
-var ach_currency: int = 0   # Trophäen aus Erfolgen (slot-gebunden, nur in der Garage sichtbar)
+var unlocked_achievements: Dictionary = {}   # erreichte Erfolge (Bedingung erfüllt): id → true (slot-gebunden)
+var claimed_achievements:  Dictionary = {}   # bereits EINGESAMMELTE Erfolge: id → true (slot-gebunden)
+var ach_currency: int = 0   # Trophäen aus eingesammelten Erfolgen (slot-gebunden, nur in der Garage sichtbar)
 
 # Kosmetik: Auto-Lackierung (Werkstatt). car_paint_on=false → Originaltextur (keine Umfärbung).
 var car_paint_on:    bool  = false
@@ -453,8 +457,10 @@ signal tab_unlock_changed
 signal car_paint_changed
 # Cheat-Modus (globale Einstellung) wurde umgeschaltet → HUD blendet die Cheat-Buttons ein/aus.
 signal cheat_mode_changed
-# Ein Erfolg wurde freigeschaltet (id aus ACHIEVEMENTS) → Erfolge-Tab aktualisiert sich live.
+# Ein Erfolg wurde freigeschaltet (Bedingung erfüllt, id aus ACHIEVEMENTS) → Erfolge-Tab + HUD live.
 signal achievement_unlocked(id: String)
+# Ein erreichter Erfolg wurde manuell EINGESAMMELT → Trophäen-Stand/Anzeige live aktualisieren.
+signal achievement_claimed(id: String)
 
 
 # ── Freischaltbare Shop-Tiles ───────────────────────────────────────────────────
@@ -1562,6 +1568,38 @@ func is_achievement_unlocked(id: String) -> bool:
 	return bool(unlocked_achievements.get(id, false))
 
 
+# Wurde dieser erreichte Erfolg bereits eingesammelt (Trophäen gutgeschrieben)?
+func is_achievement_claimed(id: String) -> bool:
+	return bool(claimed_achievements.get(id, false))
+
+
+# Einsammelbar = Bedingung erfüllt (freigeschaltet) UND noch nicht eingesammelt.
+func can_claim_achievement(id: String) -> bool:
+	return ACHIEVEMENTS.has(id) and is_achievement_unlocked(id) and not is_achievement_claimed(id)
+
+
+# Anzahl erreichter, aber noch NICHT eingesammelter Erfolge (für Badge/Hinweis in der UI).
+func get_claimable_achievement_count() -> int:
+	var n := 0
+	for id in ACHIEVEMENTS:
+		if can_claim_achievement(id):
+			n += 1
+	return n
+
+
+# Sammelt die Trophäen-Belohnung eines erreichten, noch nicht eingesammelten Erfolgs ein.
+# Schreibt die Trophäen gut, merkt den Erfolg als eingesammelt, persistiert sofort (slot-gebunden)
+# und meldet es der UI (achievement_claimed). Nicht einsammelbare/bereits erledigte Erfolge: No-Op.
+func claim_achievement(id: String) -> bool:
+	if not can_claim_achievement(id):
+		return false
+	claimed_achievements[id] = true
+	ach_currency += get_achievement_reward(id)   # Trophäen-Belohnung (datengetrieben je Erfolg)
+	save_game()
+	achievement_claimed.emit(id)
+	return true
+
+
 # Trophäen-Stand (Erfolgs-Währung, nur Garage). 100 je freigeschaltetem Erfolg.
 func get_ach_currency() -> int:
 	return ach_currency
@@ -1585,13 +1623,13 @@ func get_unlocked_achievement_count() -> int:
 	return n
 
 
-# Schaltet einen Erfolg frei (idempotent). Speichert sofort (slot-gebunden) und meldet die
-# Änderung, damit der Erfolge-Tab sie live anzeigt. Unbekannte/bereits erledigte Erfolge: No-Op.
+# Schaltet einen Erfolg frei (Bedingung erfüllt, idempotent). Schreibt die Trophäen NICHT gut –
+# das passiert erst beim manuellen Einsammeln (claim_achievement). Speichert sofort (slot-gebunden)
+# und meldet die Änderung, damit Erfolge-Tab/HUD sie live anzeigen. Unbekannte/erledigte: No-Op.
 func unlock_achievement(id: String) -> void:
 	if not ACHIEVEMENTS.has(id) or is_achievement_unlocked(id):
 		return
 	unlocked_achievements[id] = true
-	ach_currency += get_achievement_reward(id)   # Trophäen-Belohnung (datengetrieben je Erfolg)
 	save_game()
 	achievement_unlocked.emit(id)
 
@@ -1749,6 +1787,7 @@ func save_game_to_slot(slot: int) -> void:
 		"track_grids": track_grids,
 		"unlocked":    unlocked_tiles,
 		"achievements": unlocked_achievements,
+		"claimed_achievements": claimed_achievements,
 		"ach_currency": ach_currency,
 		"prestige_points": prestige_points,
 		"prestige_earned": prestige_earned,
@@ -1797,6 +1836,14 @@ func load_game_from_slot(slot: int) -> void:
 				unlocked_tiles = unl.duplicate() if typeof(unl) == TYPE_DICTIONARY else {}
 				var ach        = data.get("achievements", {})
 				unlocked_achievements = ach.duplicate() if typeof(ach) == TYPE_DICTIONARY else {}
+				# Eingesammelte Erfolge. Alt-Saves (vor dem Einsammel-System) kennen den Schlüssel nicht –
+				# dort wurden die Trophäen früher automatisch gutgeschrieben, also gelten alle bereits
+				# erreichten Erfolge als eingesammelt (verhindert doppeltes Einsammeln derselben Trophäen).
+				if data.has("claimed_achievements"):
+					var clm = data.get("claimed_achievements", {})
+					claimed_achievements = clm.duplicate() if typeof(clm) == TYPE_DICTIONARY else {}
+				else:
+					claimed_achievements = unlocked_achievements.duplicate()
 				ach_currency   = int(data.get("ach_currency", 0))
 				prestige_points = int(data.get("prestige_points", 0))
 				prestige_earned = int(data.get("prestige_earned", 0))
@@ -1861,6 +1908,7 @@ func _reset_state_to_defaults() -> void:
 	track           = []
 	unlocked_tiles  = {}
 	unlocked_achievements = {}   # Erfolge sind PROFIL-gebunden → bei Slot-Wechsel/Reset leeren
+	claimed_achievements  = {}
 	ach_currency    = 0
 	prestige_points = 0
 	prestige_earned = 0

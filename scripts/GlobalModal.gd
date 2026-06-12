@@ -41,7 +41,7 @@ var _active_modal_tab: int = 0
 var _active_shop_cat:  int = 0
 
 var _modal_tab_btns:    Array[Button] = []
-var _shop_sidebar_btns: Array[Button] = []
+var _shop_sidebar_btns: Array[Button] = []   # Pillen des Shop-Umschalters oben (Streckenteile/Upgrades)
 var _modal_money_lbl:   Label         = null   # Geldstand oben rechts in der Tab-Leiste
 
 # Inhaltsbereiche (je ein Control, visible-Switching)
@@ -197,6 +197,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	Economy.tab_unlock_changed.connect(_on_tab_unlock_changed)
 	Economy.achievement_unlocked.connect(_on_achievement_unlocked)
+	Economy.achievement_claimed.connect(_on_achievement_unlocked)   # Trophäen-/Erfolgs-Anzeige mitziehen
 
 
 # Auflösungs-/Layout-Änderung IMMER vormerken – auch wenn das Modal gerade
@@ -245,6 +246,7 @@ func _do_rebuild() -> void:
 	_ach_data.clear();      _ach_tiles.clear();       _ach_selected = -1
 	_ach_icon_lbl = null;   _ach_title_lbl = null;   _ach_status_lbl = null
 	_ach_desc_lbl = null;   _ach_progress_lbl = null
+	_ach_claim_btn = null;  _ach_claim_sb = null
 	_hint_panel = null;     _hint_label = null;      _hint_ring = null
 	_hint_targets_upg.clear();       _hint_targets_tile.clear()
 	_hint_id = "";          _hover_id = "";           _hover_elapsed = 0.0
@@ -525,50 +527,51 @@ func _attach_preview_to(container: Control) -> void:
 
 # ── Shop ──────────────────────────────────────────────────────────────────────
 
+const SHOP_NAV_H = 46   # Höhe der durchgehenden Top-Nav-Leiste im Shop
+
 func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
 	container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(container)
 	_tab_panels.append(container)
 
-	const SIDEBAR_W = 158
+	# Durchgehende Top-Nav-Leiste über die volle Breite (von ganz links bis zur Menü-Nav rechts).
+	# Ersetzt die frühere linke Sidebar – der Inhalt darunter nutzt ebenfalls die volle Breite.
+	var navbar := ColorRect.new()
+	navbar.position = Vector2(0, 0)
+	navbar.size     = Vector2(_vw(), SHOP_NAV_H)
+	navbar.color    = C_SURFACE
+	container.add_child(navbar)
 
-	# Sidebar-Hintergrund
-	var sidebar_bg := ColorRect.new()
-	sidebar_bg.position = Vector2(0, 0)
-	sidebar_bg.size     = Vector2(SIDEBAR_W, ch)
-	sidebar_bg.color    = C_SURFACE
-	container.add_child(sidebar_bg)
+	# Reiter links in der Leiste (flächenbündig, aktiver mit Akzent-Unterstrich). Mit Icon je Reiter.
+	var tabs := HBoxContainer.new()
+	tabs.position = Vector2(0, 0)
+	tabs.add_theme_constant_override("separation", 0)
+	container.add_child(tabs)
 
-	# Sidebar-Trennlinie
-	var sline := ColorRect.new()
-	sline.position = Vector2(SIDEBAR_W, 0)
-	sline.size     = Vector2(1, ch)
-	sline.color    = C_LINE
-	container.add_child(sline)
-
-	# Sidebar-Buttons
 	for i in SHOP_CATS.size():
 		var cat  = SHOP_CATS[i]
 		var btn  := Button.new()
-		btn.text = cat.name
-		btn.position = Vector2(0, i * 50 + 8)
-		btn.size     = Vector2(SIDEBAR_W, 44)
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.text = "%s   %s" % [_shop_cat_icon(cat.id), cat.name]
+		btn.custom_minimum_size = Vector2(0, SHOP_NAV_H)
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		_style_sidebar_btn(btn, i == 0)
+		_style_shop_toggle(btn, i == 0)
 		btn.pressed.connect(_on_shop_cat.bind(i))
-		container.add_child(btn)
+		tabs.add_child(btn)
 		_shop_sidebar_btns.append(btn)
 
-	# Inhaltsbereiche für jede Kategorie
-	const CAT_X = SIDEBAR_W + 1
-	var   CAT_W = _vw() - CAT_X
+	# Untere Trennlinie der Nav-Leiste
+	var sline := ColorRect.new()
+	sline.position = Vector2(0, SHOP_NAV_H)
+	sline.size     = Vector2(_vw(), 1)
+	sline.color    = C_LINE
+	container.add_child(sline)
 
+	# Inhaltsbereiche je Kategorie – volle Breite, beginnend unter der Nav-Leiste.
 	# Nur Streckenteile (0) + Upgrades (1). Reifen/Autos/Lackierung sind ausgeblendet.
-	_build_cat_tiles(container, CAT_X, ch, CAT_W)
-	_build_cat_upgrades(container, CAT_X, ch, CAT_W)
+	_build_cat_tiles(container, 0, ch, _vw(), SHOP_NAV_H + 1)
+	_build_cat_upgrades(container, 0, ch, _vw(), SHOP_NAV_H + 1)
 
 	_show_shop_cat(0)
 
@@ -577,7 +580,7 @@ func _on_shop_cat(idx: int) -> void:
 	_active_shop_cat = idx
 	_clear_upgrade_hover()   # andere Kategorie → andere Ziel-Liste, offenen Hinweis verwerfen
 	for i in _shop_sidebar_btns.size():
-		_style_sidebar_btn(_shop_sidebar_btns[i], i == idx)
+		_style_shop_toggle(_shop_sidebar_btns[i], i == idx)
 	_show_shop_cat(idx)
 	_refresh_affordability()
 
@@ -613,10 +616,10 @@ func _tile_entries() -> Array:
 	]
 
 
-func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
+func _build_cat_tiles(parent: Control, x: int, h: int, w: int, top: int = 0) -> void:
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(x, 0)
-	scroll.size     = Vector2(w, h)
+	scroll.position = Vector2(x, top)
+	scroll.size     = Vector2(w, h - top)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	parent.add_child(scroll)
 	_shop_cats.append(scroll)
@@ -626,7 +629,10 @@ func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
 	vbox.add_theme_constant_override("separation", 0)
 	scroll.add_child(vbox)
 
-	_add_cat_header(vbox, "STRECKENTEILE")
+	# Kein eigener „STRECKENTEILE"-Header mehr – die aktive Toggle-Pille oben ist der Titel.
+	var htop := Control.new()
+	htop.custom_minimum_size = Vector2(0, 14)
+	vbox.add_child(htop)
 
 	var info := Label.new()
 	info.text = "Schalte neue Streckenteile frei. Freigeschaltete Teile stehen danach im Baumodus (Hammer-Button) zur Verfügung."
@@ -642,20 +648,25 @@ func _build_cat_tiles(parent: Control, x: int, h: int, w: int) -> void:
 	pad.custom_minimum_size = Vector2(0, 10)
 	vbox.add_child(pad)
 
-	# Karten-Raster (4 Spalten); füllt 2 Reihen sichtbar, Rest scrollbar.
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 16)
-	margin.add_theme_constant_override("margin_right", 16)
-	margin.add_theme_constant_override("margin_bottom", 16)
-	vbox.add_child(margin)
+	# Karten-Raster horizontal ZENTRIERT (CenterContainer) statt linksbündig – die Karten sitzen
+	# mittig im verfügbaren Platz, egal wie viele Spalten gerade passen.
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(center)
 
 	_tiles_grid = GridContainer.new()
-	_tiles_grid.columns = 3
+	# Spaltenzahl responsiv aus der verfügbaren Breite (Karte 174 + 12 Abstand, 16er-Ränder).
+	# Da der Shop jetzt die volle Breite nutzt, passen meist 4–5 Karten statt vorher 3.
+	_tiles_grid.columns = clampi(int((w - 32 + 12) / (174 + 12)), 3, 5)
 	_tiles_grid.add_theme_constant_override("h_separation", 12)
 	_tiles_grid.add_theme_constant_override("v_separation", 12)
-	margin.add_child(_tiles_grid)
+	center.add_child(_tiles_grid)
 
 	_populate_tiles_grid()
+
+	var bpad := Control.new()
+	bpad.custom_minimum_size = Vector2(0, 16)
+	vbox.add_child(bpad)
 
 
 func _populate_tiles_grid() -> void:
@@ -1044,10 +1055,10 @@ func _build_cat_placeholder(parent: Control, x: int, h: int, w: int,
 	container.add_child(d_lbl)
 
 
-func _build_cat_upgrades(parent: Control, x: int, h: int, w: int) -> void:
+func _build_cat_upgrades(parent: Control, x: int, h: int, w: int, top: int = 0) -> void:
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(x, 0)
-	scroll.size     = Vector2(w, h)
+	scroll.position = Vector2(x, top)
+	scroll.size     = Vector2(w, h - top)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	parent.add_child(scroll)
 	_shop_cats.append(scroll)
@@ -1076,6 +1087,8 @@ var _ach_title_lbl:  Label = null
 var _ach_status_lbl: Label = null
 var _ach_desc_lbl:   Label = null
 var _ach_progress_lbl: Label = null   # „% erreicht" in der Kopfzeile
+var _ach_claim_btn:  Button = null    # „Einsammeln"-Knopf in der Detailspalte (nur bei erreichten Erfolgen)
+var _ach_claim_sb:   StyleBoxFlat = null   # Stylebox des Einsammeln-Knopfs (zum Umfärben je Zustand)
 
 
 # Icon-Glyph je Erfolgs-ID (UI-Sache; die Glyphen werden erst zur Laufzeit aus Icons befüllt,
@@ -1221,6 +1234,21 @@ func _build_ach_detail_panel() -> Control:
 	_ach_desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	v.add_child(_ach_desc_lbl)
 
+	# Einsammeln-Knopf ganz unten. Sichtbar nur bei erreichten Erfolgen; aktiv nur, solange noch nicht
+	# eingesammelt. Belohnung (Trophäen) gibt's erst hier – nicht automatisch beim Freischalten.
+	_ach_claim_sb = StyleBoxFlat.new()
+	_ach_claim_sb.set_corner_radius_all(8)
+	_ach_claim_sb.content_margin_top = 10; _ach_claim_sb.content_margin_bottom = 10
+	_ach_claim_sb.content_margin_left = 14; _ach_claim_sb.content_margin_right = 14
+	_ach_claim_btn = Button.new()
+	_ach_claim_btn.focus_mode = Control.FOCUS_NONE
+	_ach_claim_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_ach_claim_btn.add_theme_font_size_override("font_size", 14)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		_ach_claim_btn.add_theme_stylebox_override(st, _ach_claim_sb)
+	_ach_claim_btn.pressed.connect(_on_ach_claim_pressed)
+	v.add_child(_ach_claim_btn)
+
 	return panel
 
 
@@ -1292,7 +1320,8 @@ func _make_ach_tile(idx: int) -> Button:
 	v.add_child(name_lbl)
 
 	btn.pressed.connect(_select_achievement.bind(idx))
-	_ach_tiles.append({"btn": btn, "sb": sb, "done": done, "icon": icon, "name_lbl": name_lbl})
+	var claimable: bool = Economy.can_claim_achievement(String(data.get("id", "")))
+	_ach_tiles.append({"btn": btn, "sb": sb, "done": done, "claimable": claimable, "icon": icon, "name_lbl": name_lbl})
 	return btn
 
 
@@ -1307,8 +1336,17 @@ func _select_achievement(idx: int) -> void:
 		var tsb: StyleBoxFlat = t["sb"]
 		var sel := i == idx
 		var tdone: bool = t["done"]
-		tsb.border_color = C_ACCENT if sel else (C_ACCENT_MU if tdone else C_LINE)
-		tsb.set_border_width_all(2 if sel else 1)
+		var tclaim: bool = t.get("claimable", false)
+		# Einsammelbare Erfolge bekommen einen goldenen Rahmen als Hinweis (außer wenn gerade gewählt).
+		if sel:
+			tsb.border_color = C_ACCENT
+		elif tclaim:
+			tsb.border_color = C_CLAIM_GOLD
+		elif tdone:
+			tsb.border_color = C_ACCENT_MU
+		else:
+			tsb.border_color = C_LINE
+		tsb.set_border_width_all(2 if (sel or tclaim) else 1)
 		tsb.bg_color = C_SURFACE2 if sel else (C_SURFACE if tdone else C_BG)
 		(t["btn"] as Button).queue_redraw()
 
@@ -1324,6 +1362,46 @@ func _select_achievement(idx: int) -> void:
 	else:
 		_ach_status_lbl.text = Icons.LOCK + " Gesperrt"
 		_ach_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+
+	_update_ach_claim_btn(String(data.get("id", "")))
+
+
+# Farben des Einsammeln-Knopfs (Gold = einsammelbar). Dunkler Text auf der Gold-Füllung.
+const C_CLAIM_GOLD := Color(1.00, 0.82, 0.30)
+const C_CLAIM_DARK := Color(0.20, 0.15, 0.02)
+
+# Setzt Sichtbarkeit, Text und Stil des Einsammeln-Knopfs für den gewählten Erfolg.
+#   • noch nicht erreicht → versteckt
+#   • erreicht, noch nicht eingesammelt → Gold, aktiv, „Einsammeln  +N 🏆"
+#   • bereits eingesammelt → gedimmt, deaktiviert, „Eingesammelt ✓"
+func _update_ach_claim_btn(id: String) -> void:
+	if _ach_claim_btn == null or _ach_claim_sb == null:
+		return
+	if id == "" or not Economy.is_achievement_unlocked(id):
+		_ach_claim_btn.visible = false
+		return
+	_ach_claim_btn.visible = true
+	if Economy.is_achievement_claimed(id):
+		_ach_claim_btn.disabled = true
+		_ach_claim_btn.text = "%s Eingesammelt" % Icons.CHECK
+		_ach_claim_btn.add_theme_color_override("font_color", C_TEXT_DIM)
+		_ach_claim_sb.bg_color = C_SURFACE
+	else:
+		_ach_claim_btn.disabled = false
+		_ach_claim_btn.text = "Einsammeln   +%d %s" % [Economy.get_achievement_reward(id), Icons.TROPHY]
+		_ach_claim_btn.add_theme_color_override("font_color", C_CLAIM_DARK)
+		_ach_claim_sb.bg_color = C_CLAIM_GOLD
+
+
+# Klick auf „Einsammeln": Trophäen des gewählten Erfolgs gutschreiben (Economy entscheidet, ob möglich)
+# und alle Erfolgs-/Trophäen-Anzeigen neu zeichnen.
+func _on_ach_claim_pressed() -> void:
+	if _ach_selected < 0 or _ach_selected >= _ach_data.size():
+		return
+	var id := String(_ach_data[_ach_selected].get("id", ""))
+	if Economy.claim_achievement(id):
+		_refresh_achievements()
+		_refresh_garage_trophies()
 
 
 # Berechnet den Anteil freigeschalteter Erfolge und schreibt ihn in die Kopfzeile.
@@ -1349,11 +1427,13 @@ func _refresh_achievements() -> void:
 	if _ach_tiles.is_empty() or _ach_progress_lbl == null:
 		return
 	for i in _ach_data.size():
-		var done: bool = Economy.is_achievement_unlocked(String(_ach_data[i].get("id", "")))
+		var id: String = String(_ach_data[i].get("id", ""))
+		var done: bool = Economy.is_achievement_unlocked(id)
 		_ach_data[i]["done"] = done
 		if i < _ach_tiles.size():
 			var t: Dictionary = _ach_tiles[i]
 			t["done"] = done
+			t["claimable"] = Economy.can_claim_achievement(id)
 			(t["icon"] as Label).modulate = Color(1, 1, 1, 1.0 if done else 0.45)
 			(t["name_lbl"] as Label).add_theme_color_override("font_color", C_TEXT if done else C_TEXT_DIM)
 	_update_ach_progress()
@@ -2352,7 +2432,39 @@ func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 	# Hover-Ziele zeigen auf die gleich freigegebenen Info-Boxen → Liste + offenen Hinweis verwerfen.
 	_hint_targets_upg.clear()
 	_clear_upgrade_hover()
-	# Feste Reihenfolge nach STARTPREIS aufsteigend (niedrigster oben). Hartkodiert – sortiert
+	# Kleiner Abstand oben, damit der Inhalt nicht an der Trennlinie unter dem Umschalter klebt.
+	# Liegt hier (statt im Container), damit der Rebuild ihn nicht entfernt.
+	var utop := Control.new()
+	utop.custom_minimum_size = Vector2(0, 12)
+	vbox.add_child(utop)
+
+	# Kurzer Info-Text (wie bei den Streckenteilen) für ein konsistentes, aufgeräumtes Bild.
+	var info := Label.new()
+	info.text = "Verbessere dauerhaft deine Einnahmen, dein Tempo und deine Bonusfelder. Jede Stufe wirkt sofort."
+	info.add_theme_font_size_override("font_size", 12)
+	info.add_theme_color_override("font_color", C_TEXT_DIM)
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD
+	info.custom_minimum_size = Vector2(row_w - 16, 0)
+	var ipad := HBoxContainer.new()
+	ipad.add_child(_hpad(16)); ipad.add_child(info)
+	vbox.add_child(ipad)
+
+	var pad := Control.new()
+	pad.custom_minimum_size = Vector2(0, 12)
+	vbox.add_child(pad)
+
+	# Upgrade-Karten zentriert im Raster (responsive Spaltenzahl, Karte 230 breit).
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(center)
+
+	var grid := GridContainer.new()
+	grid.columns = clampi(int((row_w + 20 - 32 + 12) / (UPG_CARD_W + 12)), 1, 4)
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	center.add_child(grid)
+
+	# Feste Reihenfolge nach STARTPREIS aufsteigend (niedrigster zuerst). Hartkodiert – sortiert
 	# sich NICHT bei jeder Preisänderung neu. base_cost: tilebonus 10, speed 50, endmult 500,
 	# drive_time 1000, bonus_plus5 2000, bonus_plus10 4000, bonus_mult15 200k, car_count 1M.
 	var ids = ["tilebonus", "speed", "endmult", "drive_time",
@@ -2360,60 +2472,117 @@ func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 	for id in ids:
 		if Economy.UPGRADES[id].get("category", "") == "hidden":
 			continue
-		vbox.add_child(_make_upgrade_row(id, row_w))
-		var sep := ColorRect.new()
-		sep.custom_minimum_size = Vector2(0, 1)
-		sep.color = C_LINE
-		vbox.add_child(sep)
+		grid.add_child(_make_upgrade_card(id))
+
+	var bpad := Control.new()
+	bpad.custom_minimum_size = Vector2(0, 16)
+	vbox.add_child(bpad)
 	# Hinweis: Das „Auto 2"-Kombinieren ist in die Werkstatt (Tab „Autos", Auto-Prestige) umgezogen.
 
 
-func _make_upgrade_row(id: String, row_w: float) -> Control:
-	var row := HBoxContainer.new()
-	row.custom_minimum_size = Vector2(row_w, 56)
-	row.add_theme_constant_override("separation", 0)
-	row.add_child(_hpad(16))
+# Tabler-Icon je Upgrade (id → Glyph; rendert dank Font-Fallback inline). Unbekannt → Blitz.
+func _upgrade_icon(id: String) -> String:
+	match id:
+		"tilebonus":    return Icons.ROAD
+		"speed":        return Icons.GAUGE
+		"endmult":      return Icons.MATH
+		"drive_time":   return Icons.CLOCK
+		"bonus_plus5":  return Icons.PLUS
+		"bonus_plus10": return Icons.PLUS
+		"bonus_mult15": return Icons.FLAME
+		"car_count":    return Icons.CAR
+	return Icons.BOLT
 
-	var info := VBoxContainer.new()
-	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info.size_flags_vertical   = Control.SIZE_FILL
-	info.alignment = BoxContainer.ALIGNMENT_CENTER
-	info.add_theme_constant_override("separation", 2)
-	row.add_child(info)
 
-	var n_lbl := Label.new()
-	n_lbl.text = Economy.get_upgrade_name(id).to_upper()
-	n_lbl.add_theme_font_size_override("font_size", 13)
-	n_lbl.add_theme_color_override("font_color", C_TEXT)
-	info.add_child(n_lbl)
+const UPG_CARD_W = 230
+const UPG_CARD_H = 196
 
-	var lv  = Economy.get_upgrade_level(id)
-	var mx  = Economy.get_max_level(id)
-	var l_lbl := Label.new()
-	# "von → zu"-Wert anzeigen, wo es Sinn ergibt (Anzahl/Multiplikator/Zeit/Tile-Werte).
-	# Bei Tempo bringt die Zahl nichts → nur die aktuelle Stufe.
-	if id != "speed" and not Economy.is_maxed(id):
-		l_lbl.text = "Stufe %d / %d   ·  %s → %s" % [lv, mx, Economy.effect_text(id, lv), Economy.effect_text(id, lv + 1)]
+# Eine Upgrade-Karte: Icon, Name, Stufe + Fortschrittsbalken, Effekt (von → zu) und Kauf-Knopf.
+# Gleiches Karten-Gefühl wie die Prestige-Knoten – deutlich aufgeräumter als die früheren Zeilen.
+func _make_upgrade_card(id: String) -> Panel:
+	var lv     := Economy.get_upgrade_level(id)
+	var mx     := Economy.get_max_level(id)
+	var maxed  := Economy.is_maxed(id)
+	var has_lv := lv > 0
+
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(UPG_CARD_W, UPG_CARD_H)
+	var csb := StyleBoxFlat.new()
+	csb.bg_color     = C_SURFACE
+	csb.border_color = C_ACCENT if has_lv else C_LINE
+	csb.set_border_width_all(2 if has_lv else 1)
+	csb.set_corner_radius_all(10)
+	card.add_theme_stylebox_override("panel", csb)
+
+	# Icon
+	var icon := Label.new()
+	icon.position = Vector2(0, 14)
+	icon.size     = Vector2(UPG_CARD_W, 36)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 30)
+	icon.add_theme_color_override("font_color", C_ACCENT if has_lv else C_TEXT)
+	icon.text = _upgrade_icon(id)
+	card.add_child(icon)
+
+	# Name
+	var name_lbl := Label.new()
+	name_lbl.position = Vector2(8, 52)
+	name_lbl.size     = Vector2(UPG_CARD_W - 16, 22)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", C_TEXT)
+	name_lbl.text = Economy.get_upgrade_name(id).to_upper()
+	card.add_child(name_lbl)
+
+	# Stufe
+	var lv_lbl := Label.new()
+	lv_lbl.position = Vector2(8, 76)
+	lv_lbl.size     = Vector2(UPG_CARD_W - 16, 16)
+	lv_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lv_lbl.add_theme_font_size_override("font_size", 11)
+	lv_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	lv_lbl.text = "Stufe %d / %d" % [lv, mx]
+	card.add_child(lv_lbl)
+
+	# Stufen-Fortschrittsbalken (gefüllt nach lv/max)
+	var bar_w := UPG_CARD_W - 48
+	var bar_bg := ColorRect.new()
+	bar_bg.position = Vector2(24, 96)
+	bar_bg.size     = Vector2(bar_w, 6)
+	bar_bg.color    = C_BG
+	card.add_child(bar_bg)
+	var frac := 0.0 if mx <= 0 else clampf(float(lv) / float(mx), 0.0, 1.0)
+	if frac > 0.0:
+		var bar_fill := ColorRect.new()
+		bar_fill.position = Vector2(24, 96)
+		bar_fill.size     = Vector2(bar_w * frac, 6)
+		bar_fill.color    = C_ACCENT
+		card.add_child(bar_fill)
+
+	# Effekt (von → zu, bzw. nur aktuell bei MAX/Tempo)
+	var eff_lbl := Label.new()
+	eff_lbl.position = Vector2(8, 110)
+	eff_lbl.size     = Vector2(UPG_CARD_W - 16, 32)
+	eff_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	eff_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	eff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	eff_lbl.add_theme_font_size_override("font_size", 13)
+	eff_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.58))
+	if id != "speed" and not maxed:
+		eff_lbl.text = "%s → %s" % [Economy.effect_text(id, lv), Economy.effect_text(id, lv + 1)]
 	else:
-		l_lbl.text = "Stufe %d / %d   →  %s" % [lv, mx, Economy.effect_text(id, lv)]
-	l_lbl.add_theme_font_size_override("font_size", 11)
-	l_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	info.add_child(l_lbl)
+		eff_lbl.text = Economy.effect_text(id, lv)
+	card.add_child(eff_lbl)
 
-	# Das Info-„Kästchen" (Name + Stufe) ist der Hover-Bereich für den Erklär-Hinweis –
-	# aber nur, wenn für dieses Upgrade ein Text hinterlegt ist (Erkennung per Polling).
-	if Lang.hint(id) != "":
-		_hint_targets_upg.append({"id": id, "area": info})
-
-	row.add_child(_hpad(12))
-
+	# Kauf-Knopf unten
 	var buy_btn := Button.new()
-	buy_btn.custom_minimum_size = Vector2(130, 40)
+	buy_btn.position = Vector2(12, UPG_CARD_H - 48)
+	buy_btn.size     = Vector2(UPG_CARD_W - 24, 38)
 	buy_btn.focus_mode = Control.FOCUS_NONE
 	buy_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-
-	if Economy.is_maxed(id):
-		buy_btn.text     = "MAX"
+	buy_btn.add_theme_font_size_override("font_size", 13)
+	if maxed:
+		buy_btn.text     = Icons.CHECK + " MAX"
 		buy_btn.disabled = true
 		buy_btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		buy_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
@@ -2421,11 +2590,14 @@ func _make_upgrade_row(id: String, row_w: float) -> Control:
 		buy_btn.text = Icons.ARROW_UP + "  %s %s" % [Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
 		_style_upgrade_btn(buy_btn, Economy.can_buy(id))
 		_upgrade_buttons.append({"btn": buy_btn, "id": id})
-	buy_btn.add_theme_font_size_override("font_size", 12)
 	buy_btn.pressed.connect(_on_buy_upgrade.bind(id))
-	row.add_child(buy_btn)
-	row.add_child(_hpad(16))
-	return row
+	card.add_child(buy_btn)
+
+	# Ganze Karte ist der Hover-Bereich für den Erklär-Hinweis – nur wenn ein Text hinterlegt ist.
+	if Lang.hint(id) != "":
+		_hint_targets_upg.append({"id": id, "area": card})
+
+	return card
 
 
 func _on_buy_upgrade(id: String) -> void:
@@ -3215,17 +3387,30 @@ func _style_modal_tab(btn: Button, active: bool) -> void:
 	btn.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
 
 
-func _style_sidebar_btn(btn: Button, active: bool) -> void:
+# Icon-Glyph je Shop-Kategorie (rendert dank Font-Fallback inline im normalen Button-Text).
+func _shop_cat_icon(id: String) -> String:
+	match id:
+		"tiles":    return Icons.ROAD
+		"upgrades": return Icons.TRENDING_UP
+	return ""
+
+
+# Reiter der Shop-Top-Nav (links in der Leiste). Aktiv = leicht hellere Fläche mit Akzent-Unterstrich
+# und hellem Text, inaktiv = Leistenfarbe mit gedimmtem Text. Hellerer Hover-Stil als Klick-Feedback.
+func _style_shop_toggle(btn: Button, active: bool) -> void:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color        = C_SURFACE2 if active else C_SURFACE
-	sb.border_width_left = 3
-	sb.border_color    = C_ACCENT if active else Color(0, 0, 0, 0)
-	sb.content_margin_left = 12; sb.content_margin_right  = 8
+	sb.bg_color            = C_SURFACE2 if active else C_SURFACE
+	sb.border_width_bottom = 3
+	sb.border_color        = C_ACCENT if active else Color(0, 0, 0, 0)
+	sb.content_margin_left = 24; sb.content_margin_right  = 24
 	sb.content_margin_top  = 8;  sb.content_margin_bottom = 8
-	for state in ["normal", "hover", "pressed", "focus"]:
+	var sb_hover: StyleBoxFlat = sb.duplicate()
+	sb_hover.bg_color = sb.bg_color.lightened(0.08)
+	for state in ["normal", "pressed", "focus"]:
 		btn.add_theme_stylebox_override(state, sb)
+	btn.add_theme_stylebox_override("hover", sb_hover)
 	btn.add_theme_color_override("font_color", C_TEXT if active else C_TEXT_DIM)
-	btn.add_theme_font_size_override("font_size", 13)
+	btn.add_theme_font_size_override("font_size", 14)
 
 
 func _sbf(bg: Color, border: Color) -> StyleBoxFlat:
