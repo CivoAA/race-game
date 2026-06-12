@@ -57,6 +57,51 @@ const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/Dirt
 const MODEL_TRACK_STRAIGHT_ICE     = "res://assets/3D-models/tracks/staight/ice/Ice_straight.glb"
 const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/Default/c.default.glb"
 
+# ── 2D-Tile-Texturen (Bauplan-Ansicht) ─────────────────────────────────────────
+# Belag-Artworks für die 2D-Strecken statt der prozeduralen Zeichnung. Die Dateinamen
+# stehen exakt wie im Ordner (inkl. Tippfehler "cruve"/"straigth" und Belag "eis"),
+# darum eine feste Tabelle statt generierter Pfade.
+#   Geraden-Orientierung:  OW = waagerecht (Ost-West), NS = senkrecht (Nord-Süd)
+#   Kurven-Orientierung (zwei offene Kanten): OS=unten+rechts, SW=unten+links,
+#                                             NW=oben+links,   NO=oben+rechts
+const TEX_GRASS_2D = "res://assets/2D-tiles/grass2.png"
+const TILE2D_TEXTURES := {
+	"default_straight_OW": "res://assets/2D-tiles/default_straigth_OW.png",
+	"default_straight_NS": "res://assets/2D-tiles/default_straigth_NS.png",
+	"default_curve_OS":    "res://assets/2D-tiles/default_cruve_OS.png",
+	"default_curve_SW":    "res://assets/2D-tiles/default_cruve_SW.png",
+	"default_curve_NW":    "res://assets/2D-tiles/default_cruve_NW.png",
+	"default_curve_NO":    "res://assets/2D-tiles/default_cruve_NO.png",
+	"dirt_straight_OW":    "res://assets/2D-tiles/dirt_staight_OW.png",
+	"dirt_straight_NS":    "res://assets/2D-tiles/dirt_staight_NS.png",
+	"dirt_curve_OS":       "res://assets/2D-tiles/dirt_curve_OS.png",
+	"dirt_curve_SW":       "res://assets/2D-tiles/dirt_cruve_SW.png",
+	"dirt_curve_NW":       "res://assets/2D-tiles/dirt_cruve_NW.png",
+	"dirt_curve_NO":       "res://assets/2D-tiles/dirt_cruve_NO.png",
+	"ice_straight_OW":     "res://assets/2D-tiles/eis_straigth_OW.png",
+	"ice_straight_NS":     "res://assets/2D-tiles/eis_straigth_NS.png",
+	"ice_curve_OS":        "res://assets/2D-tiles/eis_curve_OS.png",
+	"ice_curve_SW":        "res://assets/2D-tiles/eis_curve_SW.png",
+	"ice_curve_NW":        "res://assets/2D-tiles/eis_curve_NW.png",
+	"ice_curve_NO":        "res://assets/2D-tiles/eis_curve_NO.png",
+}
+
+# Liefert den res://-Pfad der 2D-Textur für Belag (default/dirt/ice), Form (straight/curve)
+# und Drehung in Grad (0/90/180/270). Leerer String, wenn es kein passendes Artwork gibt.
+func tile2d_texture(belag: String, shape: String, rotation: int) -> String:
+	var rot := ((int(rotation) % 360) + 360) % 360
+	var orient := ""
+	if shape == "straight":
+		orient = "OW" if rot % 180 == 0 else "NS"
+	else:
+		match rot:
+			90:  orient = "SW"
+			180: orient = "NW"
+			270: orient = "NO"
+			_:   orient = "OS"
+	return TILE2D_TEXTURES.get("%s_%s_%s" % [belag, shape, orient], "")
+
+
 # ── Speicherung & Einstellungen ───────────────────────────────────────────────
 const SETTINGS_FILE = "user://settings.cfg"
 const SAVE_SLOT_FMT = "user://savegame_slot%d.dat"

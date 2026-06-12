@@ -536,8 +536,64 @@ func unlock_tile(key: String) -> void:
 
 
 func _ready() -> void:
+	_migrate_legacy_user_dir()
 	_load_settings()
 	_init_tracks()
+
+
+# ── Einmalige Migration vom alten user://-Ordner ────────────────────────────────
+# Früher hieß der Speicherordner "RaceTrackBuilder"; mit der Umbenennung auf
+# "RoadTycoon" (config/custom_user_dir_name) zeigt user:// auf einen neuen, leeren
+# Ordner. Diese Routine kopiert vorhandene Spielstände + Einstellungen EINMALIG
+# herüber und löscht den alten Ordner anschließend. Sie greift nur, solange im
+# neuen Ordner noch keine Saves liegen – läuft also faktisch genau einmal.
+const LEGACY_USER_DIR_NAME = "RaceTrackBuilder"
+
+func _migrate_legacy_user_dir() -> void:
+	var new_abs := ProjectSettings.globalize_path("user://").trim_suffix("/").trim_suffix("\\")
+	var legacy_abs := new_abs.get_base_dir().path_join(LEGACY_USER_DIR_NAME)
+	# Name unverändert oder kein Alt-Ordner vorhanden → nichts zu tun.
+	if legacy_abs == new_abs or not DirAccess.dir_exists_absolute(legacy_abs):
+		return
+	# Im neuen Ordner liegen schon Daten? Dann nichts überschreiben, nur den
+	# (evtl. noch herumliegenden) Alt-Ordner aufräumen.
+	if _new_user_dir_has_data():
+		_remove_dir_recursive(legacy_abs)
+		return
+	DirAccess.make_dir_recursive_absolute(new_abs)
+	_copy_dir_recursive(legacy_abs, new_abs)
+	_remove_dir_recursive(legacy_abs)
+
+func _new_user_dir_has_data() -> bool:
+	var d := DirAccess.open("user://")
+	if d == null:
+		return false
+	for fname in d.get_files():
+		if fname.begins_with("savegame_slot") or fname == "settings.cfg":
+			return true
+	return false
+
+func _copy_dir_recursive(from_abs: String, to_abs: String) -> void:
+	var d := DirAccess.open(from_abs)
+	if d == null:
+		return
+	DirAccess.make_dir_recursive_absolute(to_abs)
+	for fname in d.get_files():
+		var dst := to_abs.path_join(fname)
+		if not FileAccess.file_exists(dst):
+			DirAccess.copy_absolute(from_abs.path_join(fname), dst)
+	for sub in d.get_directories():
+		_copy_dir_recursive(from_abs.path_join(sub), to_abs.path_join(sub))
+
+func _remove_dir_recursive(abs_path: String) -> void:
+	var d := DirAccess.open(abs_path)
+	if d == null:
+		return
+	for fname in d.get_files():
+		DirAccess.remove_absolute(abs_path.path_join(fname))
+	for sub in d.get_directories():
+		_remove_dir_recursive(abs_path.path_join(sub))
+	DirAccess.remove_absolute(abs_path)
 
 
 # ── Globale Einstellungen (slot-unabhängig, user://settings.cfg) ────────────────

@@ -7,11 +7,22 @@ const ASPH_COL   = Color(0.55, 0.55, 0.58)
 const LINE_COL   = Color(0.95, 0.85, 0.2, 0.9)
 
 var direction: int = 1   # 1 = vorwärts (→), -1 = rückwärts (←)
+var texture: Texture2D = null   # gesetzt → PNG-Artwork statt prozeduraler Zeichnung
 
 func _ready() -> void:
+	# Pixelart (32×32): harte Kanten statt Weichzeichnung beim Hochskalieren.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	queue_redraw()
 
 func _draw() -> void:
+	# Artwork-Pfad: Textur gegen die Node-Drehung zurückdrehen, damit das Bild exakt so
+	# erscheint wie gemalt (die passende Lage wird beim Spawn über die Drehung gewählt).
+	if texture != null:
+		var h = TILE_SIZE / 2.0
+		draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
+		draw_texture_rect(texture, Rect2(-h, -h, TILE_SIZE, TILE_SIZE), false)
+		return
+
 	var half = TILE_SIZE / 2.0
 	var tw   = TRACK_W / 2.0
 

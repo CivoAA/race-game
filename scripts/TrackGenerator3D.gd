@@ -383,6 +383,20 @@ func _box(size: Vector3, color: Color, pos: Vector3) -> MeshInstance3D:
 	return mi
 
 
+## Legt eine halbtransparente, bläuliche Eis-Schicht über alle Meshes (zweiter Render-Pass),
+## damit das Default-Kurvenmodell als Eiskurve „vereist" wirkt, ohne die Original-Textur zu ersetzen.
+func _apply_ice_overlay(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mat = StandardMaterial3D.new()
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = Color(0.62, 0.85, 1.0, 0.45)
+		mat.roughness    = 0.15
+		mat.metallic     = 0.3
+		node.material_overlay = mat
+	for child in node.get_children():
+		_apply_ice_overlay(child)
+
+
 func _apply_dirt_material(node: Node) -> void:
 	if node is MeshInstance3D:
 		var box = node.mesh as BoxMesh
@@ -497,12 +511,15 @@ func generate(grid_state: Array) -> void:
 				add_child(straight)
 				continue
 
-			# Kurve (curve / curve_alt): Default = GLB-Modell, Dirt = prozedural (+ Dirt-Material).
+			# Kurve (curve / curve_alt / ice_curve): Default = GLB-Modell, Dirt = prozedural.
 			# curve und curve_alt haben dieselbe Bogenform – nur die Fahrtrichtung unterscheidet sich.
+			# Eiskurve nutzt mangels eigenem Ice-GLB das Default-Kurvenmodell mit bläulicher Eis-Tönung.
 			if not d.get("is_dirt", false):
 				var curve = _make_curve_model(Paths.MODEL_TRACK_CURVE_DEFAULT)
 				curve.position = tile_pos
 				curve.rotation_degrees.y = -d["rotation"] + CURVE_MODEL_YAW_OFFSET
+				if d["type"] == "ice_curve":
+					_apply_ice_overlay(curve)
 				add_child(curve)
 				continue
 

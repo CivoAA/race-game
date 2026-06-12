@@ -267,8 +267,8 @@ func _get_connections(data) -> Dictionary:
 		# Portal: genau EINE offene Seite (zur andockenden Strecke), je nach Rotation.
 		var od := _portal_open_dir_d(data)
 		return {"N": od == "N", "E": od == "E", "S": od == "S", "W": od == "W"}
-	elif data["type"] == "curve" or data["type"] == "curve_alt":
-		# curve und curve_alt haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
+	elif data["type"] == "curve" or data["type"] == "curve_alt" or data["type"] == "ice_curve":
+		# curve/curve_alt/ice_curve haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
 		# rot=0: S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
 		match data["rotation"]:
 			0:   bn = false; be = true;  bs = true;  bw = false
@@ -529,7 +529,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	if ice_bonus > 0.0 and n > 0:
 		for ik in range(n):
 			var idata = route[ik]["data"]
-			if typeof(idata) == TYPE_DICTIONARY and idata.get("type", "") == "ice":
+			if typeof(idata) == TYPE_DICTIONARY and idata.get("type", "") in ["ice", "ice_curve"]:
 				for j in range(1, ice_range + 1):
 					step_bonus[(ik + j) % n] += ice_bonus
 
@@ -701,7 +701,7 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 		wps.append((lp_out + ex) * 0.5); _pending_orient.append(null)
 		wps.append(ex);                  _pending_orient.append(null)
 
-	elif type == "curve" or type == "curve_alt":
+	elif type == "curve" or type == "curve_alt" or type == "ice_curve":
 		var cx: float; var cz: float
 		var a_from: float; var a_to: float
 		match rot:
