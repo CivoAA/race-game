@@ -1337,17 +1337,28 @@ func _select_achievement(idx: int) -> void:
 		var sel := i == idx
 		var tdone: bool = t["done"]
 		var tclaim: bool = t.get("claimable", false)
-		# Einsammelbare Erfolge bekommen einen goldenen Rahmen als Hinweis (außer wenn gerade gewählt).
+		var tclaimed: bool = tdone and not tclaim   # erreicht UND Währung schon eingesammelt
+		# Rahmen: gewählt = blau, einsammelbar = gold, eingesammelt = grün, erreicht = gedämpft, sonst Linie.
 		if sel:
 			tsb.border_color = C_ACCENT
 		elif tclaim:
 			tsb.border_color = C_CLAIM_GOLD
+		elif tclaimed:
+			tsb.border_color = C_CLAIMED_GREEN
 		elif tdone:
 			tsb.border_color = C_ACCENT_MU
 		else:
 			tsb.border_color = C_LINE
-		tsb.set_border_width_all(2 if (sel or tclaim) else 1)
-		tsb.bg_color = C_SURFACE2 if sel else (C_SURFACE if tdone else C_BG)
+		tsb.set_border_width_all(2 if (sel or tclaim or tclaimed) else 1)
+		# Füllung: eingesammelt = dunkelgrün (bleibt auch bei Auswahl grün erkennbar), sonst wie gehabt.
+		if tclaimed:
+			tsb.bg_color = C_CLAIMED_BG
+		elif sel:
+			tsb.bg_color = C_SURFACE2
+		elif tdone:
+			tsb.bg_color = C_SURFACE
+		else:
+			tsb.bg_color = C_BG
 		(t["btn"] as Button).queue_redraw()
 
 	var data: Dictionary = _ach_data[idx]
@@ -1356,7 +1367,10 @@ func _select_achievement(idx: int) -> void:
 	_ach_icon_lbl.modulate = Color(1, 1, 1, 1.0 if done else 0.5)
 	_ach_title_lbl.text    = data["name"]
 	_ach_desc_lbl.text     = data["desc"]
-	if done:
+	if done and Economy.is_achievement_claimed(String(data.get("id", ""))):
+		_ach_status_lbl.text = Icons.CHECK + " Eingesammelt"
+		_ach_status_lbl.add_theme_color_override("font_color", C_CLAIMED_GREEN)
+	elif done:
 		_ach_status_lbl.text = Icons.CHECK + " Freigeschaltet"
 		_ach_status_lbl.add_theme_color_override("font_color", C_ACCENT)
 	else:
@@ -1369,11 +1383,14 @@ func _select_achievement(idx: int) -> void:
 # Farben des Einsammeln-Knopfs (Gold = einsammelbar). Dunkler Text auf der Gold-Füllung.
 const C_CLAIM_GOLD := Color(1.00, 0.82, 0.30)
 const C_CLAIM_DARK := Color(0.20, 0.15, 0.02)
+# Eingesammelt (Währung abgeholt) = grün markiert: kräftiger Rahmen/Text + dunkelgrüne Füllung.
+const C_CLAIMED_GREEN := Color(0.30, 0.78, 0.42)
+const C_CLAIMED_BG    := Color(0.12, 0.22, 0.15)
 
 # Setzt Sichtbarkeit, Text und Stil des Einsammeln-Knopfs für den gewählten Erfolg.
 #   • noch nicht erreicht → versteckt
 #   • erreicht, noch nicht eingesammelt → Gold, aktiv, „Einsammeln  +N 🏆"
-#   • bereits eingesammelt → gedimmt, deaktiviert, „Eingesammelt ✓"
+#   • bereits eingesammelt → grün gefüllt + grüner Rahmen, deaktiviert, „✓ Eingesammelt"
 func _update_ach_claim_btn(id: String) -> void:
 	if _ach_claim_btn == null or _ach_claim_sb == null:
 		return
@@ -1384,13 +1401,17 @@ func _update_ach_claim_btn(id: String) -> void:
 	if Economy.is_achievement_claimed(id):
 		_ach_claim_btn.disabled = true
 		_ach_claim_btn.text = "%s Eingesammelt" % Icons.CHECK
-		_ach_claim_btn.add_theme_color_override("font_color", C_TEXT_DIM)
-		_ach_claim_sb.bg_color = C_SURFACE
+		_ach_claim_btn.add_theme_color_override("font_color", C_CLAIMED_GREEN)
+		_ach_claim_sb.bg_color     = C_CLAIMED_BG
+		_ach_claim_sb.border_color = C_CLAIMED_GREEN
+		_ach_claim_sb.set_border_width_all(2)
 	else:
 		_ach_claim_btn.disabled = false
 		_ach_claim_btn.text = "Einsammeln   +%d %s" % [Economy.get_achievement_reward(id), Icons.TROPHY]
 		_ach_claim_btn.add_theme_color_override("font_color", C_CLAIM_DARK)
-		_ach_claim_sb.bg_color = C_CLAIM_GOLD
+		_ach_claim_sb.bg_color     = C_CLAIM_GOLD
+		_ach_claim_sb.border_color = C_CLAIM_GOLD
+		_ach_claim_sb.set_border_width_all(0)
 
 
 # Klick auf „Einsammeln": Trophäen des gewählten Erfolgs gutschreiben (Economy entscheidet, ob möglich)
