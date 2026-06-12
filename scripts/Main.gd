@@ -50,6 +50,7 @@ const SHOP_ITEMS = [
 	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 15000,  "base_price": 3000,   "growth": 4.0, "upgrade": "straightbonus"},
 	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 500000, "base_price": 100000,  "growth": 3.5, "upgrade": "icebonus"},
+	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice",         "unlock": 500000, "base_price": 105000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
 	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
@@ -57,7 +58,7 @@ const SHOP_ITEMS = [
 	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 1000000000000, "base_price": 200000000000, "growth": 9.0, "upgrade": "standbonus"},
 ]
 
-const SHOP_SLOT_COUNT = 10  # = SHOP_ITEMS.size()
+const SHOP_SLOT_COUNT = 11  # = SHOP_ITEMS.size()
 const PORTAL_MAX      = 2   # genau 2 Portale je Strecke baubar
 const STAND_MAX_STACK = 5   # Tribüne: max. 5× auf dasselbe Feld stapelbar
 const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
@@ -240,19 +241,32 @@ func _init_grid() -> void:
 
 
 func _draw_grid_background() -> void:
+	var grass: Texture2D = load(Paths.TEX_GRASS_2D) as Texture2D
 	for row in range(GRID_ROWS):
 		for col in range(GRID_COLS):
+			# Rasterrahmen (sichtbare Gitterlinie) bleibt erhalten.
 			var border = ColorRect.new()
 			border.size = Vector2(TILE_SIZE, TILE_SIZE)
 			border.position = _grid_to_world(row, col)
 			border.color = Color(0.3, 0.35, 0.3)
 			border.z_index = -1
 			grid_node.add_child(border)
-			var bg = ColorRect.new()
-			bg.size = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
-			bg.position = _grid_to_world(row, col) + Vector2(1, 1)
-			bg.color = Color(0.15, 0.18, 0.15)
-			grid_node.add_child(bg)
+			# Zell-Füllung: Gras-Artwork (1px Rand frei lassen → Raster sichtbar).
+			if grass != null:
+				var gt = TextureRect.new()
+				gt.texture = grass
+				gt.size = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+				gt.position = _grid_to_world(row, col) + Vector2(1, 1)
+				gt.stretch_mode = TextureRect.STRETCH_SCALE
+				gt.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # Pixelart: keine Weichzeichnung
+				gt.z_index = -1
+				grid_node.add_child(gt)
+			else:
+				var bg = ColorRect.new()
+				bg.size = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
+				bg.position = _grid_to_world(row, col) + Vector2(1, 1)
+				bg.color = Color(0.15, 0.18, 0.15)
+				grid_node.add_child(bg)
 
 
 func _place_start_tile() -> void:
@@ -1021,7 +1035,7 @@ func _tile_refund_for(data) -> int:
 	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
 		return 0
 	var t = data.get("type", "")
-	if not (t in ["straight", "curve", "curve_alt", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
+	if not (t in ["straight", "curve", "curve_alt", "ice_curve", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
 		return 0
 	var item = _shop_item_for_type(t)
 	if item.is_empty():
@@ -1260,6 +1274,22 @@ func _flash_currency() -> void:
 
 # ── Tile spawnen ───────────────────────────────────────────────────────────────
 
+# Liefert das 2D-Belag-Artwork für ein Tile-Daten-Dict (oder null, wenn keins passt →
+# prozeduraler Fallback). Belag aus is_dirt/Typ, Form aus dem Typ, Lage aus der Drehung.
+func _tile_texture_for(data: Dictionary) -> Texture2D:
+	var t = data.get("type", "")
+	var belag := "default"
+	if data.get("is_dirt", false):
+		belag = "dirt"
+	elif t == "ice" or t == "ice_curve":
+		belag = "ice"
+	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve"] else "straight"
+	var path := Paths.tile2d_texture(belag, shape, int(data.get("rotation", 0)))
+	if path == "":
+		return null
+	return load(path) as Texture2D
+
+
 func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	if data.get("is_dirt", false):
 		var node = _create_dirt_node(data)
@@ -1331,6 +1361,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 		"ice":       scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 		"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
+		"ice_curve": scene_path = Paths.SCENE_TILE_CURVE_2D
 		_:           scene_path = Paths.SCENE_TILE_CURVE_2D
 	var scene = load(scene_path)
 	if scene == null:
@@ -1345,6 +1376,9 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	var dir = data.get("direction", 1)
 	if "direction" in node:
 		node.direction = dir
+		node.queue_redraw()
+	if "texture" in node:
+		node.texture = _tile_texture_for(data)
 		node.queue_redraw()
 
 	if data.get("is_start", false):
@@ -1361,8 +1395,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		lbl.add_theme_font_size_override("font_size", 11)
 		node.add_child(lbl)
 	elif data.get("is_dirt", false):
-		# Dreck-Pfad: grüne Gras-Tönung, nicht interaktiv, gibt +0.1 statt +1
-		node.modulate = Color(0.42, 0.70, 0.25)
+		# Dreck-Pfad: nicht interaktiv, gibt +0.1 statt +1 (Tönung steckt im Artwork).
 		var dlbl = Label.new()
 		dlbl.text = "+0.1"
 		dlbl.position = Vector2(-TILE_SIZE / 2 + 2, -TILE_SIZE / 2 + 2)
@@ -1371,9 +1404,8 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		dlbl.add_theme_constant_override("outline_size", 2)
 		dlbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 		node.add_child(dlbl)
-	elif data.get("type", "") == "ice":
-		# Eisgerade: kühle, bläulich-weiße Tönung + ❄-Marke (gibt kein Geld, macht schneller).
-		node.modulate = Color(0.62, 0.85, 1.0)
+	elif data.get("type", "") in ["ice", "ice_curve"]:
+		# Eis (Gerade/Kurve): ❄-Marke (gibt kein Geld, macht schneller). Eis-Tönung steckt im Artwork.
 		var rot_rad = deg_to_rad(data.get("rotation", 0))
 		var ilbl = Label.new()
 		ilbl.text = Icons.SNOWFLAKE
@@ -1429,6 +1461,21 @@ func _create_dirt_node(data: Dictionary) -> Node2D:
 	var soil   = Color(0.48, 0.30, 0.11)
 	var rot    = data.get("rotation", 0)
 	var rot_rad = deg_to_rad(rot)
+
+	# Artwork-Pfad: Dreck-Belag als PNG. Sprite gegen die Node-Drehung zurückdrehen, damit
+	# das Bild in seiner gemalten Lage erscheint (passende Datei kommt über die Drehung).
+	var tex := _tile_texture_for(data)
+	if tex != null:
+		var spr := Sprite2D.new()
+		spr.texture  = tex
+		spr.centered = true
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # Pixelart: keine Weichzeichnung
+		spr.rotation = -rot_rad
+		var ts = tex.get_size()
+		if ts.x > 0 and ts.y > 0:
+			spr.scale = Vector2(TILE_SIZE / ts.x, TILE_SIZE / ts.y)
+		node.add_child(spr)
+		return node
 
 	# Hintergrund: 1px kleiner je Seite, damit der Rasterrahmen (darunter gezeichnet)
 	# sichtbar bleibt – sonst wirken Dreck-Tiles randlos/größer als leere Zellen.
@@ -2328,11 +2375,15 @@ func _make_tile_visual(data: Dictionary) -> Node2D:
 			"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 			"ice":       scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 			"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
+			"ice_curve": scene_path = Paths.SCENE_TILE_CURVE_2D
 			_:           scene_path = Paths.SCENE_TILE_CURVE_2D
 		var scene = load(scene_path)
 		node = scene.instantiate() if scene != null else Node2D.new()
 		if "direction" in node:
 			node.direction = data.get("direction", 1)
+			node.queue_redraw()
+		if "texture" in node:
+			node.texture = _tile_texture_for(data)
 			node.queue_redraw()
 	node.rotation_degrees = data.get("rotation", 0)
 	return node
@@ -2983,6 +3034,23 @@ func _rotate_active(degrees: int) -> void:
 		_invalidate_track()
 		tile_selector.set_status("Tribüne")
 		return
+	# Artwork-Tiles (Gerade/Kurve/Eis/Eiskurve/Dreck): Node NEU aufbauen, damit beim Drehen das
+	# passende, vorab gedrehte Bild GEWÄHLT (ersetzt) statt der Node mitgedreht wird – die Pixelart-
+	# Kacheln sind aufeinander abgestimmt (genau wie die Vorschau „in der Hand"). Badges/Labels
+	# werden dabei sauber neu gesetzt.
+	var t := String(data.get("type", ""))
+	if data.get("is_dirt", false) or t in ["straight", "curve", "curve_alt", "ice", "ice_curve"]:
+		var nd = data.duplicate()
+		nd.erase("node")
+		nd["rotation"] = (int(data["rotation"]) + degrees) % 360
+		_free_tile_node(row, col)
+		_spawn_tile(row, col, nd)
+		selected_grid_row = row; selected_grid_col = col
+		_update_grid_highlight()
+		_invalidate_track()
+		return
+
+	# Programmatische Tiles (Looping/Portal): in-place drehen, kein Artwork-Tausch nötig.
 	data["rotation"] = (data["rotation"] + degrees) % 360
 	data["node"].rotation_degrees = data["rotation"]
 	_update_node_labels(data["node"], data["rotation"])
@@ -3098,6 +3166,7 @@ func _type_display_name(typ: String) -> String:
 	match typ:
 		"straight":   return "Gerade"
 		"ice":        return "Eisgerade"
+		"ice_curve":  return "Eiskurve"
 		"curve":      return "Kurve"
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
@@ -3588,7 +3657,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 			var tn = bw; var te = bn; var ts = be; var tw = bs
 			bn = tn; be = te; bs = ts; bw = tw
 		conns = {"N": bn, "E": be, "S": bs, "W": bw}
-	elif t == "curve" or t == "curve_alt":
+	elif t == "curve" or t == "curve_alt" or t == "ice_curve":
 		match rot:
 			0:   conns = {"N": false, "E": true,  "S": true,  "W": false}
 			90:  conns = {"N": false, "E": false, "S": true,  "W": true}

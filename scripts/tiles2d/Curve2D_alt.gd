@@ -10,11 +10,22 @@ const LINE_COL   = Color(0.95, 0.85, 0.2, 0.9)
 
 # Beibehalten für Kompatibilität (wird beim Spawn ggf. gesetzt), aber visuell ungenutzt.
 var direction: int = -1
+var texture: Texture2D = null   # gesetzt → PNG-Artwork statt prozeduraler Zeichnung
 
 func _ready() -> void:
+	# Pixelart (32×32): harte Kanten statt Weichzeichnung beim Hochskalieren.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	queue_redraw()
 
 func _draw() -> void:
+	# Artwork-Pfad: Textur gegen die Node-Drehung zurückdrehen (Bild ist bereits in der
+	# richtigen Kurven-Lage gemalt; die passende Datei wird beim Spawn über die Drehung gewählt).
+	if texture != null:
+		var h = TILE_SIZE / 2.0
+		draw_set_transform(Vector2.ZERO, -rotation, Vector2.ONE)
+		draw_texture_rect(texture, Rect2(-h, -h, TILE_SIZE, TILE_SIZE), false)
+		return
+
 	var half    = TILE_SIZE / 2.0
 	var radius  = half
 	var center  = Vector2(half, half)
