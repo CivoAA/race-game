@@ -6,7 +6,7 @@ const CAM_ELEVATION_DEG = 45.0
 const CAM_AZIMUTH_DEG   = 0.0
 const CAM_DISTANCE      = 7.0
 const CAM_FOV           = 60.0
-const SUN_ENERGY    = 1.3
+const SUN_ENERGY    = 1.0
 const SUN_ANGLE_DEG = 55.0
 const GROUND_SIZE   = 24.0
 const GROUND_COLOR  = Color(0.22, 0.38, 0.18)
@@ -531,11 +531,19 @@ func _setup_generator() -> void:
 
 func _setup_environment() -> void:
 	var env = Environment.new()
+
+	# Heller, sommerlicher Look: einfacher Farbhimmel - KEIN Sky/Reflexionen mehr,
+	# die haben die Strecken weiss/verschneit ueberstrahlt. Warmes, helles Ambient haelt
+	# es sonnig und laesst die Strecken-Texturen klar erkennbar (nicht weiss strahlend).
 	env.background_mode      = Environment.BG_COLOR
-	env.background_color     = Color(0.53, 0.73, 0.92)
+	env.background_color     = Color(0.55, 0.78, 0.98)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color  = Color(0.6, 0.65, 0.7)
-	env.ambient_light_energy = 0.5
+	env.ambient_light_color  = Color(1.0, 0.97, 0.90)
+	env.ambient_light_energy = 0.3
+	# AgX-Tonemapping wie in Blender 4.x: rollt helle Bereiche weich aus, statt sie (Default
+	# "Linear") hart auf Weiss zu schneiden. Ohne das wirken die gebackenen Strecken-Texturen
+	# ueberbelichtet / "leuchtend". Alternative: TONE_MAPPER_FILMIC (Mittelweg, weniger entsaettigt).
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX
 	env_node.environment = env
 
 

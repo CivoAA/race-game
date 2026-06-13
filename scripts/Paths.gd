@@ -52,12 +52,22 @@ const SFX_UI_HOVER = "res://assets/musik/sound-9.mp3"   # Maus über einen Butto
 const SFX_UI_CLICK = "res://assets/musik/sound-14.mp3"  # Button geklickt
 const SFX_FINISH   = "res://assets/musik/ziel.mp3"      # Auto überfährt die Ziellinie (nur 3D-Ansicht)
 
-# 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben)
-const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/Default/Default_Street.glb"
-const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/Dirt/Dirt_straight.glb"
-const MODEL_TRACK_STRAIGHT_ICE     = "res://assets/3D-models/tracks/staight/ice/Ice_straight.glb"
-const MODEL_TRACK_STRAIGHT_RACING  = "res://assets/3D-models/tracks/staight/racing/Racing_straight.glb"
-const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/Default/c.default.glb"
+# 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben).
+# Neuer Asset-Satz: pro Belag je ein Geraden- und ein Kurven-GLB, alle auf demselben
+# 3×3-Raster (Kachel = 3.0 Modell-Einheiten). Beläge im Spiel: Road(=Default)/Dirt/Ice/Race.
+# Die Modelle Glue/Sand/Water existieren als Asset, sind aber noch nicht im Spiel → nicht referenziert.
+const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/RoadStraight.glb"
+const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/DirtStraight.glb"
+const MODEL_TRACK_STRAIGHT_ICE     = "res://assets/3D-models/tracks/staight/IceStraight.glb"
+const MODEL_TRACK_STRAIGHT_RACING  = "res://assets/3D-models/tracks/staight/RaceStraight.glb"
+const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/RoadCurve.glb"
+const MODEL_TRACK_CURVE_DIRT       = "res://assets/3D-models/tracks/curve/DirtCurve.glb"
+const MODEL_TRACK_CURVE_ICE        = "res://assets/3D-models/tracks/curve/IceCurve.glb"
+const MODEL_TRACK_CURVE_RACING     = "res://assets/3D-models/tracks/curve/RaceCurve.glb"
+
+# Spezialfelder mit eigenem GLB (ersetzen die früher prozedural gebaute Geometrie).
+const MODEL_TRACK_RAMP  = "res://assets/3D-models/tracks/special/Ramp.glb"
+const MODEL_TRACK_STAND = "res://assets/3D-models/tracks/special/Stand.glb"
 
 # ── 2D-Tile-Texturen (Bauplan-Ansicht) ─────────────────────────────────────────
 # Belag-Artworks für die 2D-Strecken statt der prozeduralen Zeichnung. Die Dateinamen

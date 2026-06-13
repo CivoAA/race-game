@@ -66,6 +66,14 @@ const HINTS := {
 	"curvebonus":
 		"Normale Kurve: bringt mehr Währung pro Feld als die Dreck-Variante. Das Upgrade "
 		+ "erhöht den Ertrag pro Kurve.",
+	"racestraightbonus":
+		"Rennstrecke: ein eigenes, hochwertiges Streckenteil. Sie bringt deutlich mehr Währung "
+		+ "pro Feld als die normale Gerade und multipliziert deren Ertrag zusätzlich mit ×1.2. "
+		+ "Das Upgrade erhöht den Ertrag pro Renngerade.",
+	"racecurvebonus":
+		"Rennkurve: das Kurvenstück der Rennstrecke. Sie bringt deutlich mehr Währung pro Feld "
+		+ "als die normale Kurve und multipliziert deren Ertrag zusätzlich mit ×1.2. Das Upgrade "
+		+ "erhöht den Ertrag pro Rennkurve.",
 	"icebonus":
 		"Eisgerade: gibt keine Währung, macht dein Auto aber auf den folgenden Feldern "
 		+ "schneller – mehr Tempo bedeutet mehr Runden. Das Upgrade verstärkt Boost und Reichweite.",

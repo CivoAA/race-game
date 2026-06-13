@@ -10,6 +10,10 @@ const BASIC_TILE_EARN   = 0.0   # Standard-/Start-Felder: kein Grundertrag (nur 
 const DIRT_TILE_EARN    = 1.0   # Dreck-Felder: Grundertrag +1, per Dreck-Upgrade steigerbar
 const PREMIUM_TILE_EARN  = 25.0
 const PREMIUM_TILE_MULT  = 1.0  # Default-Tiles geben keinen Multiplikator mehr (1.0 = neutral)
+# Rennstrecke: eigenes Streckenteil – doppelter flacher Ertrag (+50) UND ein fester ×1.2 obendrauf.
+# Eigene additive Upgrades: racestraightbonus / racecurvebonus (kind "pracestraight"/"pracecurve").
+const RACE_TILE_EARN     = 50.0
+const RACE_TILE_MULT     = 1.2
 
 var speed: float = 2.5
 
@@ -485,13 +489,19 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			# Default-Tile = gekauft (nicht Dreck, nicht Start) und eine echte Fahrkachel.
 			var is_premium = (not d.get("is_dirt", false)) and (not d.get("is_start", false)) \
 				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve"]
-			if is_premium:
+			if is_premium and t in ["race_straight", "race_curve"]:
+				# Rennstrecke: höherer flacher Ertrag (+50) UND fester ×1.2; eigene additive Upgrades.
+				rec["base"]       = RACE_TILE_EARN
+				rec["fixed_mult"] = RACE_TILE_MULT
+				rec["kind"]       = "pracestraight" if t == "race_straight" else "pracecurve"
+			elif is_premium:
 				rec["base"]       = PREMIUM_TILE_EARN
 				rec["fixed_mult"] = PREMIUM_TILE_MULT
-				rec["kind"]       = "pstraight" if t in ["straight", "race_straight"] else "pcurve"
+				rec["kind"]       = "pstraight" if t == "straight" else "pcurve"
 			elif t == "ramp_start":
 				# Rampe: Grundertrag am Absprung-Feld. Den Sprung-×2 legt Economy live drauf
-				# (get_ramp_jump_mult), weil das übersprungene Mittelfeld nicht befahren wird.
+				# (get_ramp_jump_mult, via kind "ramp") – die Rampe verdoppelt damit ihren EIGENEN
+				# Ertrag. Zusätzlich bekommt das übersprungene Mittelfeld denselben ×2 (is_jump).
 				rec["base"] = Economy.RAMP_BASE_EARN
 				rec["kind"] = "ramp"
 			elif t == "wall_start":
