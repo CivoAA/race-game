@@ -7,7 +7,8 @@ const TILE_SIZE = 100
 
 # Multiplikator gekaufter Default-Tiles (Geraden/Kurven). MUSS mit CarController.PREMIUM_TILE_MULT
 # übereinstimmen – nur für die „×x.x"-Anzeige im 2D-Bauplan (_cell_total_mult).
-const PREMIUM_TILE_MULT = 1.2
+# 1.0 = Default-Tiles haben keinen eigenen Multiplikator mehr (rein additiver +Ertrag).
+const PREMIUM_TILE_MULT = 1.0
 
 # Farben (neue Palette)
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
@@ -38,7 +39,7 @@ var _build_panel_bot: float = 0.0
 # Shop: feste, vertikale Liste kaufbarer Tile-Typen (scrollbar angelegt).
 #   tier "dirt"    = kostenlos (Ertrag +1 pro Feld, per Dreck-Ertrag-Upgrade steigerbar)
 #   tier "default" = Idle-Preis (steigt je platziertem Tile dieses Typs),
-#                    Ertrag +50 UND ×1.2 pro überfahrenem Feld
+#                    Ertrag +25 pro überfahrenem Feld (rein additiv, kein Multiplikator)
 #   tier "ramp"    = Sprung-Paar; verdoppelt den Ertrag eines Tiles im übersprungenen Feld
 #                    (Kreuzung: eine zweite Strecke darunter bringt doppeltes Geld)
 # Reihenfolge oben→unten: Dreck-Kurve, Dreck-Gerade, Default-Gerade, Default-Kurve, Rampe.
@@ -47,10 +48,14 @@ var _build_panel_bot: float = 0.0
 const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 15000,  "base_price": 3000,   "growth": 4.0, "upgrade": "straightbonus"},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 30000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
-	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 500000, "base_price": 100000,  "growth": 3.5, "upgrade": "icebonus"},
-	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice_curve",   "unlock": 525000, "base_price": 105000,  "growth": 3.5, "upgrade": "icebonus"},
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 10000,  "base_price": 2000,   "growth": 4.0, "upgrade": "straightbonus"},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 15000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
+	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
+	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice_curve",   "unlock": 30000, "base_price": 6000,  "growth": 3.5, "upgrade": "icebonus"},
+	# Rennbelag: gleicher Effekt (+25 flach, straight-/curvebonus) wie Default, aber deutlich teurer
+	# (eigener Preis-Pool/Unlock race_straight/race_curve) + eigenes Pixelart (racing-Ordner).
+	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 100000, "base_price": 20000, "growth": 4.0,  "upgrade": "straightbonus"},
+	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 120000, "base_price": 24000, "growth": 2.33, "upgrade": "curvebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
 	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
@@ -58,7 +63,7 @@ const SHOP_ITEMS = [
 	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 1000000000000, "base_price": 200000000000, "growth": 9.0, "upgrade": "standbonus"},
 ]
 
-const SHOP_SLOT_COUNT = 11  # = SHOP_ITEMS.size()
+const SHOP_SLOT_COUNT = 13  # = SHOP_ITEMS.size()
 const PORTAL_MAX      = 2   # genau 2 Portale je Strecke baubar
 const STAND_MAX_STACK = 5   # Tribüne: max. 5× auf dasselbe Feld stapelbar
 const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
@@ -1069,8 +1074,8 @@ func _tile_price(item: Dictionary) -> int:
 # Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
 # Dreck-Grundwert 1, Default-Grundwert 50; das zugehörige Upgrade addiert seinen Live-Effekt.
 func _tile_field_earn(item: Dictionary) -> int:
-	# Dreck-Grundwert 1, Default-Grundwert 50; das zugehörige Upgrade addiert seinen Live-Effekt.
-	var base := 1 if item.get("tier", "") == "dirt" else 50
+	# Dreck-Grundwert 1, Default-Grundwert 25; das zugehörige Upgrade addiert seinen Live-Effekt.
+	var base := 1 if item.get("tier", "") == "dirt" else 25
 	return base + int(round(Economy.get_effect(item.get("upgrade", ""))))
 
 
@@ -1098,7 +1103,7 @@ func _tile_refund_for(data) -> int:
 	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
 		return 0
 	var t = data.get("type", "")
-	if not (t in ["straight", "curve", "curve_alt", "ice_curve", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
+	if not (t in ["straight", "curve", "curve_alt", "ice_curve", "race_straight", "race_curve", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
 		return 0
 	var item = _shop_item_for_type(t)
 	if item.is_empty():
@@ -1215,7 +1220,7 @@ func _update_build_ui() -> void:
 
 # Repräsentatives Glyph je Streckenteil (für den Icon-Chip auf der Bau-Karte).
 func _tile_icon_glyph(item: Dictionary) -> String:
-	if item["type"] == "curve":
+	if item["type"] == "curve" or item["type"] == "race_curve":
 		return "╰"
 	match item["tier"]:
 		"ramp":
@@ -1251,7 +1256,7 @@ func _tile_effect_text(item: Dictionary) -> String:
 			return "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
 		"dirt":
 			return "+%d pro Feld" % _tile_field_earn(item)
-	return "+%d  ·  ×1.2 pro Feld" % _tile_field_earn(item)
+	return "+%d pro Feld" % _tile_field_earn(item)
 
 
 # Kurzer Preis/Status für die kompakte Bau-Karte → {text, color}.
@@ -1410,13 +1415,18 @@ func _show_no_money_popup(missing: int) -> void:
 # Liefert das 2D-Belag-Artwork für ein Tile-Daten-Dict (oder null, wenn keins passt →
 # prozeduraler Fallback). Belag aus is_dirt/Typ, Form aus dem Typ, Lage aus der Drehung.
 func _tile_texture_for(data: Dictionary) -> Texture2D:
+	# Start-Feld: eigene Start/Ziel-Flagge (liegt über grass2). Unabhängig von Drehung/Form.
+	if data.get("is_start", false):
+		return load(Paths.TEX_START_2D) as Texture2D
 	var t = data.get("type", "")
 	var belag := "default"
 	if data.get("is_dirt", false):
 		belag = "dirt"
 	elif t == "ice" or t == "ice_curve":
 		belag = "ice"
-	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve"] else "straight"
+	elif t == "race_straight" or t == "race_curve":
+		belag = "race"
+	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve", "race_curve"] else "straight"
 	var path := Paths.tile2d_texture(belag, shape, int(data.get("rotation", 0)))
 	if path == "":
 		return null
@@ -1491,11 +1501,13 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 
 	var scene_path: String
 	match data["type"]:
-		"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
-		"ice":       scene_path = Paths.SCENE_TILE_STRAIGHT_2D
-		"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
-		"ice_curve": scene_path = Paths.SCENE_TILE_CURVE_2D
-		_:           scene_path = Paths.SCENE_TILE_CURVE_2D
+		"straight":      scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+		"ice":           scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+		"race_straight": scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+		"curve_alt":     scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
+		"ice_curve":     scene_path = Paths.SCENE_TILE_CURVE_2D
+		"race_curve":    scene_path = Paths.SCENE_TILE_CURVE_2D
+		_:               scene_path = Paths.SCENE_TILE_CURVE_2D
 	var scene = load(scene_path)
 	if scene == null:
 		push_error("Szene nicht gefunden: " + scene_path)
@@ -1515,18 +1527,9 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		node.queue_redraw()
 
 	if data.get("is_start", false):
-		var bg = ColorRect.new()
-		bg.size = Vector2(TILE_SIZE, TILE_SIZE)
-		bg.position = Vector2(-TILE_SIZE / 2, -TILE_SIZE / 2)
-		bg.color = Color(0.1, 0.6, 0.2, 0.3)
-		bg.z_index = -1
-		node.add_child(bg)
-		var lbl = Label.new()
-		lbl.text = "START"
-		lbl.position = Vector2(-20, -TILE_SIZE / 2 + 4)
-		lbl.add_theme_color_override("font_color", Color(0.1, 0.9, 0.3))
-		lbl.add_theme_font_size_override("font_size", 11)
-		node.add_child(lbl)
+		# Start-Feld: nur das start.png-Artwork (in _tile_texture_for gesetzt) auf dem grass2-Hintergrund
+		# des Rasters – kein grünes Overlay/Label mehr, damit Flagge + Gras sauber sichtbar sind.
+		pass
 	elif data.get("is_dirt", false):
 		# Dreck-Pfad: nicht interaktiv, gibt +0.1 statt +1 (Tönung steckt im Artwork).
 		var dlbl = Label.new()
@@ -1646,6 +1649,20 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 	var half      = TILE_SIZE / 2.0
 	var pw        = 42.0
 	var is_start  = data["type"] == "ramp_start"
+
+	# Pixelart-Pfad: ramp.png ist 96×32 (3 Kacheln) – linkes Drittel = Absprung (ramp_start),
+	# rechtes Drittel = Landung (ramp_end). Das mittlere Drittel deckt das Sprungfeld ab, das ein
+	# eigenes Tile behält und daher nicht gezeichnet wird. Die Node-Drehung richtet das Bild aus.
+	var ramp_tex := load(Paths.TEX_RAMP_2D) as Texture2D
+	if ramp_tex != null:
+		var spr = Sprite2D.new()
+		spr.texture        = ramp_tex
+		spr.region_enabled = true
+		spr.region_rect    = Rect2(0, 0, 32, 32) if is_start else Rect2(64, 0, 32, 32)
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # Pixelart: keine Weichzeichnung
+		spr.scale          = Vector2(TILE_SIZE / 32.0, TILE_SIZE / 32.0)
+		node.add_child(spr)
+		return node
 
 	var road_col  = Color(0.25, 0.25, 0.28)
 	var asph_col  = Color(0.55, 0.55, 0.58)
@@ -2500,11 +2517,13 @@ func _make_tile_visual(data: Dictionary) -> Node2D:
 	else:
 		var scene_path: String
 		match data.get("type", ""):
-			"straight":  scene_path = Paths.SCENE_TILE_STRAIGHT_2D
-			"ice":       scene_path = Paths.SCENE_TILE_STRAIGHT_2D
-			"curve_alt": scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
-			"ice_curve": scene_path = Paths.SCENE_TILE_CURVE_2D
-			_:           scene_path = Paths.SCENE_TILE_CURVE_2D
+			"straight":      scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+			"ice":           scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+			"race_straight": scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+			"curve_alt":     scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
+			"ice_curve":     scene_path = Paths.SCENE_TILE_CURVE_2D
+			"race_curve":    scene_path = Paths.SCENE_TILE_CURVE_2D
+			_:               scene_path = Paths.SCENE_TILE_CURVE_2D
 		var scene = load(scene_path)
 		node = scene.instantiate() if scene != null else Node2D.new()
 		if "direction" in node:
@@ -3167,7 +3186,7 @@ func _rotate_active(degrees: int) -> void:
 	# Kacheln sind aufeinander abgestimmt (genau wie die Vorschau „in der Hand"). Badges/Labels
 	# werden dabei sauber neu gesetzt.
 	var t := String(data.get("type", ""))
-	if data.get("is_dirt", false) or t in ["straight", "curve", "curve_alt", "ice", "ice_curve"]:
+	if data.get("is_dirt", false) or t in ["straight", "curve", "curve_alt", "ice", "ice_curve", "race_straight", "race_curve"]:
 		var nd = data.duplicate()
 		nd.erase("node")
 		nd["rotation"] = (int(data["rotation"]) + degrees) % 360
@@ -3295,6 +3314,8 @@ func _type_display_name(typ: String) -> String:
 		"straight":   return "Gerade"
 		"ice":        return "Eisgerade"
 		"ice_curve":  return "Eiskurve"
+		"race_straight": return "Rennstrecke"
+		"race_curve":    return "Rennkurve"
 		"curve":      return "Kurve"
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
@@ -3646,8 +3667,8 @@ func _ramp_jump_cells() -> Array:
 
 
 # Zeichnet pro Feld EIN „×x.x"-Badge mit dem TATSÄCHLICHEN Gesamt-Multiplikator dieses Feldes.
-# Multiplikativ kombiniert (genau wie Economy._lap_reward_for_car faltet): Premium-Default ×1.2,
-# ×1.5-Bonusfeld, Tribüne(n) (Produkt, stapelbar), Sprung/Rampe ×2 und Looping ×F. Ersetzt die
+# Multiplikativ kombiniert (genau wie Economy._lap_reward_for_car faltet): ×1.5-Bonusfeld,
+# Tribüne(n) (Produkt, stapelbar), Sprung/Rampe ×2 und Looping ×F. Ersetzt die
 # früheren getrennten Sprung- und Tribünen-Marker, sodass auf jedem Feld nur EIN ×-Wert steht.
 func _refresh_mult_markers() -> void:
 	for n in _jump_marker_nodes:
@@ -3694,10 +3715,11 @@ func _cell_total_mult(sd) -> float:
 	if typeof(sd) != TYPE_DICTIONARY:
 		return 1.0
 	var t := String(sd.get("type", ""))
-	# Premium-Default-Tiles (gekaufte Geraden/Kurven, nicht Dreck/Start) geben ×1.2.
+	# Default-Tiles (gekaufte Geraden/Kurven) tragen keinen eigenen Multiplikator mehr
+	# (PREMIUM_TILE_MULT = 1.0); fm bleibt damit neutral.
 	var fm := 1.0
 	if (not bool(sd.get("is_dirt", false))) and (not bool(sd.get("is_start", false))) \
-			and t in ["straight", "curve", "curve_alt"]:
+			and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve"]:
 		fm = PREMIUM_TILE_MULT
 	var bm := float(sd.get("bonus_mult", 1.0))                       # ×1.5-Bonusfeld (ohne Tribünen)
 	var sm := float(sd.get("stand_mult", 1.0))                       # Produkt aller Tribünen-Mult.
@@ -3755,7 +3777,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 	var t   = data.get("type", "")
 	var rot = int(data.get("rotation", 0)) % 360
 	var conns: Dictionary
-	if t == "straight" or t == "ramp_start" or t == "ramp_end" or t == "ice":
+	if t == "straight" or t == "ramp_start" or t == "ramp_end" or t == "ice" or t == "race_straight":
 		var bn = false; var be = true; var bs = false; var bw = true
 		var steps = (rot / 90) % 4
 		for _i in range(steps):
@@ -3785,7 +3807,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 			var tn = bw; var te = bn; var ts = be; var tw = bs
 			bn = tn; be = te; bs = ts; bw = tw
 		conns = {"N": bn, "E": be, "S": bs, "W": bw}
-	elif t == "curve" or t == "curve_alt" or t == "ice_curve":
+	elif t == "curve" or t == "curve_alt" or t == "ice_curve" or t == "race_curve":
 		match rot:
 			0:   conns = {"N": false, "E": true,  "S": true,  "W": false}
 			90:  conns = {"N": false, "E": false, "S": true,  "W": true}

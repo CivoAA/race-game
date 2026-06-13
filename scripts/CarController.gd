@@ -5,12 +5,11 @@ const TILE_SIZE = 1.2
 # Ertrag pro überfahrenem Tile:
 #   Dreck-Tile:              +1 additiv (per Dreck-Ertrag-Upgrade steigerbar)
 #   Standard-Tile (u. Start): +5 additiv
-#   Default-Tile (gekauft):  +50 additiv UND ×1.2 multiplikativ
-# → lange Strecken mit Default-Tiles lohnen sich überproportional.
+#   Default-Tile (gekauft):  +25 additiv, KEIN Multiplikator mehr (rein additiver Ertrag)
 const BASIC_TILE_EARN   = 0.0   # Standard-/Start-Felder: kein Grundertrag (nur Upgrades zählen)
 const DIRT_TILE_EARN    = 1.0   # Dreck-Felder: Grundertrag +1, per Dreck-Upgrade steigerbar
-const PREMIUM_TILE_EARN  = 50.0
-const PREMIUM_TILE_MULT  = 1.2
+const PREMIUM_TILE_EARN  = 25.0
+const PREMIUM_TILE_MULT  = 1.0  # Default-Tiles geben keinen Multiplikator mehr (1.0 = neutral)
 
 var speed: float = 2.5
 
@@ -252,7 +251,7 @@ func _get_connections(data) -> Dictionary:
 		return {}
 
 	var bn: bool; var be: bool; var bs: bool; var bw: bool
-	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end" or data["type"] == "ice":
+	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end" or data["type"] == "ice" or data["type"] == "race_straight":
 		bn = false; be = true; bs = false; bw = true
 	elif data["type"] == "loop":
 		# Looping: bei rot=0 vertikal (rein Süden, raus Norden). Drehbar wie eine Gerade.
@@ -267,8 +266,8 @@ func _get_connections(data) -> Dictionary:
 		# Portal: genau EINE offene Seite (zur andockenden Strecke), je nach Rotation.
 		var od := _portal_open_dir_d(data)
 		return {"N": od == "N", "E": od == "E", "S": od == "S", "W": od == "W"}
-	elif data["type"] == "curve" or data["type"] == "curve_alt" or data["type"] == "ice_curve":
-		# curve/curve_alt/ice_curve haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
+	elif data["type"] == "curve" or data["type"] == "curve_alt" or data["type"] == "ice_curve" or data["type"] == "race_curve":
+		# curve/curve_alt/ice_curve/race_curve haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
 		# rot=0: S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
 		match data["rotation"]:
 			0:   bn = false; be = true;  bs = true;  bw = false
@@ -485,11 +484,11 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			var t = d.get("type", "")
 			# Default-Tile = gekauft (nicht Dreck, nicht Start) und eine echte Fahrkachel.
 			var is_premium = (not d.get("is_dirt", false)) and (not d.get("is_start", false)) \
-				and t in ["straight", "curve", "curve_alt"]
+				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve"]
 			if is_premium:
 				rec["base"]       = PREMIUM_TILE_EARN
 				rec["fixed_mult"] = PREMIUM_TILE_MULT
-				rec["kind"]       = "pstraight" if t == "straight" else "pcurve"
+				rec["kind"]       = "pstraight" if t in ["straight", "race_straight"] else "pcurve"
 			elif t == "ramp_start":
 				# Rampe: Grundertrag am Absprung-Feld. Den Sprung-×2 legt Economy live drauf
 				# (get_ramp_jump_mult), weil das übersprungene Mittelfeld nicht befahren wird.
@@ -670,7 +669,7 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 				pos.y   = peak_h * 4.0 * t * (1.0 - t) + 0.05
 				wps.append(pos)
 
-	elif type == "straight" or type == "ice":
+	elif type == "straight" or type == "ice" or type == "race_straight":
 		wps.append(center)
 		wps.append(center + _dir_to_vec(exit_dir) * half)
 
@@ -701,7 +700,7 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 		wps.append((lp_out + ex) * 0.5); _pending_orient.append(null)
 		wps.append(ex);                  _pending_orient.append(null)
 
-	elif type == "curve" or type == "curve_alt" or type == "ice_curve":
+	elif type == "curve" or type == "curve_alt" or type == "ice_curve" or type == "race_curve":
 		var cx: float; var cz: float
 		var a_from: float; var a_to: float
 		match rot:

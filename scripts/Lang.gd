@@ -61,11 +61,11 @@ const HINTS := {
 		"Dreck-Kurve: gratis Kurvenstück. Wie die Dreck-Gerade, nur als Kurve – das Upgrade "
 		+ "steigert den Ertrag pro Dreck-Kurve.",
 	"straightbonus":
-		"Normale Gerade: bringt mehr Währung als die Dreck-Variante und hat einen kleinen "
-		+ "×-Bonus. Das Upgrade erhöht den Ertrag pro Gerade.",
+		"Normale Gerade: bringt mehr Währung pro Feld als die Dreck-Variante. Das Upgrade "
+		+ "erhöht den Ertrag pro Gerade.",
 	"curvebonus":
-		"Normale Kurve: bringt mehr Währung als die Dreck-Variante und hat einen kleinen "
-		+ "×-Bonus. Das Upgrade erhöht den Ertrag pro Kurve.",
+		"Normale Kurve: bringt mehr Währung pro Feld als die Dreck-Variante. Das Upgrade "
+		+ "erhöht den Ertrag pro Kurve.",
 	"icebonus":
 		"Eisgerade: gibt keine Währung, macht dein Auto aber auf den folgenden Feldern "
 		+ "schneller – mehr Tempo bedeutet mehr Runden. Das Upgrade verstärkt Boost und Reichweite.",

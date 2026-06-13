@@ -269,6 +269,10 @@ func _go_main_menu() -> void:
 	Economy.save_game()
 	get_tree().paused = false
 	visible = false
+	# GameHUD ist ein Autoload und überlebt den Szenenwechsel: den Baumodus-Zustand beim
+	# Verlassen zurücksetzen, sonst bliebe _build_active=true, während die neu geladene
+	# Spielszene ihr Baupanel geschlossen startet → der Hammer-Knopf bräuchte zwei Klicks.
+	GameHUD.set_build_active(false)
 	# GlobalModal ist ein Autoload und überlebt den Szenenwechsel – offen gelassen würde
 	# es (z.B. die Statistik-Seite) über dem Hauptmenü weiterzeichnen.
 	if GlobalModal.visible:

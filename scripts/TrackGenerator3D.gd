@@ -497,10 +497,13 @@ func generate(grid_state: Array) -> void:
 
 			# Gerade: GLB-Modell. Eisgerade nutzt dieselbe Geraden-Form/Skalierung, aber das
 			# eigene Ice-GLB (mit Eis-Textur); Dirt = eigenes Dreck-GLB, sonst Default.
-			if d["type"] == "straight" or d["type"] == "ice":
+			if d["type"] == "straight" or d["type"] == "ice" or d["type"] == "race_straight":
 				var model_path: String
 				if d["type"] == "ice":
 					model_path = Paths.MODEL_TRACK_STRAIGHT_ICE
+				elif d["type"] == "race_straight":
+					# Rennstrecke: eigenes Renn-Geraden-GLB (eigene gebackene Textur).
+					model_path = Paths.MODEL_TRACK_STRAIGHT_RACING
 				elif d.get("is_dirt", false):
 					model_path = Paths.MODEL_TRACK_STRAIGHT_DIRT
 				else:
@@ -511,7 +514,8 @@ func generate(grid_state: Array) -> void:
 				add_child(straight)
 				continue
 
-			# Kurve (curve / curve_alt / ice_curve): Default = GLB-Modell, Dirt = prozedural.
+			# Kurve (curve / curve_alt / ice_curve / race_curve): Default = GLB-Modell, Dirt = prozedural.
+			# Die Rennkurve hat (noch) kein eigenes 3D-Modell → nutzt ebenfalls das Default-Kurven-GLB.
 			# curve und curve_alt haben dieselbe Bogenform – nur die Fahrtrichtung unterscheidet sich.
 			# Eiskurve nutzt mangels eigenem Ice-GLB das Default-Kurvenmodell mit bläulicher Eis-Tönung.
 			if not d.get("is_dirt", false):
