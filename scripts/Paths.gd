@@ -55,6 +55,7 @@ const SFX_UI_CLICK = "res://assets/musik/sound-14.mp3"  # Button geklickt
 const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/Default/Default_Street.glb"
 const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/Dirt/Dirt_straight.glb"
 const MODEL_TRACK_STRAIGHT_ICE     = "res://assets/3D-models/tracks/staight/ice/Ice_straight.glb"
+const MODEL_TRACK_STRAIGHT_RACING  = "res://assets/3D-models/tracks/staight/racing/Racing_straight.glb"
 const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/Default/c.default.glb"
 
 # ── 2D-Tile-Texturen (Bauplan-Ansicht) ─────────────────────────────────────────
@@ -65,6 +66,10 @@ const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/Defaul
 #   Kurven-Orientierung (zwei offene Kanten): OS=unten+rechts, SW=unten+links,
 #                                             NW=oben+links,   NO=oben+rechts
 const TEX_GRASS_2D = "res://assets/2D-tiles/grass2.png"
+# Start-Feld-Markierung (Ziel/Start-Flagge) – liegt über grass2, ersetzt das alte grüne Overlay.
+const TEX_START_2D = "res://assets/2D-tiles/allgemein/start.png"
+# Rampen-Artwork (96×32 = 3 Kacheln breit: links Absprung, Mitte Sprungfeld, rechts Landung).
+const TEX_RAMP_2D  = "res://assets/2D-tiles/ramp.png"
 const TILE2D_TEXTURES := {
 	"default_straight_OW": "res://assets/2D-tiles/default_straigth_OW.png",
 	"default_straight_NS": "res://assets/2D-tiles/default_straigth_NS.png",
@@ -84,6 +89,14 @@ const TILE2D_TEXTURES := {
 	"ice_curve_SW":        "res://assets/2D-tiles/eis_curve_SW.png",
 	"ice_curve_NW":        "res://assets/2D-tiles/eis_curve_NW.png",
 	"ice_curve_NO":        "res://assets/2D-tiles/eis_curve_NO.png",
+	# Rennbelag (eigener Pixelart-Satz im Unterordner "racing"). Effekt/Preis = Default,
+	# nur das Artwork unterscheidet sich. Orientierungen exakt wie oben (OW/NS, OS/SW/NW/NO).
+	"race_straight_OW":    "res://assets/2D-tiles/racing/track_straight_OW.png",
+	"race_straight_NS":    "res://assets/2D-tiles/racing/track_straight_NS.png",
+	"race_curve_OS":       "res://assets/2D-tiles/racing/track_curve_OS.png",
+	"race_curve_SW":       "res://assets/2D-tiles/racing/track_curve_SW.png",
+	"race_curve_NW":       "res://assets/2D-tiles/racing/track_curve_NW.png",
+	"race_curve_NO":       "res://assets/2D-tiles/racing/track_curve_NO.png",
 }
 
 # Liefert den res://-Pfad der 2D-Textur für Belag (default/dirt/ice), Form (straight/curve)

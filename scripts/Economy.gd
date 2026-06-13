@@ -81,9 +81,12 @@ const UPGRADES = {
 		"base": 1.0, "per_level": 1.0, "unit": " Autos",
 	},
 	# End-Multiplikator & Tile-Bonus jetzt global (alle Autos), unter "Allgemeines".
+	# Effekt special-cased (_endmult_value, base/per_level IGNORIERT): Stufe 1 = ×1.1, dann
+	# in 0.1-Schritten bis ×3 (Lv20), in 0.2-Schritten bis ×5 (Lv30), in 0.5-Schritten bis
+	# ×15 (Lv50), in 1.0-Schritten bis ×35 (Lv70). base_cost/growth bleiben unverändert.
 	"endmult": {
 		"category": "general", "name": "End-Multiplikator",
-		"base_cost": 500, "growth": 3.5, "max_level": 10,
+		"base_cost": 500, "growth": 3.5, "max_level": 70,
 		"base": 1.0, "per_level": 0.5, "unit": "×",
 	},
 	# Tile-Bonus: +Geld je überfahrenem Feld. 100 Stufen, Kosten growth 1.413 (Lv20 ≈ 10k Preis →
@@ -109,15 +112,18 @@ const UPGRADES = {
 		"base_cost": 25, "growth": 2.3, "max_level": 20,
 		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
 	},
+	# Gerade/Kurve geben einen FLACHEN +Ertrag pro Feld (kein Multiplikator mehr, siehe
+	# CarController.PREMIUM_TILE_*). Das Upgrade skaliert bewusst halb so stark wie früher
+	# (per_level 12.5 statt 25) und beginnt damit auch bei der Hälfte.
 	"straightbonus": {
 		"category": "tile", "name": "Geraden-Ertrag (+ je Gerade)",
 		"base_cost": 200, "growth": 3.0, "max_level": 12,
-		"base": 0.0, "per_level": 25.0, "unit": " /Gerade",
+		"base": 0.0, "per_level": 12.5, "unit": " /Gerade",
 	},
 	"curvebonus": {
 		"category": "tile", "name": "Kurven-Ertrag (+ je Kurve)",
 		"base_cost": 200, "growth": 3.0, "max_level": 12,
-		"base": 0.0, "per_level": 25.0, "unit": " /Kurve",
+		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
 	},
 	# Eisgerade: gibt KEIN Geld, sondern macht das Auto auf den nächsten Feldern schneller.
 	# base/per_level werden NICHT als Geld-Effekt genutzt – der Effekt ist special-cased über
@@ -125,7 +131,7 @@ const UPGRADES = {
 	# Reichweiten-Stufen (5→4, 10→5, 15→6 Felder) sauber aufgehen.
 	"icebonus": {
 		"category": "tile", "name": "Eisgeraden-Boost (Speed je Feld)",
-		"base_cost": 8000, "growth": 2.6, "max_level": 15,
+		"base_cost": 400, "growth": 2.6, "max_level": 15,
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
 	# Steilwandkurve (Wall-Ride): Geld UND Speed-Boost skalieren mit dem Upgrade. Das Geld läuft
@@ -467,10 +473,12 @@ signal achievement_claimed(id: String)
 # Zentrale Freischaltkosten (gemeinsame Quelle für Bau-Shop in Main.gd und den
 # Streckenteile-Tab in GlobalModal.gd). Main.SHOP_ITEMS spiegelt diese Werte.
 const TILE_UNLOCK_COST = {
-	"def_straight": 15000,
-	"def_curve":    30000,
-	"ice":          500000,
-	"ice_curve":    525000,    # Eiskurve: 5 % teurer als die Eisgerade (auch beim Freischalten)
+	"def_straight": 10000,
+	"def_curve":    15000,
+	"race_straight": 100000,   # Rennstrecke: gleicher Effekt wie Default-Gerade, aber deutlich teurer
+	"race_curve":    120000,   # Rennkurve:   gleicher Effekt wie Default-Kurve, aber deutlich teurer
+	"ice":          25000,
+	"ice_curve":    30000,     # Eiskurve: etwas teurer als die Eisgerade (auch beim Freischalten)
 	"ramp":         25000000,
 	"wall":         500000000,
 	"loop":         15000000000,
@@ -745,7 +753,7 @@ func _laps_total(i: int) -> int:
 # ║ FOLGE. Pro Feld gilt strikt diese Reihenfolge:                                             ║
 # ║   1. ERST ALLE +Werte dieses Feldes addieren (Grundertrag + Tile-Bonus + +5/+10-Feld +     ║
 # ║      tile-spezifische Upgrades …).                                                         ║
-# ║   2. DANN ALLE ×Werte dieses Feldes anwenden (Premium ×1.2, ×1.5-Feld, Rampen-/Sprung ×2 …)║
+# ║   2. DANN ALLE ×Werte dieses Feldes anwenden (×1.5-Feld, Tribüne, Rampen-/Sprung ×2 …)      ║
 # ║      auf die GESAMTE bisher angesammelte Summe.                                            ║
 # ║   → running = (running + Σ aller +Werte) · (Produkt aller ×Werte)                          ║
 # ║ Ganz zum Schluss EINMAL auf die ganze Runde: × End-Multiplikator × Prestige.               ║
@@ -760,7 +768,7 @@ func _laps_total(i: int) -> int:
 #
 # Quelle der Felder: car["tiles"] (streckenfixe Tile-Reihenfolge aus CarController). Konkrete
 # Zuordnung in diesem Code: base = Grundertrag, tile-Bonus/tile-spezifische Upgrades + bonus_points
-# = Schritt 1; fixed_mult (Premium ×1.2), bonus_mult (×1.5-Feld), jump_mult (NUR is_jump = das
+# = Schritt 1; fixed_mult (Tile-eigener ×, Default-Tiles = 1.0), bonus_mult (×1.5-Feld), jump_mult (NUR is_jump = das
 # übersprungene Mittelfeld zwischen ramp_start/ramp_end; die Rampe SELBST bekommt KEIN ×2)
 # = Schritt 2. Alles aus den AKTUELLEN Upgrade-Werten → wirkt live, auch auf Hintergrund-Strecken.
 # Rundenertrag EINES Autos. Alle Autos einer Strecke teilen das Layout (tiles), unterscheiden sich
@@ -1018,6 +1026,9 @@ func _effect_at(id: String, level: int) -> float:
 	# Tile-Bonus: beschleunigende Stufen-Summe (base/per_level ignoriert).
 	if id == "tilebonus":
 		return _tilebonus_value(level)
+	# End-Multiplikator: stückweise Steigung (base/per_level ignoriert).
+	if id == "endmult":
+		return _endmult_value(level)
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0.0
@@ -1062,6 +1073,23 @@ func _tilebonus_value(level: int) -> float:
 	if lv <= 20:
 		return 0.5 * lv
 	return 10.0 * pow(2.0, float(lv - 20) / 3.0)
+
+
+# End-Multiplikator bei Upgrade-Stufe `level` (0..70). Vier Phasen mit zunehmender Schrittweite:
+#   Lv0–20:  +0.1/Stufe → ×1.0 … ×3.0   (Stufe 1 = ×1.1)
+#   Lv20–30: +0.2/Stufe → ×3.0 … ×5.0
+#   Lv30–50: +0.5/Stufe → ×5.0 … ×15.0
+#   Lv50–70: +1.0/Stufe → ×15.0 … ×35.0
+# Geschlossene Form (stetig an den Phasengrenzen), da pro Runde im Reward aufgerufen.
+func _endmult_value(level: int) -> float:
+	var lv := clampi(level, 0, 70)
+	if lv <= 20:
+		return 1.0 + 0.1 * lv
+	if lv <= 30:
+		return 3.0 + 0.2 * (lv - 20)
+	if lv <= 50:
+		return 5.0 + 0.5 * (lv - 30)
+	return 15.0 + 1.0 * (lv - 50)
 
 
 func get_upgrade_cost(id: String) -> int:
