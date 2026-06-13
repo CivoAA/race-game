@@ -9,6 +9,9 @@ const TILE_SIZE = 100
 # übereinstimmen – nur für die „×x.x"-Anzeige im 2D-Bauplan (_cell_total_mult).
 # 1.0 = Default-Tiles haben keinen eigenen Multiplikator mehr (rein additiver +Ertrag).
 const PREMIUM_TILE_MULT = 1.0
+# Rennstrecke: eigener fester ×1.2 (MUSS mit CarController.RACE_TILE_MULT übereinstimmen) – die
+# „×x.x"-Anzeige im 2D-Bauplan zeigt damit ein ×1.2-Badge auf Renngerade/-kurve.
+const RACE_TILE_MULT = 1.2
 
 # Farben (neue Palette)
 # Discord-artige Graupalette – siehe GameHUD.gd (alle 6 Dateien synchron halten).
@@ -52,10 +55,11 @@ const SHOP_ITEMS = [
 	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 15000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice_curve",   "unlock": 30000, "base_price": 6000,  "growth": 3.5, "upgrade": "icebonus"},
-	# Rennbelag: gleicher Effekt (+25 flach, straight-/curvebonus) wie Default, aber deutlich teurer
-	# (eigener Preis-Pool/Unlock race_straight/race_curve) + eigenes Pixelart (racing-Ordner).
-	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 100000, "base_price": 20000, "growth": 4.0,  "upgrade": "straightbonus"},
-	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 120000, "base_price": 24000, "growth": 2.33, "upgrade": "curvebonus"},
+	# Rennbelag: EIGENES Teil – höherer flacher Ertrag (+50) UND ein fester ×1.2, eigene additive
+	# Upgrades (racestraightbonus/racecurvebonus). Deutlich teurer (eigener Preis-Pool/Unlock
+	# race_straight/race_curve) + eigenes Pixelart (racing-Ordner).
+	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 100000, "base_price": 20000, "growth": 4.0,  "upgrade": "racestraightbonus"},
+	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 120000, "base_price": 24000, "growth": 2.33, "upgrade": "racecurvebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
 	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
@@ -65,6 +69,11 @@ const SHOP_ITEMS = [
 
 const SHOP_SLOT_COUNT = 13  # = SHOP_ITEMS.size()
 const PORTAL_MAX      = 2   # genau 2 Portale je Strecke baubar
+# Sanfter Einstieg der Bau-Preise: die ersten EARLY_TILE_COUNT bezahlten Tiles von Default-, Eis-
+# und Renn-Belag skalieren deutlich langsamer (EARLY_TILE_GROWTH statt item.growth); danach geht es
+# STETIG (kein Preissprung) mit dem normalen growth weiter. Siehe _tile_price.
+const EARLY_TILE_COUNT  = 6
+const EARLY_TILE_GROWTH = 1.8
 const STAND_MAX_STACK = 5   # Tribüne: max. 5× auf dasselbe Feld stapelbar
 const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
 
@@ -1068,14 +1077,28 @@ func _tile_price(item: Dictionary) -> int:
 	var free = Economy.get_free_tile_quota(item["type"])
 	if n < free:
 		return 0
-	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - free)))
+	var eff: int = n - free                       # bezahlte Tiles dieses Typs (nach Gratis-Kontingent)
+	var base := float(item["base_price"])
+	var g    := float(item["growth"])
+	# Default-, Eis- und Renn-Belag: die ersten EARLY_TILE_COUNT bezahlten Tiles skalieren deutlich
+	# sanfter (EARLY_TILE_GROWTH). Danach stetig wieder mit dem normalen growth, am Preis des letzten
+	# sanften Tiles angeknüpft → der Übergang ist genau ein normaler growth-Schritt (kein Sprung).
+	if item["tier"] in ["default", "ice"]:
+		if eff < EARLY_TILE_COUNT:
+			return int(round(base * pow(EARLY_TILE_GROWTH, eff)))
+		var early := base * pow(EARLY_TILE_GROWTH, EARLY_TILE_COUNT - 1)
+		return int(round(early * pow(g, eff - (EARLY_TILE_COUNT - 1))))
+	return int(round(base * pow(g, eff)))
 
 
 # Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
-# Dreck-Grundwert 1, Default-Grundwert 50; das zugehörige Upgrade addiert seinen Live-Effekt.
+# Grundwerte: Dreck = 1, Rennstrecke/-kurve = 50 (RACE_TILE_EARN), sonst Default = 25; das
+# zugehörige Upgrade addiert seinen Live-Effekt. Der Renn-×1.2 wird hier nicht eingerechnet.
 func _tile_field_earn(item: Dictionary) -> int:
-	# Dreck-Grundwert 1, Default-Grundwert 25; das zugehörige Upgrade addiert seinen Live-Effekt.
+	var t := String(item.get("type", ""))
 	var base := 1 if item.get("tier", "") == "dirt" else 25
+	if t == "race_straight" or t == "race_curve":
+		base = 50   # = CarController.RACE_TILE_EARN (dort die Wahrheitsquelle)
 	return base + int(round(Economy.get_effect(item.get("upgrade", ""))))
 
 
@@ -1240,6 +1263,10 @@ func _tile_icon_glyph(item: Dictionary) -> String:
 
 # Voller Effekt-Text eines (freigeschalteten) Teils – für Tooltip + Fußanzeige.
 func _tile_effect_text(item: Dictionary) -> String:
+	# Rennstrecke/-kurve: flacher +Ertrag UND der feste ×1.2 (RACE_TILE_MULT) – beides anzeigen.
+	var t := String(item.get("type", ""))
+	if t == "race_straight" or t == "race_curve":
+		return "+%d pro Feld  ·  ×%.1f" % [_tile_field_earn(item), RACE_TILE_MULT]
 	match item["tier"]:
 		"ramp":
 			var dirs = ["→", "↓", "←", "↑"]
@@ -3708,6 +3735,20 @@ func _refresh_mult_markers() -> void:
 			grid_node.add_child(marker)
 			_jump_marker_nodes.append(marker)
 
+	# Leere Sprung-Mittelfelder: dort steht (noch) kein Tile, daher liefert die Schleife oben keinen
+	# Marker. Die Rampe verdoppelt aber den Ertrag eines DORT platzierten Tiles – den ×-Wert trotzdem
+	# anzeigen, damit sichtbar ist, dass dieses Feld geboostet ist (auch ohne Tile). Belegte
+	# Mittelfelder sind oben schon abgedeckt (jump_mult via _build_drive_state → _cell_total_mult).
+	var jm := Economy.get_ramp_jump_mult()
+	for cell in _ramp_jump_cells():
+		if typeof(dstate[cell.x][cell.y]) == TYPE_DICTIONARY:
+			continue
+		var jmarker := _make_mult_marker(jm)
+		jmarker.position = _grid_to_world(cell.x, cell.y)
+		jmarker.z_index  = 5
+		grid_node.add_child(jmarker)
+		_jump_marker_nodes.append(jmarker)
+
 
 # Gesamt-×-Faktor eines Feldes – identische Logik wie Economy._lap_reward_for_car (Schritt 2).
 # `sd` ist der Drive-State-Eintrag des Feldes (Dictionary mit bonus_mult/jump_mult oder "" wenn leer).
@@ -3716,17 +3757,21 @@ func _cell_total_mult(sd) -> float:
 		return 1.0
 	var t := String(sd.get("type", ""))
 	# Default-Tiles (gekaufte Geraden/Kurven) tragen keinen eigenen Multiplikator mehr
-	# (PREMIUM_TILE_MULT = 1.0); fm bleibt damit neutral.
+	# (PREMIUM_TILE_MULT = 1.0); fm bleibt damit neutral. Rennstrecke/-kurve haben dagegen einen
+	# festen ×1.2 (RACE_TILE_MULT) – spiegelt CarController._build_waypoints / RACE_TILE_MULT.
 	var fm := 1.0
-	if (not bool(sd.get("is_dirt", false))) and (not bool(sd.get("is_start", false))) \
-			and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve"]:
-		fm = PREMIUM_TILE_MULT
+	if (not bool(sd.get("is_dirt", false))) and (not bool(sd.get("is_start", false))):
+		if t in ["race_straight", "race_curve"]:
+			fm = RACE_TILE_MULT
+		elif t in ["straight", "curve", "curve_alt"]:
+			fm = PREMIUM_TILE_MULT
 	var bm := float(sd.get("bonus_mult", 1.0))                       # ×1.5-Bonusfeld (ohne Tribünen)
 	var sm := float(sd.get("stand_mult", 1.0))                       # Produkt aller Tribünen-Mult.
 	var sc := int(sd.get("stand_count", 0))                          # Anzahl wirkender Tribünen
-	# Der Sprung-×2 wirkt NUR auf dem übersprungenen Mittelfeld (zwischen ramp_start und ramp_end),
-	# nicht auf der Rampe selbst. Das Mittelfeld trägt jump_mult≠1 aus _build_drive_state.
-	var has_jump := float(sd.get("jump_mult", 1.0)) != 1.0
+	# Der Sprung-×2 wirkt auf dem übersprungenen Mittelfeld (jump_mult≠1 aus _build_drive_state)
+	# UND auf der Rampe selbst (ramp_start) – die Rampe verdoppelt also auch ihren eigenen Ertrag.
+	# Spiegelt Economy._lap_reward_for_car (has_jump auch für kind "ramp").
+	var has_jump := float(sd.get("jump_mult", 1.0)) != 1.0 or t == "ramp_start"
 	var m := 1.0
 	if t == "loop":
 		# Looping: eigener ×F UND jeder andere Multiplikator dieses Feldes mit F skaliert (M·F);

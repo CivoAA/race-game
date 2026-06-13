@@ -7,17 +7,23 @@ const ROAD_Y    = 0.01
 # längs in der Kachel liegt, hier 90 eintragen (Yaw-Korrektur in Grad).
 const STRAIGHT_MODEL_YAW_OFFSET = 90.0
 
-# Yaw-Korrektur für das Default-Kurven-GLB (Grad). Die Engine-Kurve bei rot=0 verbindet
+# Yaw-Korrektur für die Kurven-GLBs (Grad). Die Engine-Kurve bei rot=0 verbindet
 # Süd- und Ost-Kante; falls das Modell anders ausgerichtet ist, hier in 90°-Schritten anpassen.
-const CURVE_MODEL_YAW_OFFSET = 180.0
+const CURVE_MODEL_YAW_OFFSET = 90.0
 
-# Gerade und Kurve wurden auf demselben 3×3-Modellraster gebaut: eine Spielkachel
-# entspricht 3 Rasterzellen, also 3.0 Modell-Einheiten Kantenlänge. Beide Modelle mit
+# Yaw-Korrektur (Grad) für die Spezial-GLBs, falls sie anders ausgerichtet importiert werden.
+# In 90°-Schritten anpassen, bis Rampe/Tribüne richtig stehen.
+const RAMP_MODEL_YAW_OFFSET  = -90.0
+const STAND_MODEL_YAW_OFFSET = 0.0
+
+# Gerade und Kurve wurden auf demselben Modellraster gebaut. Beide Modelle mit
 # DEMSELBEN Faktor (TILE_SIZE / MODEL_TILE_NATIVE) skalieren und am Modell-Ursprung
-# (= Mittelzelle) zentrieren → gleiche Straßenbreite (1 Zelle) und nahtlose Übergänge.
-# NICHT über die einzelne Modell-AABB normieren: die Kurve belegt nur einen 2×2-Ausschnitt
+# (= Mittelzelle) zentrieren → gleiche Straßenbreite und nahtlose Übergänge.
+# NICHT über die einzelne Modell-AABB normieren: die Kurve belegt nur einen Teil
 # des Rasters, ihre AABB ist also kleiner als eine ganze Kachel.
-const MODEL_TILE_NATIVE = 3.0
+# Neuer Asset-Satz (Blender): eine Gerade ist 1 m lang = eine Kachel, Fahrbahn 0,5 m breit.
+# Also 1.0 Modell-Einheit pro Kachel → Skalierung TILE_SIZE/1.0 = 1.2 füllt die Kachel exakt.
+const MODEL_TILE_NATIVE = 1.0
 
 # Steilwandkurve (Carrera-Stil): Querneigung der Fahrbahn am Apex + leichte Mittellinien-Höhe.
 # Muss zu CarController passen (WALL_PEAK_H = Höhenprofil der Wegpunkte). KEINE separate Wand mehr –
@@ -232,77 +238,6 @@ func _portal_mat(color: Color, emissive: bool) -> StandardMaterial3D:
 	return mat
 
 
-# Tribüne: je geboosteter Basis-Richtung (Stapel 1=S, 2=S+N, 3=S+N+E, 4=alle) eine kleine
-# Treppen-Tribüne (graue Stufen, braune Sitzflächen, graue Stütze hinten), Sitze zum Nachbarfeld.
-func _build_stand_mesh(node: Node3D, stack: int) -> void:
-	var grey  = Color(0.55, 0.55, 0.60)
-	var dark  = Color(0.40, 0.40, 0.45)
-	var brown = Color(0.55, 0.32, 0.14)
-	var dirs = [Vector3(0, 0, 1), Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(-1, 0, 0)]  # S,N,E,W
-	var count = mini(stack, 4)
-	for i in range(count):
-		_build_one_stand(node, dirs[i], grey, dark, brown)
-
-
-func _build_one_stand(node: Node3D, dv: Vector3, grey: Color, dark: Color, brown: Color) -> void:
-	var nsteps = 3
-	var w     = TILE_SIZE * 0.5
-	var depth = TILE_SIZE * 0.14
-	var sh    = 0.15
-	var lat_z = absf(dv.z) > 0.5   # true: Stufen liegen quer in X (dv entlang Z)
-	var front = TILE_SIZE * 0.44   # unterste Stufe nahe der Fahrbahn-Kante (näher an der Fahrbahn)
-	for s in range(nsteps):
-		var h = sh * float(s + 1)
-		# Höhere Stufen schmaler (Taper) → benachbarte Tribünen (Stack 3/4) überschneiden sich nicht
-		# mehr in der Kachelmitte.
-		var sw = w * (1.0 - 0.33 * float(s))
-		# Treppe steigt VON DER FAHRBAHN (+dv, unterste Stufe vorne) nach hinten (-dv) an.
-		var along = dv * (front - depth * float(s))
-		var cpos = along + Vector3(0.0, ROAD_Y + h * 0.5, 0.0)
-		var size = Vector3(sw, h, depth) if lat_z else Vector3(depth, h, sw)
-		node.add_child(_box(size, grey if s % 2 == 0 else dark, cpos))
-		# Braune Sitzfläche oben auf der Stufe, zur Fahrbahn (+dv) gerichtet.
-		var seat_size = Vector3(sw, 0.04, depth * 0.5) if lat_z else Vector3(depth * 0.5, 0.04, sw)
-		var seat_pos = along + dv * (depth * 0.22) + Vector3(0.0, ROAD_Y + h + 0.02, 0.0)
-		node.add_child(_box(seat_size, brown, seat_pos))
-
-
-func _build_ramp_mesh(node: Node3D, is_start: bool) -> void:
-	var road_w = TILE_SIZE * 0.50
-	var kerb_w = TILE_SIZE * 0.07
-	var peak_h = 0.35
-	var segs   = 6
-	var ramp_col = Color(0.95, 0.55, 0.08)
-
-	for i in range(segs):
-		var t = (float(i) + 0.5) / segs
-		var h = peak_h * (t if is_start else (1.0 - t))
-		var x = -TILE_SIZE / 2.0 + TILE_SIZE * t
-		var seg_len = TILE_SIZE / segs + 0.01
-
-		# Fahrbahn-Segment bei dieser Höhe
-		node.add_child(_box(
-			Vector3(seg_len, 0.02, road_w),
-			Color(0.20, 0.20, 0.22),
-			Vector3(x, ROAD_Y + h, 0)
-		))
-		# Randsteine
-		for s in [-1, 1]:
-			node.add_child(_box(
-				Vector3(seg_len, 0.03, kerb_w),
-				Color(0.85, 0.82, 0.75),
-				Vector3(x, ROAD_Y + h + 0.01, s * (road_w / 2.0 + kerb_w / 2.0))
-			))
-
-	# Orange Markierung am höchsten Punkt (Absprung/Landung)
-	var peak_x = (TILE_SIZE / 2.0 - TILE_SIZE / segs) * (1.0 if is_start else -1.0)
-	node.add_child(_box(
-		Vector3(TILE_SIZE / segs, 0.015, road_w * 0.85),
-		ramp_col,
-		Vector3(peak_x, ROAD_Y + peak_h + 0.012, 0)
-	))
-
-
 # Lädt ein Geraden-GLB, skaliert es auf TILE_SIZE und zentriert es auf der Kachel.
 func _make_straight_model(path: String) -> Node3D:
 	var holder = Node3D.new()
@@ -383,34 +318,23 @@ func _box(size: Vector3, color: Color, pos: Vector3) -> MeshInstance3D:
 	return mi
 
 
-## Legt eine halbtransparente, bläuliche Eis-Schicht über alle Meshes (zweiter Render-Pass),
-## damit das Default-Kurvenmodell als Eiskurve „vereist" wirkt, ohne die Original-Textur zu ersetzen.
-func _apply_ice_overlay(node: Node) -> void:
+# Macht ein Eis-Modell eisig: behaelt die Atlas-Textur, senkt aber Roughness und gibt einen
+# leichten Blauton + etwas Metallic, damit die Flaeche den Himmel spiegelt (glTF traegt das nicht).
+func _apply_ice_look(node: Node) -> void:
 	if node is MeshInstance3D:
-		var mat = StandardMaterial3D.new()
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.albedo_color = Color(0.62, 0.85, 1.0, 0.45)
-		mat.roughness    = 0.15
-		mat.metallic     = 0.3
-		node.material_overlay = mat
+		var mi := node as MeshInstance3D
+		var base := mi.get_active_material(0)
+		var mat: StandardMaterial3D
+		if base is StandardMaterial3D:
+			mat = (base as StandardMaterial3D).duplicate()
+		else:
+			mat = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.68, 0.83, 1.0)
+		mat.roughness    = 0.22
+		mat.metallic     = 0.0
+		mi.material_override = mat
 	for child in node.get_children():
-		_apply_ice_overlay(child)
-
-
-func _apply_dirt_material(node: Node) -> void:
-	if node is MeshInstance3D:
-		var box = node.mesh as BoxMesh
-		if box != null:
-			var mat = StandardMaterial3D.new()
-			mat.roughness = 0.95
-			if abs(box.size.y - 0.015) < 0.001:
-				box.size.z *= 0.50
-				mat.albedo_color = Color(0.48, 0.30, 0.11)
-			else:
-				mat.albedo_color = Color(0.12, 0.14, 0.10)
-			node.material_override = mat
-	for child in node.get_children():
-		_apply_dirt_material(child)
+		_apply_ice_look(child)
 
 
 func generate(grid_state: Array) -> void:
@@ -428,16 +352,18 @@ func generate(grid_state: Array) -> void:
 				continue
 
 			# curve_alt hat dieselbe 3D-Form wie curve
-			# Rampe: programmatisch generiert, keine Szene
 			if d["type"] == "ramp_start" or d["type"] == "ramp_end":
-				var ramp_node = Node3D.new()
-				ramp_node.position = Vector3(
+				# Rampe als EIN GLB: nur am ramp_start-Feld instanzieren; das ramp_end-Feld bleibt
+				# leer. Das Modell selbst deckt die ganze Rampe ab (Absprung -> Landung).
+				if d["type"] == "ramp_end":
+					continue
+				var ramp = _make_straight_model(Paths.MODEL_TRACK_RAMP)
+				ramp.position = Vector3(
 					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
 					row * TILE_SIZE + TILE_SIZE / 2.0
 				)
-				ramp_node.rotation_degrees.y = -d["rotation"]
-				_build_ramp_mesh(ramp_node, d["type"] == "ramp_start")
-				add_child(ramp_node)
+				ramp.rotation_degrees.y = -d["rotation"] + RAMP_MODEL_YAW_OFFSET
+				add_child(ramp)
 				continue
 
 			# Steilwandkurve: prozedural (ansteigende, geneigte Fahrbahn + 70°-Außenwand).
@@ -477,16 +403,15 @@ func generate(grid_state: Array) -> void:
 				add_child(portal_node)
 				continue
 
-			# Tribüne: prozedurale Treppen-Tribüne(n) je geboosteter Richtung (Sitze zum Nachbarfeld).
 			if d["type"] == "stand":
-				var stand_node = Node3D.new()
-				stand_node.position = Vector3(
+				# Tribuene: eigenes GLB (eine je Feld). Der Stapel wirkt weiter auf die Oekonomie.
+				var stand = _make_straight_model(Paths.MODEL_TRACK_STAND)
+				stand.position = Vector3(
 					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
 					row * TILE_SIZE + TILE_SIZE / 2.0
 				)
-				stand_node.rotation_degrees.y = -d["rotation"]
-				_build_stand_mesh(stand_node, int(d.get("stack", 1)))
-				add_child(stand_node)
+				stand.rotation_degrees.y = -d["rotation"] + STAND_MODEL_YAW_OFFSET
+				add_child(stand)
 				continue
 
 			var tile_pos = Vector3(
@@ -511,29 +436,27 @@ func generate(grid_state: Array) -> void:
 				var straight = _make_straight_model(model_path)
 				straight.position = tile_pos
 				straight.rotation_degrees.y = -d["rotation"] + STRAIGHT_MODEL_YAW_OFFSET
+				if d["type"] == "ice":
+					_apply_ice_look(straight)
 				add_child(straight)
 				continue
 
-			# Kurve (curve / curve_alt / ice_curve / race_curve): Default = GLB-Modell, Dirt = prozedural.
-			# Die Rennkurve hat (noch) kein eigenes 3D-Modell → nutzt ebenfalls das Default-Kurven-GLB.
-			# curve und curve_alt haben dieselbe Bogenform – nur die Fahrtrichtung unterscheidet sich.
-			# Eiskurve nutzt mangels eigenem Ice-GLB das Default-Kurvenmodell mit bläulicher Eis-Tönung.
-			if not d.get("is_dirt", false):
-				var curve = _make_curve_model(Paths.MODEL_TRACK_CURVE_DEFAULT)
-				curve.position = tile_pos
-				curve.rotation_degrees.y = -d["rotation"] + CURVE_MODEL_YAW_OFFSET
-				if d["type"] == "ice_curve":
-					_apply_ice_overlay(curve)
-				add_child(curve)
-				continue
-
-			var scene = load(Paths.SCENE_TILE_CURVE_3D)
-			if scene == null:
-				push_error("3D-Tile-Szene nicht gefunden: " + Paths.SCENE_TILE_CURVE_3D)
-				continue
-
-			var node = scene.instantiate()
-			node.position = tile_pos
-			node.rotation_degrees.y = -d["rotation"]
-			add_child(node)
-			_apply_dirt_material(node)
+			# Kurve (curve / curve_alt / ice_curve / race_curve):
+			# Jeder Belag hat jetzt sein eigenes Kurven-GLB (Road/Dirt/Ice/Race). curve und curve_alt
+			# teilen dieselbe Bogenform (nur die Fahrtrichtung unterscheidet sich) -> gleiche Modell-Auswahl
+			# wie bei der Geraden. Damit entfaellt die prozedurale Dreck-Kurve und das Eis-Overlay.
+			var curve_path: String
+			if d["type"] == "ice_curve":
+				curve_path = Paths.MODEL_TRACK_CURVE_ICE
+			elif d["type"] == "race_curve":
+				curve_path = Paths.MODEL_TRACK_CURVE_RACING
+			elif d.get("is_dirt", false):
+				curve_path = Paths.MODEL_TRACK_CURVE_DIRT
+			else:
+				curve_path = Paths.MODEL_TRACK_CURVE_DEFAULT
+			var curve = _make_curve_model(curve_path)
+			curve.position = tile_pos
+			curve.rotation_degrees.y = -d["rotation"] + CURVE_MODEL_YAW_OFFSET
+			if d["type"] == "ice_curve":
+				_apply_ice_look(curve)
+			add_child(curve)

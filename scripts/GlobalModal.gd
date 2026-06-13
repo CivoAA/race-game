@@ -613,14 +613,14 @@ func _show_shop_cat(idx: int) -> void:
 func _tile_entries() -> Array:
 	return [
 		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+1 Ertrag · frei", "upgrade": "dirtstraightbonus", "field_earn_base": 1},
-		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+1 Ertrag · frei", "film": true, "upgrade": "dirtcurvebonus", "field_earn_base": 1},
+		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DIRT,       "desc": "+1 Ertrag · frei", "upgrade": "dirtcurvebonus", "field_earn_base": 1},
 		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+25 Ertrag", "upgrade": "straightbonus", "field_earn_base": 25},
 		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+25 Ertrag", "upgrade": "curvebonus", "field_earn_base": 25},
 		{"name": "Eisgerade",    "key": "ice",         "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
-		{"name": "Eiskurve",     "key": "ice_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "film": true, "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
-		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+25 Ertrag", "upgrade": "straightbonus", "field_earn_base": 25},
-		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+25 Ertrag", "upgrade": "curvebonus", "field_earn_base": 25},
-		{"name": "Rampe",        "key": "ramp",        "model": "",                                 "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
+		{"name": "Eiskurve",     "key": "ice_curve",   "model": Paths.MODEL_TRACK_CURVE_ICE,         "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
+		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+50 Ertrag · ×1.2", "upgrade": "racestraightbonus", "field_earn_base": 50},
+		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+50 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 50},
+		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		{"name": "Steilwandkurve","key": "wall",       "model": "",                                 "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
 		{"name": "Looping",      "key": "loop",        "model": "",                                 "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
 		{"name": "Portal",       "key": "portal",      "model": "",                                 "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
@@ -846,10 +846,12 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 	if upg_id == "rampbonus":
 		var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%d" % (base_e + int(round(Economy.get_effect(upg_id, lv + 1))))
 		return "+%d%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
+	# Rennstrecke/-kurve: zusätzlich zum +Ertrag den festen ×1.2 anzeigen.
+	var race_suffix := " · ×1.2" if upg_id in ["racestraightbonus", "racecurvebonus"] else ""
 	if Economy.is_maxed(upg_id):
-		return "Ertrag/Feld: +%d (MAX)" % cur
+		return "Ertrag/Feld: +%d (MAX)%s" % [cur, race_suffix]
 	var nxt := base_e + int(round(Economy.get_effect(upg_id, lv + 1)))
-	return "Ertrag/Feld: +%d → +%d" % [cur, nxt]
+	return "Ertrag/Feld: +%d → +%d%s" % [cur, nxt, race_suffix]
 
 
 # Färbt einen Freischalt-Button: leistbar = helleres Blau, sonst gedämpft.

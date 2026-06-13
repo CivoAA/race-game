@@ -18,6 +18,11 @@ const SPEED_STEPS = [25, 33, 42, 50, 58, 67, 75, 83, 92, 100, 108, 117, 125, 133
 const SPEED_BASE_LEVELS  = 15     # Stufen mit dem steilen „Auto 1"-Kostenverlauf (growth 4.4)
 const SPEED_TAIL_GROWTH  = 1.3    # Kosten-Wachstum je Stufe oberhalb von SPEED_BASE_LEVELS
 const SPEED_TRIPLE_EVERY = 15.0   # je so viele Stufen verdreifacht sich das Tempo oberhalb von 150
+# Die ersten SPEED_EARLY_LEVELS Stufen wachsen sanfter (SPEED_EARLY_GROWTH statt growth 4.4), damit
+# der Einstieg günstiger ist. Ab dieser Stufe geht es STETIG (kein Sprung) mit dem ursprünglichen
+# Verlauf weiter: bis SPEED_BASE_LEVELS wieder ×growth, darüber ×SPEED_TAIL_GROWTH. Siehe _speed_cost.
+const SPEED_EARLY_LEVELS = 10     # Anzahl Stufen mit dem sanfteren Einstiegs-Wachstum
+const SPEED_EARLY_GROWTH = 3.6    # Kosten-Wachstum je Stufe für die ersten SPEED_EARLY_LEVELS Stufen
 
 # ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
 # MEHRFACH kaufbar (super_car_count): jeder Kauf „kombiniert" SUPER_CAR_COST_CARS normale Autos zu
@@ -52,11 +57,12 @@ const CAR_ASCEND_POINT_MULT = 4.0                # ×4 Prestigepunkte je Stufe (
 const UPGRADES = {
 	# Tempo-ZAHL 25→150 (Anzeige). Tatsächliche Auto-Geschwindigkeit = Tempo · SPEED_SCALE
 	# (get_car_speed), Basis bewusst langsam. EINE Quelle für alle Strecken.
-	# Tempo: Stufen 0–15 = SPEED_STEPS (25→150, „Auto 1"), Kosten base 50 · growth 4.4 (Stufe-15-Kauf
-	# ≈ 50b – diese ersten 15 Preise sind bewusst so). Geht bis Stufe 75 = Tempo 12150, weil langsamere
-	# Auto-Tiers (jedes ÷3, Auto 5 ÷81) so viel Tempo brauchen, um effektiv 150 zu fahren. Effekt + Kosten
-	# ab Stufe 15 special-cased (_effect_at / _speed_cost, base/per_level dort ignoriert – die bleiben
-	# nur die „Tempo-Stufe" für Eis-/Steilwand-Speedbonus).
+	# Tempo: Stufen 0–15 = SPEED_STEPS (25→150, „Auto 1"). Kosten special-cased in _speed_cost: die
+	# ersten 10 Stufen wachsen sanfter (günstigerer Einstieg, SPEED_EARLY_GROWTH), ab Stufe 10 stetig
+	# wieder mit dem ursprünglichen growth 4.4, ab Stufe 15 mit SPEED_TAIL_GROWTH. Geht bis Stufe 75 =
+	# Tempo 12150, weil langsamere Auto-Tiers (jedes ÷3, Auto 5 ÷81) so viel Tempo brauchen, um effektiv
+	# 150 zu fahren. Effekt ab Stufe 15 special-cased (_effect_at, base/per_level dort ignoriert – die
+	# bleiben nur die „Tempo-Stufe" für Eis-/Steilwand-Speedbonus).
 	"speed": {
 		"category": "general", "name": "Tempo",
 		"base_cost": 50, "growth": 4.4, "max_level": 75,
@@ -89,9 +95,10 @@ const UPGRADES = {
 		"base_cost": 500, "growth": 3.5, "max_level": 70,
 		"base": 1.0, "per_level": 0.5, "unit": "×",
 	},
-	# Tile-Bonus: +Geld je überfahrenem Feld. 100 Stufen, Kosten growth 1.413 (Lv20 ≈ 10k Preis →
-	# dort +10/Feld; sanfter als früher 3.0). Effekt special-cased (_tilebonus_value, base/per_level
-	# IGNORIERT): sanft bis +10/Feld bei Lv20, danach stark beschleunigt → Lv50 ≈ +10.000/Feld.
+	# Tile-Bonus: +Geld je überfahrenem Feld. 100 Stufen. Kosten special-cased (_tilebonus_cost): die
+	# ersten 10 Stufen wachsen sanfter (TILEBONUS_EARLY_GROWTH 1.25, günstigerer Einstieg), danach
+	# stetig wieder mit growth 1.413. Effekt special-cased (_tilebonus_value, base/per_level IGNORIERT):
+	# sanft bis +10/Feld bei Lv20, danach stark beschleunigt → Lv50 ≈ +10.000/Feld.
 	"tilebonus": {
 		"category": "general", "name": "Tile-Bonus",
 		"base_cost": 10, "growth": 1.413, "max_level": 100,
@@ -124,6 +131,20 @@ const UPGRADES = {
 		"category": "tile", "name": "Kurven-Ertrag (+ je Kurve)",
 		"base_cost": 200, "growth": 3.0, "max_level": 12,
 		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
+	},
+	# Rennstrecke ist ein EIGENES Streckenteil (nicht mehr identisch zur Default-Gerade/-Kurve):
+	# höherer flacher +Ertrag (CarController.RACE_TILE_EARN) UND ein fester ×1.2 (RACE_TILE_MULT).
+	# Diese beiden Upgrades addieren NUR (+ je Feld, kein Multiplikator – Wunsch), skalieren aber
+	# doppelt so stark wie die Default-Variante (per_level 25 statt 12.5) und kosten ~10× mehr.
+	"racestraightbonus": {
+		"category": "tile", "name": "Rennstrecken-Ertrag (+ je Gerade)",
+		"base_cost": 2000, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 25.0, "unit": " /Gerade",
+	},
+	"racecurvebonus": {
+		"category": "tile", "name": "Rennkurven-Ertrag (+ je Kurve)",
+		"base_cost": 2400, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 25.0, "unit": " /Kurve",
 	},
 	# Eisgerade: gibt KEIN Geld, sondern macht das Auto auf den nächsten Feldern schneller.
 	# base/per_level werden NICHT als Geld-Effekt genutzt – der Effekt ist special-cased über
@@ -475,8 +496,8 @@ signal achievement_claimed(id: String)
 const TILE_UNLOCK_COST = {
 	"def_straight": 10000,
 	"def_curve":    15000,
-	"race_straight": 100000,   # Rennstrecke: gleicher Effekt wie Default-Gerade, aber deutlich teurer
-	"race_curve":    120000,   # Rennkurve:   gleicher Effekt wie Default-Kurve, aber deutlich teurer
+	"race_straight": 100000,   # Rennstrecke: eigenes Teil (+50 flach UND ×1.2), eigene Upgrades, teurer
+	"race_curve":    120000,   # Rennkurve:   eigenes Teil (+50 flach UND ×1.2), eigene Upgrades, teurer
 	"ice":          25000,
 	"ice_curve":    30000,     # Eiskurve: etwas teurer als die Eisgerade (auch beim Freischalten)
 	"ramp":         25000000,
@@ -785,6 +806,8 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 	var jump_mult   := get_ramp_jump_mult()
 	var straight_b  := get_effect("straightbonus")
 	var curve_b     := get_effect("curvebonus")
+	var racestraight_b := get_effect("racestraightbonus")
+	var racecurve_b    := get_effect("racecurvebonus")
 	var dstraight_b := get_effect("dirtstraightbonus")
 	var dcurve_b    := get_effect("dirtcurvebonus")
 	var ramp_b      := get_effect("rampbonus")
@@ -797,6 +820,8 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 		match String(tile.get("kind", "plain")):
 			"pstraight": add += straight_b
 			"pcurve":    add += curve_b
+			"pracestraight": add += racestraight_b
+			"pracecurve":    add += racecurve_b
 			"dstraight": add += dstraight_b
 			"dcurve":    add += dcurve_b
 			"ramp":      add += ramp_b
@@ -807,8 +832,9 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 		var bm: float = float(tile.get("bonus_mult", 1.0))      # ×1.5-Bonusfeld (OHNE Tribünen)
 		var sm: float = float(tile.get("stand_mult", 1.0))      # Produkt aller Tribünen-Mult.
 		var sc: int   = int(tile.get("stand_count", 0))         # Anzahl wirkender Tribünen
-		# Sprung-×2 NUR auf dem übersprungenen Mittelfeld (is_jump), nicht auf der Rampe selbst.
-		var has_jump: bool = bool(tile.get("is_jump", false))
+		# Sprung-×2 wirkt auf dem übersprungenen Mittelfeld (is_jump) UND auf der Rampe selbst
+		# (kind "ramp") – die Rampe verdoppelt also auch ihren eigenen Ertrag.
+		var has_jump: bool = bool(tile.get("is_jump", false)) or String(tile.get("kind", "plain")) == "ramp"
 		var m: float
 		if bool(tile.get("is_loop", false)):
 			# Looping: eigener ×F UND jeder ANDERE Multiplikator dieses Feldes mit F multipliziert
@@ -1064,6 +1090,12 @@ func _dirt_field_earn(level: int) -> int:
 	return total
 
 
+# Sanfterer Kosten-Einstieg des Tile-Bonus (siehe _tilebonus_cost): die ersten 10 Stufen wachsen
+# mit TILEBONUS_EARLY_GROWTH statt dem regulären growth (1.413), danach stetig wieder regulär.
+const TILEBONUS_EARLY_LEVELS = 10
+const TILEBONUS_EARLY_GROWTH = 1.25
+
+
 # Tile-Bonus (+Geld /Feld) bei Upgrade-Stufe `level` (0..100). Zwei Phasen:
 #   Lv0–20:  linear +0.5/Stufe  → +10/Feld bei Lv20 (dort ≈ 10k Kosten).
 #   Lv20–100: stark beschleunigt, Verdopplung alle 3 Stufen → Lv50 ≈ +10.000/Feld, Lv100 ≈ +1e9/Feld.
@@ -1095,6 +1127,8 @@ func _endmult_value(level: int) -> float:
 func get_upgrade_cost(id: String) -> int:
 	if id == "speed":
 		return _speed_cost(get_upgrade_level(id))
+	if id == "tilebonus":
+		return _tilebonus_cost(get_upgrade_level(id))
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0
@@ -1102,16 +1136,37 @@ func get_upgrade_cost(id: String) -> int:
 	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), level)))
 
 
-# Tempo-Kosten der NÄCHSTEN Stufe. Stufen 0–15 wie der „Auto 1"-Verlauf (base · 4.4^level,
-# Stufe-15-Kauf ≈ 50b). Ab Stufe 15 sanfteres Wachstum (SPEED_TAIL_GROWTH), damit die hohen
-# Tempo-Stufen für die langsameren Auto-Tiers (bis Tempo 12150) erreichbar bleiben.
+# Tile-Bonus-Kosten der NÄCHSTEN Stufe. Wie beim Tempo: die ersten TILEBONUS_EARLY_LEVELS Stufen
+# wachsen sanfter (TILEBONUS_EARLY_GROWTH statt growth) → günstigerer, flacherer Einstieg. Ab dieser
+# Stufe geht es STETIG (kein Sprung) mit dem ursprünglichen growth weiter (am 10er-Preis angeknüpft).
+func _tilebonus_cost(level: int) -> int:
+	var d := UPGRADES["tilebonus"]
+	var bc := float(d["base_cost"])
+	var g  := float(d["growth"])
+	if level <= TILEBONUS_EARLY_LEVELS:
+		return int(round(bc * pow(TILEBONUS_EARLY_GROWTH, level)))
+	var early := bc * pow(TILEBONUS_EARLY_GROWTH, TILEBONUS_EARLY_LEVELS)
+	return int(round(early * pow(g, level - TILEBONUS_EARLY_LEVELS)))
+
+
+# Tempo-Kosten der NÄCHSTEN Stufe. Drei stetig ineinander übergehende Phasen (keine Sprünge):
+#   Stufe 0–10:   sanfter Einstieg (base · SPEED_EARLY_GROWTH^level) → günstiger als früher.
+#   Stufe 10–15:  ab dem 10er-Preis wieder der ursprüngliche „Auto 1"-Verlauf (×growth = 4.4).
+#   Stufe >15:    sanfteres Tail-Wachstum (×SPEED_TAIL_GROWTH), damit die hohen Tempo-Stufen für
+#                 die langsameren Auto-Tiers (bis Tempo 12150) erreichbar bleiben.
+# Jeder Phasenwechsel knüpft am letzten Preis der Vorphase an → der Übergang ist genau ein
+# normaler ×growth- bzw. ×tail-Schritt, kein Preissprung.
 func _speed_cost(level: int) -> int:
 	var d := UPGRADES["speed"]
 	var bc := float(d["base_cost"])
 	var g  := float(d["growth"])
+	if level <= SPEED_EARLY_LEVELS:
+		return int(round(bc * pow(SPEED_EARLY_GROWTH, level)))
+	var early := bc * pow(SPEED_EARLY_GROWTH, SPEED_EARLY_LEVELS)   # Preis am Ende der Einstiegsphase
 	if level <= SPEED_BASE_LEVELS:
-		return int(round(bc * pow(g, level)))
-	return int(round(bc * pow(g, SPEED_BASE_LEVELS) * pow(SPEED_TAIL_GROWTH, level - SPEED_BASE_LEVELS)))
+		return int(round(early * pow(g, level - SPEED_EARLY_LEVELS)))
+	var base15 := early * pow(g, SPEED_BASE_LEVELS - SPEED_EARLY_LEVELS)   # Preis bei SPEED_BASE_LEVELS
+	return int(round(base15 * pow(SPEED_TAIL_GROWTH, level - SPEED_BASE_LEVELS)))
 
 
 func is_maxed(id: String) -> bool:
