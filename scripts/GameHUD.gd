@@ -865,10 +865,19 @@ func _process(_delta: float) -> void:
 # ── Callbacks ──────────────────────────────────────────────────────────────────
 
 func _on_tab_pressed(idx: int) -> void:
-	if idx == _active_tab:
-		return
 	# Gesperrte Strecke (noch nicht per Prestige freigeschaltet) → ignorieren.
 	if idx >= Economy.get_unlocked_tracks():
+		return
+	# Ein Klick auf einen Strecken-Tab führt IMMER direkt zur Strecke: ist gerade ein Modal
+	# (Shop/Erfolge/…) oder das Einstellungs-Menü offen, wird es zuerst geschlossen – auch
+	# dann, wenn dieselbe Strecke bereits aktiv ist (sonst bliebe der Shop davor sichtbar).
+	if GlobalModal.visible:
+		GlobalModal.close()
+	if PauseMenu.is_settings_open():
+		PauseMenu.close_settings()
+	_active_page = PAGE_STRECKE
+	_refresh_nav_highlight()
+	if idx == _active_tab:
 		return
 	_active_tab   = idx
 	# Baumodus über 2D→2D-Streckenwechsel hinweg beibehalten; nur beim Wechsel in eine
