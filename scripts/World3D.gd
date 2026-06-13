@@ -36,6 +36,7 @@ var _grid_state:      Array = []   # für Auto-Respawn bei Live-Upgrade gemerkt
 
 var _finish_btn:   Button = null
 var _bottom_bar:   Control = null   # untere Leiste (wie im 2D-Bauplan), trägt den Finish-Button
+var _finish_sfx:   AudioStreamPlayer = null   # Jingle beim Überfahren der Ziellinie (nur hier in 3D)
 
 
 func _ready() -> void:
@@ -77,6 +78,10 @@ func _ready() -> void:
 	Economy.run_ended.connect(_on_economy_run_ended)
 	# Upgrade-Kauf → Autos der angeschauten Strecke neu aufsetzen (Tempo/Anzahl/Reward live).
 	Economy.upgrade_purchased.connect(_on_upgrade_purchased)
+	# Ziel-Sound: nur hier (3D-Ansicht) verbunden → ertönt ausschließlich, während man die Fahrt
+	# auch ansieht. lap_credited feuert je Strecke; wir filtern auf die gerade gezeigte Strecke.
+	_setup_finish_sfx()
+	Economy.lap_credited.connect(_on_lap_credited_sfx)
 
 	if not _run_active:
 		# Runde ist bereits beendet (z.B. während man eine andere Strecke ansah) → Popup
@@ -130,6 +135,39 @@ func _on_economy_run_ended(track_idx: int, _earned: int) -> void:
 # "Fahrt beenden": Lauf vorzeitig beenden (ohne den Timer abzuwarten) → Zusammenfassung.
 func _on_finish_run_pressed() -> void:
 	_end_run()
+
+
+# Eigener AudioStreamPlayer für den Ziel-Jingle. Läuft auf dem "SFX"-Bus (Effekte-Regler) und
+# darf – anders als die Hintergrundmusik – nicht loopen (eigene Kopie, damit der Loop-Flag der
+# Ressource nichts anderes beeinflusst).
+func _setup_finish_sfx() -> void:
+	var res := load(Paths.SFX_FINISH)
+	if res == null:
+		push_warning("World3D: Konnte Ziel-Sound nicht laden: %s" % Paths.SFX_FINISH)
+		return
+	# Eigene Kopie mit loop = false, damit der Jingle einmalig spielt (analog zu Sfx.gd).
+	var stream: AudioStream = res
+	if res is AudioStreamMP3:
+		var s := (res as AudioStreamMP3).duplicate() as AudioStreamMP3
+		s.loop = false
+		stream = s
+	elif res is AudioStreamOggVorbis:
+		var s := (res as AudioStreamOggVorbis).duplicate() as AudioStreamOggVorbis
+		s.loop = false
+		stream = s
+	_finish_sfx = AudioStreamPlayer.new()
+	_finish_sfx.bus    = "SFX"
+	_finish_sfx.stream = stream
+	add_child(_finish_sfx)
+
+
+# Economy schreibt eine Runde gut (= Auto über die Startlinie). Nur für die gerade gezeigte
+# Strecke und nur, wenn der Ziel-Sound in den Einstellungen aktiv ist, den Jingle abspielen.
+func _on_lap_credited_sfx(track_idx: int, _amount: int) -> void:
+	if track_idx != _active_track_idx or not Display.finish_sound:
+		return
+	if _finish_sfx != null:
+		_finish_sfx.play()
 
 
 # Upgrade gekauft, während diese Strecke gezeigt wird: Autos neu aufsetzen, damit Tempo,

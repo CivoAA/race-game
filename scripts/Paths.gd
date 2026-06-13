@@ -50,6 +50,7 @@ const SHADER_MAINMENU_BG = "res://shaders/mainmenu_bg.gdshader"
 # UI-Soundeffekte – laufen über den "SFX"-Bus, also direkt vom Effekte-Regler gesteuert.
 const SFX_UI_HOVER = "res://assets/musik/sound-9.mp3"   # Maus über einen Button
 const SFX_UI_CLICK = "res://assets/musik/sound-14.mp3"  # Button geklickt
+const SFX_FINISH   = "res://assets/musik/ziel.mp3"      # Auto überfährt die Ziellinie (nur 3D-Ansicht)
 
 # 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben)
 const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/Default/Default_Street.glb"

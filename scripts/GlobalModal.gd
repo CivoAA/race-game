@@ -643,24 +643,11 @@ func _build_cat_tiles(parent: Control, x: int, h: int, w: int, top: int = 0) -> 
 	vbox.add_theme_constant_override("separation", 0)
 	scroll.add_child(vbox)
 
-	# Kein eigener „STRECKENTEILE"-Header mehr – die aktive Toggle-Pille oben ist der Titel.
+	# Kein Info-Text und kein eigener „STRECKENTEILE"-Header mehr – die aktive Toggle-Pille oben
+	# ist der Titel. Die Karten mit ihrer 3D-Vorschau sprechen für sich.
 	var htop := Control.new()
-	htop.custom_minimum_size = Vector2(0, 14)
+	htop.custom_minimum_size = Vector2(0, 16)
 	vbox.add_child(htop)
-
-	var info := Label.new()
-	info.text = "Schalte neue Streckenteile frei. Freigeschaltete Teile stehen danach im Baumodus (Hammer-Button) zur Verfügung."
-	info.add_theme_font_size_override("font_size", 12)
-	info.add_theme_color_override("font_color", C_TEXT_DIM)
-	info.autowrap_mode = TextServer.AUTOWRAP_WORD
-	info.custom_minimum_size = Vector2(w - 32, 0)
-	var ipad := HBoxContainer.new()
-	ipad.add_child(_hpad(16)); ipad.add_child(info)
-	vbox.add_child(ipad)
-
-	var pad := Control.new()
-	pad.custom_minimum_size = Vector2(0, 10)
-	vbox.add_child(pad)
 
 	# Karten-Raster horizontal ZENTRIERT (CenterContainer) statt linksbündig – die Karten sitzen
 	# mittig im verfügbaren Platz, egal wie viele Spalten gerade passen.
@@ -2607,21 +2594,6 @@ func _add_upgrade_rows(vbox: VBoxContainer, row_w: float) -> void:
 	var utop := Control.new()
 	utop.custom_minimum_size = Vector2(0, 12)
 	vbox.add_child(utop)
-
-	# Kurzer Info-Text (wie bei den Streckenteilen) für ein konsistentes, aufgeräumtes Bild.
-	var info := Label.new()
-	info.text = "Verbessere dauerhaft deine Einnahmen, dein Tempo und deine Bonusfelder. Jede Stufe wirkt sofort."
-	info.add_theme_font_size_override("font_size", 12)
-	info.add_theme_color_override("font_color", C_TEXT_DIM)
-	info.autowrap_mode = TextServer.AUTOWRAP_WORD
-	info.custom_minimum_size = Vector2(row_w - 16, 0)
-	var ipad := HBoxContainer.new()
-	ipad.add_child(_hpad(16)); ipad.add_child(info)
-	vbox.add_child(ipad)
-
-	var pad := Control.new()
-	pad.custom_minimum_size = Vector2(0, 12)
-	vbox.add_child(pad)
 
 	# Upgrade-Karten zentriert im Raster (responsive Spaltenzahl, Karte 230 breit).
 	var center := CenterContainer.new()

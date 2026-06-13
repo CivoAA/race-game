@@ -30,6 +30,9 @@ var achievement_popups: bool = true
 # Shop-Hinweis-„Rad": das Lade-Rad mit Erklärtexten beim Verweilen über Shop-Teilen/Upgrades
 # (Standard an). Betrifft NUR dieses Rad-System; andere Hinweise bleiben unabhängig davon.
 var shop_hints: bool = true
+# Ziel-Sound: spielt einen Jingle, wenn das Auto in der 3D-Fahrt über die Ziellinie fährt
+# (Standard an). Greift nur in der 3D-Ansicht (World3D), nie im 2D-Bauplan-Hintergrund.
+var finish_sound: bool = true
 
 var _layer:     CanvasLayer
 var _fps_lbl:   Label
@@ -103,6 +106,10 @@ func set_shop_hints(on: bool) -> void:
 	shop_hints = on
 
 
+func set_finish_sound(on: bool) -> void:
+	finish_sound = on
+
+
 # ── Startwerte laden ────────────────────────────────────────────────────────────
 
 func _load_from_settings() -> void:
@@ -113,3 +120,4 @@ func _load_from_settings() -> void:
 	performance_mode   = bool(_settings.get_value("options", "performance_mode", false))
 	achievement_popups = bool(_settings.get_value("options", "achievement_popups", true))
 	shop_hints         = bool(_settings.get_value("options", "shop_hints", true))
+	finish_sound       = bool(_settings.get_value("options", "finish_sound", true))

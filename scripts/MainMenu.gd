@@ -126,6 +126,7 @@ var _res_option:    OptionButton
 var _rotate_switch: CheckButton
 var _cheat_switch:  CuteToggle
 var _music_min_switch: CuteToggle
+var _finish_sound_switch: CuteToggle   # Ziel-Sound beim Überfahren der Ziellinie (3D)
 var _fps_switch:       CuteToggle
 var _mult_option:       OptionButton
 var _notation_option:   OptionButton
@@ -1094,6 +1095,13 @@ func _build_options_panel() -> Control:
 
 	_add_spacer(v1, 8)
 	_add_hline(v1)
+	_add_section_label(v1, "EFFEKTE")
+	_finish_sound_switch = _add_toggle_row(v1, "Ziel-Sound:")
+	_finish_sound_switch.toggled.connect(_on_finish_sound_toggled)
+	_add_setting_hint(v1, "Spielt einen Sound, wenn dein Auto in der 3D-Ansicht über die Ziellinie fährt.")
+
+	_add_spacer(v1, 8)
+	_add_hline(v1)
 	_add_section_label(v1, "HINTERGRUND")
 	_music_min_switch = _add_toggle_row(v1, "Musik bei Minimierung:")
 	_music_min_switch.toggled.connect(_on_music_min_toggled)
@@ -1532,6 +1540,7 @@ func _sync_settings_ui() -> void:
 	_cheat_switch.button_pressed = cheat
 
 	_music_min_switch.button_pressed  = bool(settings.get_value("options", "music_on_minimize", true))
+	_finish_sound_switch.button_pressed = bool(settings.get_value("options", "finish_sound", true))
 	_fps_switch.button_pressed        = bool(settings.get_value("options", "show_fps", false))
 	_mult_option.selected             = clampi(int(settings.get_value("options", "show_multiplier", Display.MultiplierMode.AFFECTED)), 0, 2)
 	_notation_option.selected         = clampi(int(settings.get_value("options", "money_notation", Display.MoneyNotation.STANDARD)), 0, 2)
@@ -1607,6 +1616,13 @@ func _on_music_min_toggled(pressed: bool) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "music_on_minimize", pressed)
 	MusicPlayer.set_music_on_minimize(pressed)
+	_settings_dirty = true
+
+
+func _on_finish_sound_toggled(pressed: bool) -> void:
+	if _loading_settings: return
+	settings.set_value("options", "finish_sound", pressed)
+	Display.set_finish_sound(pressed)
 	_settings_dirty = true
 
 
