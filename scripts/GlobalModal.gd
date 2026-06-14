@@ -614,19 +614,27 @@ func _tile_entries() -> Array:
 	return [
 		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+1 Ertrag · frei", "upgrade": "dirtstraightbonus", "field_earn_base": 1},
 		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DIRT,       "desc": "+1 Ertrag · frei", "upgrade": "dirtcurvebonus", "field_earn_base": 1},
-		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+25 Ertrag", "upgrade": "straightbonus", "field_earn_base": 25},
-		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+25 Ertrag", "upgrade": "curvebonus", "field_earn_base": 25},
-		{"name": "Eisgerade",    "key": "ice",         "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
-		{"name": "Eiskurve",     "key": "ice_curve",   "model": Paths.MODEL_TRACK_CURVE_ICE,         "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
-		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+50 Ertrag · ×1.2", "upgrade": "racestraightbonus", "field_earn_base": 50},
-		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+50 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 50},
+		# Sand: günstigste bezahlte Strecke (+25, eigene additive Upgrades) – zwischen Dreck und Eis/Default.
+		{"name": "Sand-Gerade",   "key": "sand_straight", "model": Paths.MODEL_TRACK_STRAIGHT_SAND,  "desc": "+25 Ertrag", "upgrade": "sandstraightbonus", "field_earn_base": 25},
+		{"name": "Sand-Kurve",    "key": "sand_curve",    "model": Paths.MODEL_TRACK_CURVE_SAND,     "desc": "+25 Ertrag", "upgrade": "sandcurvebonus", "field_earn_base": 25},
+		# Eis: EIN Eintrag schaltet Gerade + Kurve frei und führt das gemeinsame Upgrade (icebonus).
+		# Direkt hinter Sand, da der Freischaltpreis (25k) preislich dazwischen passt.
+		{"name": "Eis (Gerade + Kurve)", "key": "ice", "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
+		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+150 Ertrag", "upgrade": "straightbonus", "field_earn_base": 150},
+		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+150 Ertrag", "upgrade": "curvebonus", "field_earn_base": 150},
+		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+1000 Ertrag · ×1.2", "upgrade": "racestraightbonus", "field_earn_base": 1000},
+		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+1000 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 1000},
 		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		{"name": "Steilwandkurve","key": "wall",       "model": "",                                 "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
 		{"name": "Looping",      "key": "loop",        "model": "",                                 "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
 		{"name": "Portal",       "key": "portal",      "model": "",                                 "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
 		{"name": "Tribüne",      "key": "stand",       "model": "",                                 "desc": "×2.5 Nachbarfeld · stapelbar", "upgrade": "standbonus", "field_earn_base": 0},
-		{"name": "Schikane",     "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
-		{"name": "Boost-Feld",   "key": "coming",      "model": "", "desc": "Bald verfügbar", "coming": true},
+		# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren, vorerst ohne
+		# Ökonomie-Effekt. Freischaltkosten 1 (Economy.TILE_UNLOCK_COST), kein Upgrade.
+		{"name": "Wasser-Gerade", "key": "water_straight","model": Paths.MODEL_TRACK_STRAIGHT_WATER, "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
+		{"name": "Wasser-Kurve",  "key": "water_curve",   "model": Paths.MODEL_TRACK_CURVE_WATER,    "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
+		{"name": "Kleber-Gerade", "key": "glue_straight", "model": Paths.MODEL_TRACK_STRAIGHT_GLUE,  "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
+		{"name": "Kleber-Kurve",  "key": "glue_curve",    "model": Paths.MODEL_TRACK_CURVE_GLUE,     "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
 	]
 
 
@@ -2300,9 +2308,10 @@ func _build_autos_options() -> void:
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info.add_theme_font_size_override("font_size", 13)
 	info.add_theme_color_override("font_color", C_TEXT)
-	var pts := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
-	info.text = "Aktuelles Auto: %s (Stufe %d)\nUpgrade: %s  →  Reset inkl. Prestige-Baum, danach ×%d %s" % [
-		_car_tier_name(tier), tier, Economy.format_currency(cost), pts, Icons.STAR]
+	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
+	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, tier + 1))
+	info.text = "Aktuelles Auto: %s (Stufe %d)\nUpgrade: %s  →  Reset inkl. Prestige-Baum, danach ×%d %s und %d Baum-Knoten je Prestige" % [
+		_car_tier_name(tier), tier, Economy.format_currency(cost), pts, Icons.STAR, step]
 	_ws_options_box.add_child(info)
 
 	var btn := Button.new()
@@ -3387,9 +3396,10 @@ func _on_ascend_pressed() -> void:
 	if not Economy.can_ascend_car():
 		return
 	var next_tier := Economy.get_car_tier() + 1
-	var pts := int(pow(Economy.CAR_ASCEND_POINT_MULT, next_tier))
-	_ascend_confirm_lbl.text = "Dein Auto wird zu %s aufgewertet (Stufe %d).\n\nGeld, Upgrades, Teile UND der Prestige-Baum\nwerden komplett zurückgesetzt. Danach fährt nur\nnoch dieses Auto und du erhältst ×%d %s pro Prestige." % [
-		_car_tier_name(next_tier), next_tier, pts, Icons.STAR]
+	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, next_tier))
+	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, next_tier))
+	_ascend_confirm_lbl.text = "Dein Auto wird zu %s aufgewertet (Stufe %d).\n\nGeld, Upgrades, Teile UND der Prestige-Baum\nwerden komplett zurückgesetzt. Danach fährt nur\nnoch dieses Auto, du erhältst ×%d %s pro Prestige\nund jedes Prestige schaltet %d Baum-Knoten frei." % [
+		_car_tier_name(next_tier), next_tier, pts, Icons.STAR, step]
 	_ascend_confirm.visible = true
 
 

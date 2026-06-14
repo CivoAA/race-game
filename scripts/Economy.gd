@@ -49,6 +49,9 @@ const CAR_TIER_COUNT        = 2
 const CAR_ASCEND_BASE       = 100_000_000_000.0  # Geld-Schwelle 1. Aufstieg (100 Mrd)
 const CAR_ASCEND_GROWTH     = 10.0               # Schwelle ×10 je weiterer Stufe
 const CAR_ASCEND_POINT_MULT = 4.0                # ×4 Prestigepunkte je Stufe (stapelt: ×4, ×16, …)
+const CAR_ASCEND_COUNT_MULT = 2.0                # ×2 Prestige-Zähler je Stufe (stapelt: ×2, ×4, …) →
+                                                 # jedes Prestige schaltet entspr. mehr Baum-Knoten frei,
+                                                 # macht den Werkstatt-Reset (prestige_count→0) weicher
 
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
@@ -129,6 +132,18 @@ const UPGRADES = {
 	},
 	"curvebonus": {
 		"category": "tile", "name": "Kurven-Ertrag (+ je Kurve)",
+		"base_cost": 200, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
+	},
+	# Sand: günstigste bezahlte Strecke – übernimmt das frühere Default-Balancing (+25 Grundertrag,
+	# rein additive Upgrades wie Default-Gerade/-Kurve: per_level 12.5, gleiche Kosten).
+	"sandstraightbonus": {
+		"category": "tile", "name": "Sand-Geraden-Ertrag (+ je Gerade)",
+		"base_cost": 200, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 12.5, "unit": " /Gerade",
+	},
+	"sandcurvebonus": {
+		"category": "tile", "name": "Sand-Kurven-Ertrag (+ je Kurve)",
 		"base_cost": 200, "growth": 3.0, "max_level": 12,
 		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
 	},
@@ -494,17 +509,28 @@ signal achievement_claimed(id: String)
 # Zentrale Freischaltkosten (gemeinsame Quelle für Bau-Shop in Main.gd und den
 # Streckenteile-Tab in GlobalModal.gd). Main.SHOP_ITEMS spiegelt diese Werte.
 const TILE_UNLOCK_COST = {
-	"def_straight": 10000,
-	"def_curve":    15000,
-	"race_straight": 100000,   # Rennstrecke: eigenes Teil (+50 flach UND ×1.2), eigene Upgrades, teurer
-	"race_curve":    120000,   # Rennkurve:   eigenes Teil (+50 flach UND ×1.2), eigene Upgrades, teurer
+	# Sand: günstigste bezahlte Strecke – übernimmt die früheren Default-Freischaltkosten.
+	"sand_straight":  10000,
+	"sand_curve":     15000,
+	# Default (gebufft, +150): mittlere Stufe, etwas günstiger als die (neue) Rennstrecke.
+	"def_straight":  70000,
+	"def_curve":     80000,
+	# Rennstrecke (+1000 · ×1.2): teuerstes reguläres Streckenteil.
+	"race_straight": 200000,
+	"race_curve":    220000,
+	# Eis: EIN gemeinsamer Schlüssel schaltet Gerade + Kurve frei (Preis von der Geraden).
 	"ice":          25000,
-	"ice_curve":    30000,     # Eiskurve: etwas teurer als die Eisgerade (auch beim Freischalten)
 	"ramp":         25000000,
 	"wall":         500000000,
 	"loop":         15000000000,
 	"portal":       100000000000,
 	"stand":        1000000000000,
+	# Test-Beläge (Wasser/Kleber): nur zum Ausprobieren der neuen 3D-Assets, vorerst ohne
+	# Ökonomie-Effekt. Freischaltkosten pauschal 1 (wie der Kaufpreis im Bau-Shop).
+	"water_straight": 1,
+	"water_curve":    1,
+	"glue_straight":  1,
+	"glue_curve":     1,
 }
 
 # ── Eisgerade ───────────────────────────────────────────────────────────────────
@@ -806,6 +832,8 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 	var jump_mult   := get_ramp_jump_mult()
 	var straight_b  := get_effect("straightbonus")
 	var curve_b     := get_effect("curvebonus")
+	var sandstraight_b := get_effect("sandstraightbonus")
+	var sandcurve_b    := get_effect("sandcurvebonus")
 	var racestraight_b := get_effect("racestraightbonus")
 	var racecurve_b    := get_effect("racecurvebonus")
 	var dstraight_b := get_effect("dirtstraightbonus")
@@ -820,6 +848,8 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 		match String(tile.get("kind", "plain")):
 			"pstraight": add += straight_b
 			"pcurve":    add += curve_b
+			"psandstraight": add += sandstraight_b
+			"psandcurve":    add += sandcurve_b
 			"pracestraight": add += racestraight_b
 			"pracecurve":    add += racecurve_b
 			"dstraight": add += dstraight_b
@@ -1382,14 +1412,21 @@ func can_ascend_car() -> bool:
 func get_car_point_mult() -> float:
 	return pow(CAR_ASCEND_POINT_MULT, car_tier)
 
+# Wie viele Prestige-Zähler ein einzelnes Prestige gutschreibt (stapelt je Auto-Stufe: 1, 2, 4, …).
+# Da ascend_car prestige_count auf 0 setzt, holt man so pro Prestige mehrere Baum-Knoten auf einmal
+# zurück (Auto-Stufe 1 = 2 Knoten/Prestige), damit der Werkstatt-Reset nicht so hart trifft.
+func get_car_prestige_step() -> int:
+	return int(pow(CAR_ASCEND_COUNT_MULT, car_tier))
+
 # Anzahl fahrender Tier-Autos ab Stufe ≥1: Basis 1 + je SUPER_CAR_COST_CARS normale Autos eines mehr.
 func get_tier_car_count() -> int:
 	return 1 + int(get_car_count() / SUPER_CAR_COST_CARS)
 
-# Führt den Auto-Aufstieg aus: car_tier += 1, danach Reset (Geld/Upgrades/Tiles + Prestige-PUNKTE
-# und Node-Level). NICHT zurückgesetzt: car_tier + Kosmetik UND prestige_count – dadurch bleibt der
-# Tech-Baum komplett freigeschaltet (man muss nicht erneut prestigen) und kann von Anfang an wieder
-# hochgekauft werden; Tab-Unlocks (prestige_/werkstatt_) bleiben ebenfalls dauerhaft.
+# Führt den Auto-Aufstieg aus: car_tier += 1, danach Reset (Geld/Upgrades/Tiles + Prestige-PUNKTE,
+# Node-Level UND prestige_count → der Tech-Baum ist wieder gated und muss neu hochgeprestigt werden).
+# Als Ausgleich schaltet jedes Prestige nach dem Aufstieg gleich mehrere Knoten frei
+# (get_car_prestige_step, stapelt ×2 je Stufe), damit der Reset nicht so hart trifft.
+# NICHT zurückgesetzt: car_tier + Kosmetik; Tab-Unlocks (prestige_/werkstatt_) bleiben ebenfalls dauerhaft.
 func ascend_car() -> bool:
 	if not can_ascend_car():
 		return false
@@ -1401,7 +1438,8 @@ func ascend_car() -> bool:
 	unlocked_tiles  = {}
 	prestige_earned = 0
 	prestige_points = 0
-	prestige_nodes  = {}   # Node-LEVEL zurück auf 0 (neu kaufen), aber prestige_count bleibt → alles freigeschaltet
+	prestige_nodes  = {}   # Node-LEVEL zurück auf 0 (neu kaufen)
+	prestige_count  = 0    # Zähler zurück → Baum wieder gated, aber jedes Prestige holt jetzt mehr Knoten auf einmal
 	super_car_count = 0
 	_active_track   = 0
 	_init_tracks()
@@ -1685,7 +1723,7 @@ func do_prestige() -> int:
 	if gained < 1:
 		return 0
 	prestige_points += gained
-	prestige_count  += 1   # schaltet positionsbasiert den nächsten Tech-Baum-Knoten frei
+	prestige_count  += get_car_prestige_step()   # schaltet positionsbasiert den/die nächsten Knoten frei (×2 je Auto-Stufe)
 	# Erfolge: „X Prestiges durchgeführt" (count) und „Besitze X ⭐" (Punkte aus diesem Prestige).
 	_check_metric_achievements("prestige_count", float(prestige_count))
 	_check_metric_achievements("prestige_points", float(prestige_points))
