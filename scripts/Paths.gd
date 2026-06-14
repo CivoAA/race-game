@@ -54,16 +54,22 @@ const SFX_FINISH   = "res://assets/musik/ziel.mp3"      # Auto überfährt die Z
 
 # 3D-Strecken-Modelle (Ordnername "staight" ist im Dateisystem so geschrieben).
 # Neuer Asset-Satz: pro Belag je ein Geraden- und ein Kurven-GLB, alle auf demselben
-# 3×3-Raster (Kachel = 3.0 Modell-Einheiten). Beläge im Spiel: Road(=Default)/Dirt/Ice/Race.
-# Die Modelle Glue/Sand/Water existieren als Asset, sind aber noch nicht im Spiel → nicht referenziert.
+# 3×3-Raster (Kachel = 3.0 Modell-Einheiten). Beläge im Spiel:
+# Road(=Default)/Dirt/Ice/Race sowie die Test-Beläge Sand/Water/Glue (noch ohne Ökonomie-Effekt).
 const MODEL_TRACK_STRAIGHT_DEFAULT = "res://assets/3D-models/tracks/staight/RoadStraight.glb"
 const MODEL_TRACK_STRAIGHT_DIRT    = "res://assets/3D-models/tracks/staight/DirtStraight.glb"
 const MODEL_TRACK_STRAIGHT_ICE     = "res://assets/3D-models/tracks/staight/IceStraight.glb"
 const MODEL_TRACK_STRAIGHT_RACING  = "res://assets/3D-models/tracks/staight/RaceStraight.glb"
+const MODEL_TRACK_STRAIGHT_SAND    = "res://assets/3D-models/tracks/staight/SandStraight.glb"
+const MODEL_TRACK_STRAIGHT_WATER   = "res://assets/3D-models/tracks/staight/WaterStraight.glb"
+const MODEL_TRACK_STRAIGHT_GLUE    = "res://assets/3D-models/tracks/staight/GlueStraight.glb"
 const MODEL_TRACK_CURVE_DEFAULT    = "res://assets/3D-models/tracks/curve/RoadCurve.glb"
 const MODEL_TRACK_CURVE_DIRT       = "res://assets/3D-models/tracks/curve/DirtCurve.glb"
 const MODEL_TRACK_CURVE_ICE        = "res://assets/3D-models/tracks/curve/IceCurve.glb"
 const MODEL_TRACK_CURVE_RACING     = "res://assets/3D-models/tracks/curve/RaceCurve.glb"
+const MODEL_TRACK_CURVE_SAND       = "res://assets/3D-models/tracks/curve/SandCurve.glb"
+const MODEL_TRACK_CURVE_WATER      = "res://assets/3D-models/tracks/curve/WaterCurve.glb"
+const MODEL_TRACK_CURVE_GLUE       = "res://assets/3D-models/tracks/curve/GlueCurve.glb"
 
 # Spezialfelder mit eigenem GLB (ersetzen die früher prozedural gebaute Geometrie).
 const MODEL_TRACK_RAMP  = "res://assets/3D-models/tracks/special/Ramp.glb"

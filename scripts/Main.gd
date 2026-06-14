@@ -51,29 +51,45 @@ var _build_panel_bot: float = 0.0
 const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 10000,  "base_price": 2000,   "growth": 4.0, "upgrade": "straightbonus"},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 15000,  "base_price": 3000,   "growth": 2.33, "upgrade": "curvebonus"},
+	# Sand: günstigste BEZAHLTE Strecke – übernimmt das frühere Default-Balancing (+25, eigene additive
+	# Upgrades sandstraightbonus/sandcurvebonus). Liegt zwischen Dreck und Eis/Default.
+	{"tier": "sand",    "type": "sand_straight", "name": "Sand-Gerade", "key": "sand_straight", "unlock": 10000, "base_price": 2000, "growth": 4.0,  "upgrade": "sandstraightbonus"},
+	{"tier": "sand",    "type": "sand_curve",    "name": "Sand-Kurve",  "key": "sand_curve",    "unlock": 15000, "base_price": 3000, "growth": 2.33, "upgrade": "sandcurvebonus"},
+	# Eis: Gerade + Kurve teilen sich EINEN Schlüssel (gemeinsam freischalten) UND einen Preis-Pool
+	# (Kauf des einen verteuert auch das andere; Preis von der Geraden). Upgrade icebonus gilt für beide.
+	# Direkt hinter Sand, da der Freischaltpreis (25k) preislich dazwischen passt.
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
-	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice_curve",   "unlock": 30000, "base_price": 6000,  "growth": 3.5, "upgrade": "icebonus"},
-	# Rennbelag: EIGENES Teil – höherer flacher Ertrag (+50) UND ein fester ×1.2, eigene additive
-	# Upgrades (racestraightbonus/racecurvebonus). Deutlich teurer (eigener Preis-Pool/Unlock
-	# race_straight/race_curve) + eigenes Pixelart (racing-Ordner).
-	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 100000, "base_price": 20000, "growth": 4.0,  "upgrade": "racestraightbonus"},
-	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 120000, "base_price": 24000, "growth": 2.33, "upgrade": "racecurvebonus"},
+	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
+	# Default (gebufft): +150 Grundertrag, mittlere Stufe – etwas günstiger als die (neue) Rennstrecke.
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 70000, "base_price": 14000, "growth": 4.0, "upgrade": "straightbonus"},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 80000, "base_price": 16000, "growth": 2.33, "upgrade": "curvebonus"},
+	# Rennbelag: EIGENES Teil – hoher flacher Ertrag (+1000) UND ein fester ×1.2, eigene additive
+	# Upgrades (racestraightbonus/racecurvebonus). Teuerstes reguläres Teil + eigenes Pixelart (racing-Ordner).
+	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 200000, "base_price": 40000, "growth": 4.0,  "upgrade": "racestraightbonus"},
+	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 220000, "base_price": 44000, "growth": 2.33, "upgrade": "racecurvebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
 	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
 	{"tier": "portal",  "type": "portal",   "name": "Portal",        "key": "portal",     "unlock": 100000000000, "base_price": 20000000000, "growth": 5.0, "upgrade": "portalbonus"},
 	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 1000000000000, "base_price": 200000000000, "growth": 9.0, "upgrade": "standbonus"},
+	# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren. Vorerst OHNE Ökonomie-
+	# Effekt (kein +Ertrag, kein Multiplikator), Preis pauschal 1. Eigener Tier "test", damit weder
+	# Early-Growth/Gratis-Kontingent noch ein Spezial-Effekt-Text greifen.
+	{"tier": "test",    "type": "water_straight","name": "Wasser-Gerade", "key": "water_straight","unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
+	{"tier": "test",    "type": "water_curve",   "name": "Wasser-Kurve",  "key": "water_curve",   "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
+	{"tier": "test",    "type": "glue_straight", "name": "Kleber-Gerade", "key": "glue_straight", "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
+	{"tier": "test",    "type": "glue_curve",    "name": "Kleber-Kurve",  "key": "glue_curve",    "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
 ]
 
-const SHOP_SLOT_COUNT = 13  # = SHOP_ITEMS.size()
+const SHOP_SLOT_COUNT = 19  # = SHOP_ITEMS.size()
 const PORTAL_MAX      = 2   # genau 2 Portale je Strecke baubar
-# Sanfter Einstieg der Bau-Preise: die ersten EARLY_TILE_COUNT bezahlten Tiles von Default-, Eis-
-# und Renn-Belag skalieren deutlich langsamer (EARLY_TILE_GROWTH statt item.growth); danach geht es
-# STETIG (kein Preissprung) mit dem normalen growth weiter. Siehe _tile_price.
-const EARLY_TILE_COUNT  = 6
-const EARLY_TILE_GROWTH = 1.8
+# Sanfter Einstieg der Bau-Preise: die ersten EARLY_TILE_COUNT bezahlten Tiles von Sand-, Default-,
+# Eis- und Renn-Belag skalieren deutlich langsamer (EARLY_TILE_GROWTH statt item.growth); danach geht
+# es STETIG (kein Preissprung) mit dem normalen growth weiter. Siehe _tile_price.
+# Bewusst flach gehalten, damit man von diesen Strecken früh schon ein paar platzieren kann
+# (bei eff=3, also dem 4. Tile, erst ~2.7× statt früher ~5.8× Basispreis).
+const EARLY_TILE_COUNT  = 8
+const EARLY_TILE_GROWTH = 1.4
 const STAND_MAX_STACK = 5   # Tribüne: max. 5× auf dasselbe Feld stapelbar
 const JUMP_MULT       = 2.0 # Basis-Ertragsfaktor der Rampe (veraltet: Live-Wert via Economy.get_ramp_jump_mult())
 
@@ -1047,6 +1063,10 @@ func _count_paid_tiles_in(g: Array, type: String) -> int:
 			elif type == "curve":
 				if t == "curve" or t == "curve_alt":
 					n += 1
+			elif type == "ice":
+				# Eis: Gerade + Kurve teilen sich einen Preis-Pool → beide zählen gemeinsam.
+				if t == "ice" or t == "ice_curve":
+					n += 1
 			elif t == type:
 				n += 1
 	return n
@@ -1070,20 +1090,29 @@ func _count_paid_tiles(type: String) -> int:
 # Der Prestige-Knoten „Gratis-Straßen" versetzt den Preis um sein Gratis-Kontingent: solange weniger
 # Tiles dieses Typs liegen als das Kontingent, ist das nächste gratis; danach startet der Preis beim
 # ersten Preis (base_price·growth^0), nicht so, als hätte man die Gratis-Tiles bereits bezahlt.
+# Preis-Pool-Typ: Eisgerade und Eiskurve teilen sich EINEN Pool (Kauf des einen verteuert auch das
+# andere). Alle übrigen Typen haben ihren eigenen Pool. So zählt/preist Eis gemeinsam (von der Geraden).
+func _price_pool_type(t: String) -> String:
+	if t == "ice" or t == "ice_curve":
+		return "ice"
+	return t
+
+
 func _tile_price(item: Dictionary) -> int:
 	if item["tier"] == "dirt":
 		return 0
-	var n = _count_paid_tiles(item["type"])
-	var free = Economy.get_free_tile_quota(item["type"])
+	var ptype := _price_pool_type(String(item["type"]))
+	var n = _count_paid_tiles(ptype)
+	var free = Economy.get_free_tile_quota(ptype)
 	if n < free:
 		return 0
 	var eff: int = n - free                       # bezahlte Tiles dieses Typs (nach Gratis-Kontingent)
 	var base := float(item["base_price"])
 	var g    := float(item["growth"])
-	# Default-, Eis- und Renn-Belag: die ersten EARLY_TILE_COUNT bezahlten Tiles skalieren deutlich
+	# Sand-, Default-, Eis- und Renn-Belag: die ersten EARLY_TILE_COUNT bezahlten Tiles skalieren deutlich
 	# sanfter (EARLY_TILE_GROWTH). Danach stetig wieder mit dem normalen growth, am Preis des letzten
 	# sanften Tiles angeknüpft → der Übergang ist genau ein normaler growth-Schritt (kein Sprung).
-	if item["tier"] in ["default", "ice"]:
+	if item["tier"] in ["sand", "default", "ice"]:
 		if eff < EARLY_TILE_COUNT:
 			return int(round(base * pow(EARLY_TILE_GROWTH, eff)))
 		var early := base * pow(EARLY_TILE_GROWTH, EARLY_TILE_COUNT - 1)
@@ -1096,9 +1125,18 @@ func _tile_price(item: Dictionary) -> int:
 # zugehörige Upgrade addiert seinen Live-Effekt. Der Renn-×1.2 wird hier nicht eingerechnet.
 func _tile_field_earn(item: Dictionary) -> int:
 	var t := String(item.get("type", ""))
-	var base := 1 if item.get("tier", "") == "dirt" else 25
-	if t == "race_straight" or t == "race_curve":
-		base = 50   # = CarController.RACE_TILE_EARN (dort die Wahrheitsquelle)
+	# Test-Beläge (Wasser/Kleber): bewusst ohne Effekt → 0 Ertrag pro Feld.
+	if item.get("tier", "") == "test":
+		return 0
+	# Grundertrag je Belag (Wahrheitsquelle: CarController.*_TILE_EARN). Sand = günstigste bezahlte
+	# Strecke (+25), Default gebufft (+150), Rennstrecke (+1000), Dreck +1.
+	var base := 25
+	if item.get("tier", "") == "dirt":
+		base = 1
+	elif t == "race_straight" or t == "race_curve":
+		base = 1000   # = CarController.RACE_TILE_EARN
+	elif t == "straight" or t == "curve":
+		base = 150    # = CarController.PREMIUM_TILE_EARN
 	return base + int(round(Economy.get_effect(item.get("upgrade", ""))))
 
 
@@ -1126,7 +1164,7 @@ func _tile_refund_for(data) -> int:
 	if data == null or data.get("is_dirt", false) or data.get("is_start", false):
 		return 0
 	var t = data.get("type", "")
-	if not (t in ["straight", "curve", "curve_alt", "ice_curve", "race_straight", "race_curve", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
+	if not (t in ["straight", "curve", "curve_alt", "ice_curve", "race_straight", "race_curve", "sand_straight", "sand_curve", "water_straight", "water_curve", "glue_straight", "glue_curve", "ramp_start", "ramp_end", "ice", "wall_start", "wall_end", "loop", "portal", "stand"]):
 		return 0
 	var item = _shop_item_for_type(t)
 	if item.is_empty():
@@ -1143,10 +1181,11 @@ func _tile_refund_for(data) -> int:
 				break
 			total += float(item["base_price"]) * pow(float(item["growth"]), idx)
 		return int(round(total))
-	var n = _count_paid_tiles(item["type"])   # inkl. dieses Tile (Rampe: zählt ramp_start)
+	var ptype := _price_pool_type(String(item["type"]))   # Eis: gemeinsamer Pool (Gerade + Kurve)
+	var n = _count_paid_tiles(ptype)   # inkl. dieses Tile (Rampe: zählt ramp_start)
 	# Gratis-Kontingent (free_roads) berücksichtigen: war dieses Tile noch im Gratis-Bereich
 	# (n <= free), wurde nichts bezahlt → keine Rückerstattung. Sonst marginaler Preis versetzt.
-	var free = Economy.get_free_tile_quota(item["type"])
+	var free = Economy.get_free_tile_quota(ptype)
 	if n <= free:
 		return 0
 	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - free - 1)))
@@ -1243,7 +1282,7 @@ func _update_build_ui() -> void:
 
 # Repräsentatives Glyph je Streckenteil (für den Icon-Chip auf der Bau-Karte).
 func _tile_icon_glyph(item: Dictionary) -> String:
-	if item["type"] == "curve" or item["type"] == "race_curve":
+	if item["type"] in ["curve", "race_curve", "sand_curve", "water_curve", "glue_curve"]:
 		return "╰"
 	match item["tier"]:
 		"ramp":
@@ -1283,6 +1322,8 @@ func _tile_effect_text(item: Dictionary) -> String:
 			return "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
 		"dirt":
 			return "+%d pro Feld" % _tile_field_earn(item)
+		"test":
+			return "Test · noch kein Effekt"
 	return "+%d pro Feld" % _tile_field_earn(item)
 
 
@@ -1453,7 +1494,7 @@ func _tile_texture_for(data: Dictionary) -> Texture2D:
 		belag = "ice"
 	elif t == "race_straight" or t == "race_curve":
 		belag = "race"
-	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve", "race_curve"] else "straight"
+	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve", "race_curve", "sand_curve", "water_curve", "glue_curve"] else "straight"
 	var path := Paths.tile2d_texture(belag, shape, int(data.get("rotation", 0)))
 	if path == "":
 		return null
@@ -1531,6 +1572,7 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		"straight":      scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 		"ice":           scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 		"race_straight": scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+		"sand_straight", "water_straight", "glue_straight": scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 		"curve_alt":     scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
 		"ice_curve":     scene_path = Paths.SCENE_TILE_CURVE_2D
 		"race_curve":    scene_path = Paths.SCENE_TILE_CURVE_2D
@@ -2547,6 +2589,7 @@ func _make_tile_visual(data: Dictionary) -> Node2D:
 			"straight":      scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 			"ice":           scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 			"race_straight": scene_path = Paths.SCENE_TILE_STRAIGHT_2D
+			"sand_straight", "water_straight", "glue_straight": scene_path = Paths.SCENE_TILE_STRAIGHT_2D
 			"curve_alt":     scene_path = Paths.SCENE_TILE_CURVE_ALT_2D
 			"ice_curve":     scene_path = Paths.SCENE_TILE_CURVE_2D
 			"race_curve":    scene_path = Paths.SCENE_TILE_CURVE_2D
@@ -3213,7 +3256,7 @@ func _rotate_active(degrees: int) -> void:
 	# Kacheln sind aufeinander abgestimmt (genau wie die Vorschau „in der Hand"). Badges/Labels
 	# werden dabei sauber neu gesetzt.
 	var t := String(data.get("type", ""))
-	if data.get("is_dirt", false) or t in ["straight", "curve", "curve_alt", "ice", "ice_curve", "race_straight", "race_curve"]:
+	if data.get("is_dirt", false) or t in ["straight", "curve", "curve_alt", "ice", "ice_curve", "race_straight", "race_curve", "sand_straight", "sand_curve", "water_straight", "water_curve", "glue_straight", "glue_curve"]:
 		var nd = data.duplicate()
 		nd.erase("node")
 		nd["rotation"] = (int(data["rotation"]) + degrees) % 360
@@ -3343,6 +3386,12 @@ func _type_display_name(typ: String) -> String:
 		"ice_curve":  return "Eiskurve"
 		"race_straight": return "Rennstrecke"
 		"race_curve":    return "Rennkurve"
+		"sand_straight":  return "Sand-Gerade"
+		"sand_curve":     return "Sand-Kurve"
+		"water_straight": return "Wasser-Gerade"
+		"water_curve":    return "Wasser-Kurve"
+		"glue_straight":  return "Kleber-Gerade"
+		"glue_curve":     return "Kleber-Kurve"
 		"curve":      return "Kurve"
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
@@ -3822,7 +3871,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 	var t   = data.get("type", "")
 	var rot = int(data.get("rotation", 0)) % 360
 	var conns: Dictionary
-	if t == "straight" or t == "ramp_start" or t == "ramp_end" or t == "ice" or t == "race_straight":
+	if t == "straight" or t == "ramp_start" or t == "ramp_end" or t == "ice" or t == "race_straight" or t == "sand_straight" or t == "water_straight" or t == "glue_straight":
 		var bn = false; var be = true; var bs = false; var bw = true
 		var steps = (rot / 90) % 4
 		for _i in range(steps):
@@ -3852,7 +3901,7 @@ func _ac_through(data: Dictionary, entry: String) -> String:
 			var tn = bw; var te = bn; var ts = be; var tw = bs
 			bn = tn; be = te; bs = ts; bw = tw
 		conns = {"N": bn, "E": be, "S": bs, "W": bw}
-	elif t == "curve" or t == "curve_alt" or t == "ice_curve" or t == "race_curve":
+	elif t == "curve" or t == "curve_alt" or t == "ice_curve" or t == "race_curve" or t == "sand_curve" or t == "water_curve" or t == "glue_curve":
 		match rot:
 			0:   conns = {"N": false, "E": true,  "S": true,  "W": false}
 			90:  conns = {"N": false, "E": false, "S": true,  "W": true}

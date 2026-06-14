@@ -422,13 +422,19 @@ func generate(grid_state: Array) -> void:
 
 			# Gerade: GLB-Modell. Eisgerade nutzt dieselbe Geraden-Form/Skalierung, aber das
 			# eigene Ice-GLB (mit Eis-Textur); Dirt = eigenes Dreck-GLB, sonst Default.
-			if d["type"] == "straight" or d["type"] == "ice" or d["type"] == "race_straight":
+			if d["type"] in ["straight", "ice", "race_straight", "sand_straight", "water_straight", "glue_straight"]:
 				var model_path: String
 				if d["type"] == "ice":
 					model_path = Paths.MODEL_TRACK_STRAIGHT_ICE
 				elif d["type"] == "race_straight":
 					# Rennstrecke: eigenes Renn-Geraden-GLB (eigene gebackene Textur).
 					model_path = Paths.MODEL_TRACK_STRAIGHT_RACING
+				elif d["type"] == "sand_straight":
+					model_path = Paths.MODEL_TRACK_STRAIGHT_SAND
+				elif d["type"] == "water_straight":
+					model_path = Paths.MODEL_TRACK_STRAIGHT_WATER
+				elif d["type"] == "glue_straight":
+					model_path = Paths.MODEL_TRACK_STRAIGHT_GLUE
 				elif d.get("is_dirt", false):
 					model_path = Paths.MODEL_TRACK_STRAIGHT_DIRT
 				else:
@@ -450,6 +456,12 @@ func generate(grid_state: Array) -> void:
 				curve_path = Paths.MODEL_TRACK_CURVE_ICE
 			elif d["type"] == "race_curve":
 				curve_path = Paths.MODEL_TRACK_CURVE_RACING
+			elif d["type"] == "sand_curve":
+				curve_path = Paths.MODEL_TRACK_CURVE_SAND
+			elif d["type"] == "water_curve":
+				curve_path = Paths.MODEL_TRACK_CURVE_WATER
+			elif d["type"] == "glue_curve":
+				curve_path = Paths.MODEL_TRACK_CURVE_GLUE
 			elif d.get("is_dirt", false):
 				curve_path = Paths.MODEL_TRACK_CURVE_DIRT
 			else:

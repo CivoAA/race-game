@@ -66,6 +66,12 @@ const HINTS := {
 	"curvebonus":
 		"Normale Kurve: bringt mehr Währung pro Feld als die Dreck-Variante. Das Upgrade "
 		+ "erhöht den Ertrag pro Kurve.",
+	"sandstraightbonus":
+		"Sand-Gerade: die günstigste bezahlte Strecke, etwas ertragreicher als Dreck. Das Upgrade "
+		+ "erhöht den Ertrag pro Sand-Gerade.",
+	"sandcurvebonus":
+		"Sand-Kurve: das Kurvenstück der günstigen Sand-Strecke. Das Upgrade erhöht den Ertrag "
+		+ "pro Sand-Kurve.",
 	"racestraightbonus":
 		"Rennstrecke: ein eigenes, hochwertiges Streckenteil. Sie bringt deutlich mehr Währung "
 		+ "pro Feld als die normale Gerade und multipliziert deren Ertrag zusätzlich mit ×1.2. "

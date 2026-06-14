@@ -8,11 +8,14 @@ const TILE_SIZE = 1.2
 #   Default-Tile (gekauft):  +25 additiv, KEIN Multiplikator mehr (rein additiver Ertrag)
 const BASIC_TILE_EARN   = 0.0   # Standard-/Start-Felder: kein Grundertrag (nur Upgrades zählen)
 const DIRT_TILE_EARN    = 1.0   # Dreck-Felder: Grundertrag +1, per Dreck-Upgrade steigerbar
-const PREMIUM_TILE_EARN  = 25.0
+# Sand: günstigste BEZAHLTE Strecke (übernimmt das frühere Default-Balancing: +25, kein Multiplikator).
+# Eigene additive Upgrades: sandstraightbonus / sandcurvebonus (kind "psandstraight"/"psandcurve").
+const SAND_TILE_EARN     = 25.0
+const PREMIUM_TILE_EARN  = 150.0  # Default-Strecke (gebufft) – mittlere Stufe zwischen Sand (+25) und Renn (+1000)
 const PREMIUM_TILE_MULT  = 1.0  # Default-Tiles geben keinen Multiplikator mehr (1.0 = neutral)
-# Rennstrecke: eigenes Streckenteil – doppelter flacher Ertrag (+50) UND ein fester ×1.2 obendrauf.
+# Rennstrecke: teuerstes Streckenteil – hoher flacher Ertrag (+1000) UND ein fester ×1.2 obendrauf.
 # Eigene additive Upgrades: racestraightbonus / racecurvebonus (kind "pracestraight"/"pracecurve").
-const RACE_TILE_EARN     = 50.0
+const RACE_TILE_EARN     = 1000.0
 const RACE_TILE_MULT     = 1.2
 
 var speed: float = 2.5
@@ -255,7 +258,7 @@ func _get_connections(data) -> Dictionary:
 		return {}
 
 	var bn: bool; var be: bool; var bs: bool; var bw: bool
-	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end" or data["type"] == "ice" or data["type"] == "race_straight":
+	if data["type"] == "straight" or data["type"] == "ramp_start" or data["type"] == "ramp_end" or data["type"] == "ice" or data["type"] == "race_straight" or data["type"] == "sand_straight" or data["type"] == "water_straight" or data["type"] == "glue_straight":
 		bn = false; be = true; bs = false; bw = true
 	elif data["type"] == "loop":
 		# Looping: bei rot=0 vertikal (rein Süden, raus Norden). Drehbar wie eine Gerade.
@@ -270,8 +273,8 @@ func _get_connections(data) -> Dictionary:
 		# Portal: genau EINE offene Seite (zur andockenden Strecke), je nach Rotation.
 		var od := _portal_open_dir_d(data)
 		return {"N": od == "N", "E": od == "E", "S": od == "S", "W": od == "W"}
-	elif data["type"] == "curve" or data["type"] == "curve_alt" or data["type"] == "ice_curve" or data["type"] == "race_curve":
-		# curve/curve_alt/ice_curve/race_curve haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
+	elif data["type"] == "curve" or data["type"] == "curve_alt" or data["type"] == "ice_curve" or data["type"] == "race_curve" or data["type"] == "sand_curve" or data["type"] == "water_curve" or data["type"] == "glue_curve":
+		# curve/curve_alt/ice_curve/race_curve/sand_/water_/glue_curve haben dieselben Öffnungen – nur Wegpunkte unterscheiden sich
 		# rot=0: S+E  rot=90: W+S  rot=180: N+W  rot=270: N+E
 		match data["rotation"]:
 			0:   bn = false; be = true;  bs = true;  bw = false
@@ -488,12 +491,17 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			var t = d.get("type", "")
 			# Default-Tile = gekauft (nicht Dreck, nicht Start) und eine echte Fahrkachel.
 			var is_premium = (not d.get("is_dirt", false)) and (not d.get("is_start", false)) \
-				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve"]
+				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve", "sand_straight", "sand_curve"]
 			if is_premium and t in ["race_straight", "race_curve"]:
-				# Rennstrecke: höherer flacher Ertrag (+50) UND fester ×1.2; eigene additive Upgrades.
+				# Rennstrecke: hoher flacher Ertrag (+1000) UND fester ×1.2; eigene additive Upgrades.
 				rec["base"]       = RACE_TILE_EARN
 				rec["fixed_mult"] = RACE_TILE_MULT
 				rec["kind"]       = "pracestraight" if t == "race_straight" else "pracecurve"
+			elif is_premium and t in ["sand_straight", "sand_curve"]:
+				# Sand: günstigste bezahlte Strecke (+25, kein Multiplikator); eigene additive Upgrades.
+				rec["base"]       = SAND_TILE_EARN
+				rec["fixed_mult"] = 1.0
+				rec["kind"]       = "psandstraight" if t == "sand_straight" else "psandcurve"
 			elif is_premium:
 				rec["base"]       = PREMIUM_TILE_EARN
 				rec["fixed_mult"] = PREMIUM_TILE_MULT
@@ -679,7 +687,7 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 				pos.y   = peak_h * 4.0 * t * (1.0 - t) + 0.05
 				wps.append(pos)
 
-	elif type == "straight" or type == "ice" or type == "race_straight":
+	elif type == "straight" or type == "ice" or type == "race_straight" or type == "sand_straight" or type == "water_straight" or type == "glue_straight":
 		wps.append(center)
 		wps.append(center + _dir_to_vec(exit_dir) * half)
 
@@ -710,7 +718,7 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 		wps.append((lp_out + ex) * 0.5); _pending_orient.append(null)
 		wps.append(ex);                  _pending_orient.append(null)
 
-	elif type == "curve" or type == "curve_alt" or type == "ice_curve" or type == "race_curve":
+	elif type == "curve" or type == "curve_alt" or type == "ice_curve" or type == "race_curve" or type == "sand_curve" or type == "water_curve" or type == "glue_curve":
 		var cx: float; var cz: float
 		var a_from: float; var a_to: float
 		match rot:
