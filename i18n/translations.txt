@@ -182,7 +182,7 @@ Please briefly explain the error or send us a suggestion for improvement."
 "Grün","Green"
 "Weiß","White"
 "Speed-Boost · kein Geld","Speed boost · no money"
-"+25 Ertrag","+25 yield"
+"+15 Ertrag","+15 yield"
 
 # ── Shop / Upgrades (Namen) ───────────────────────────────────────────────────
 "Upgrades","Upgrades"

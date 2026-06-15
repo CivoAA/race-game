@@ -1591,7 +1591,7 @@ func _on_sfx_volume_changed(value: float) -> void:
 func _on_window_mode_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "window_mode", index)
-	_apply_window_mode(index)
+	_apply_window_mode(index, true)
 	_settings_dirty = true
 
 
@@ -1676,12 +1676,19 @@ func _apply_settings() -> void:
 	TranslationServer.set_locale(settings.get_value("options", "language", "en"))
 
 
-func _apply_window_mode(index: int) -> void:
+func _apply_window_mode(index: int, force: bool = false) -> void:
 	match index:
 		0: # Fenster – mit Rahmen, Größe per Auflösung/Mausziehen wählbar
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
-			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
+			# Hat der Nutzer das Fenster selbst maximiert (OS-Maximieren-Knopf), diesen
+			# Zustand beim AUTOMATISCHEN Anwenden (z. B. Rückkehr ins Hauptmenü) NICHT
+			# zurücksetzen – sonst springt das Fenster wieder auf die gespeicherte Größe.
+			# Nur bei expliziter Auswahl im Dropdown (force) tatsächlich zurücksetzen.
+			if not force and DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MAXIMIZED:
+				DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+			else:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+				DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+				_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 		1: # Vollbild (Rahmenlos) – randloses Fenster über den ganzen Bildschirm
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 		2: # Vollbild (Exklusiv) – echtes Vollbild

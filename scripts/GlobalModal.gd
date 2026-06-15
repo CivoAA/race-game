@@ -614,9 +614,9 @@ func _tile_entries() -> Array:
 	return [
 		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+1 Ertrag · frei", "upgrade": "dirtstraightbonus", "field_earn_base": 1},
 		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DIRT,       "desc": "+1 Ertrag · frei", "upgrade": "dirtcurvebonus", "field_earn_base": 1},
-		# Sand: günstigste bezahlte Strecke (+25, eigene additive Upgrades) – zwischen Dreck und Eis/Default.
-		{"name": "Sand-Gerade",   "key": "sand_straight", "model": Paths.MODEL_TRACK_STRAIGHT_SAND,  "desc": "+25 Ertrag", "upgrade": "sandstraightbonus", "field_earn_base": 25},
-		{"name": "Sand-Kurve",    "key": "sand_curve",    "model": Paths.MODEL_TRACK_CURVE_SAND,     "desc": "+25 Ertrag", "upgrade": "sandcurvebonus", "field_earn_base": 25},
+		# Sand: günstigste bezahlte Strecke (+15, eigene additive Upgrades) – zwischen Dreck und Eis/Default.
+		{"name": "Sand-Gerade",   "key": "sand_straight", "model": Paths.MODEL_TRACK_STRAIGHT_SAND,  "desc": "+15 Ertrag", "upgrade": "sandstraightbonus", "field_earn_base": 15},
+		{"name": "Sand-Kurve",    "key": "sand_curve",    "model": Paths.MODEL_TRACK_CURVE_SAND,     "desc": "+15 Ertrag", "upgrade": "sandcurvebonus", "field_earn_base": 15},
 		# Eis: EIN Eintrag schaltet Gerade + Kurve frei und führt das gemeinsame Upgrade (icebonus).
 		# Direkt hinter Sand, da der Freischaltpreis (25k) preislich dazwischen passt.
 		{"name": "Eis (Gerade + Kurve)", "key": "ice", "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
@@ -1025,7 +1025,9 @@ func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_path:
 	model.position -= center
 	var radius := aabb.size.length() * 0.5
 	var dist := radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.15
-	cam.position = Vector3(dist * 0.35, radius * 0.85, dist)
+	# Deutlich höher positionieren, damit man die Strecke stärker von schräg oben sieht
+	# (~28° statt ~14° über der Horizontalen) – die Form der Kachel ist so besser erkennbar.
+	cam.position = Vector3(dist * 0.3, dist * 0.5, dist * 0.9)
 	cam.look_at(Vector3.ZERO, Vector3.UP)
 
 

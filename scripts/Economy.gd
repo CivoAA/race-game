@@ -135,17 +135,17 @@ const UPGRADES = {
 		"base_cost": 200, "growth": 3.0, "max_level": 12,
 		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
 	},
-	# Sand: günstigste bezahlte Strecke – übernimmt das frühere Default-Balancing (+25 Grundertrag,
-	# rein additive Upgrades wie Default-Gerade/-Kurve: per_level 12.5, gleiche Kosten).
+	# Sand: günstigste bezahlte Strecke (+15 Grundertrag). Rein additive Upgrades; günstig
+	# (base_cost 100) und mit moderatem Effekt (per_level 7.5), passend zum niedrigen Grundertrag.
 	"sandstraightbonus": {
 		"category": "tile", "name": "Sand-Geraden-Ertrag (+ je Gerade)",
-		"base_cost": 200, "growth": 3.0, "max_level": 12,
-		"base": 0.0, "per_level": 12.5, "unit": " /Gerade",
+		"base_cost": 100, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 7.5, "unit": " /Gerade",
 	},
 	"sandcurvebonus": {
 		"category": "tile", "name": "Sand-Kurven-Ertrag (+ je Kurve)",
-		"base_cost": 200, "growth": 3.0, "max_level": 12,
-		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
+		"base_cost": 100, "growth": 3.0, "max_level": 12,
+		"base": 0.0, "per_level": 7.5, "unit": " /Kurve",
 	},
 	# Rennstrecke ist ein EIGENES Streckenteil (nicht mehr identisch zur Default-Gerade/-Kurve):
 	# höherer flacher +Ertrag (CarController.RACE_TILE_EARN) UND ein fester ×1.2 (RACE_TILE_MULT).
@@ -509,9 +509,9 @@ signal achievement_claimed(id: String)
 # Zentrale Freischaltkosten (gemeinsame Quelle für Bau-Shop in Main.gd und den
 # Streckenteile-Tab in GlobalModal.gd). Main.SHOP_ITEMS spiegelt diese Werte.
 const TILE_UNLOCK_COST = {
-	# Sand: günstigste bezahlte Strecke – übernimmt die früheren Default-Freischaltkosten.
-	"sand_straight":  10000,
-	"sand_curve":     15000,
+	# Sand: günstigste bezahlte Strecke – niedrige Freischaltkosten.
+	"sand_straight":  5000,
+	"sand_curve":     7000,
 	# Default (gebufft, +150): mittlere Stufe, etwas günstiger als die (neue) Rennstrecke.
 	"def_straight":  70000,
 	"def_curve":     80000,
