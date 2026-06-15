@@ -51,10 +51,10 @@ var _build_panel_bot: float = 0.0
 const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
-	# Sand: günstigste BEZAHLTE Strecke – übernimmt das frühere Default-Balancing (+25, eigene additive
-	# Upgrades sandstraightbonus/sandcurvebonus). Liegt zwischen Dreck und Eis/Default.
-	{"tier": "sand",    "type": "sand_straight", "name": "Sand-Gerade", "key": "sand_straight", "unlock": 10000, "base_price": 2000, "growth": 4.0,  "upgrade": "sandstraightbonus"},
-	{"tier": "sand",    "type": "sand_curve",    "name": "Sand-Kurve",  "key": "sand_curve",    "unlock": 15000, "base_price": 3000, "growth": 2.33, "upgrade": "sandcurvebonus"},
+	# Sand: günstigste BEZAHLTE Strecke (+15, eigene additive Upgrades sandstraightbonus/sandcurvebonus).
+	# Liegt zwischen Dreck und Eis/Default; niedrige Unlock- und Platzierpreise.
+	{"tier": "sand",    "type": "sand_straight", "name": "Sand-Gerade", "key": "sand_straight", "unlock": 5000, "base_price": 500, "growth": 4.0,  "upgrade": "sandstraightbonus"},
+	{"tier": "sand",    "type": "sand_curve",    "name": "Sand-Kurve",  "key": "sand_curve",    "unlock": 7000, "base_price": 750, "growth": 2.33, "upgrade": "sandcurvebonus"},
 	# Eis: Gerade + Kurve teilen sich EINEN Schlüssel (gemeinsam freischalten) UND einen Preis-Pool
 	# (Kauf des einen verteuert auch das andere; Preis von der Geraden). Upgrade icebonus gilt für beide.
 	# Direkt hinter Sand, da der Freischaltpreis (25k) preislich dazwischen passt.
@@ -1121,7 +1121,7 @@ func _tile_price(item: Dictionary) -> int:
 
 
 # Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
-# Grundwerte: Dreck = 1, Rennstrecke/-kurve = 50 (RACE_TILE_EARN), sonst Default = 25; das
+# Grundwerte: Dreck = 1, Sand = 15, Default gebufft = 150, Rennstrecke/-kurve = 1000; das
 # zugehörige Upgrade addiert seinen Live-Effekt. Der Renn-×1.2 wird hier nicht eingerechnet.
 func _tile_field_earn(item: Dictionary) -> int:
 	var t := String(item.get("type", ""))
@@ -1129,10 +1129,12 @@ func _tile_field_earn(item: Dictionary) -> int:
 	if item.get("tier", "") == "test":
 		return 0
 	# Grundertrag je Belag (Wahrheitsquelle: CarController.*_TILE_EARN). Sand = günstigste bezahlte
-	# Strecke (+25), Default gebufft (+150), Rennstrecke (+1000), Dreck +1.
+	# Strecke (+15), Default gebufft (+150), Rennstrecke (+1000), Dreck +1.
 	var base := 25
 	if item.get("tier", "") == "dirt":
 		base = 1
+	elif t == "sand_straight" or t == "sand_curve":
+		base = 15     # = CarController.SAND_TILE_EARN
 	elif t == "race_straight" or t == "race_curve":
 		base = 1000   # = CarController.RACE_TILE_EARN
 	elif t == "straight" or t == "curve":

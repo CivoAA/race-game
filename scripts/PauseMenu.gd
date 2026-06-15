@@ -1213,7 +1213,7 @@ func _on_sfx_volume_changed(value: float) -> void:
 func _on_window_mode_changed(index: int) -> void:
 	if _loading_settings: return
 	settings.set_value("options", "window_mode", index)
-	_apply_window_mode(index)
+	_apply_window_mode(index, true)
 	_settings_dirty = true
 
 
@@ -1555,13 +1555,19 @@ func _update_res_option_state(mode_index: int) -> void:
 	# die Auswahl ist dann bedeutungslos und wird ausgegraut. Nur im Fenstermodus aktiv.
 	_res_option.disabled = (mode_index != 0)
 
-func _apply_window_mode(index: int) -> void:
+func _apply_window_mode(index: int, force: bool = false) -> void:
 	match index:
 		0: # Fenster – Größenänderung per Mausziehen aktiv (RUI reagiert automatisch)
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
-			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
-			_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
+			# Vom Nutzer maximiertes Fenster beim automatischen Anwenden beibehalten;
+			# nur bei expliziter Dropdown-Auswahl (force) zurücksetzen. Siehe MainMenu.
+			if not force and DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MAXIMIZED:
+				DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+				DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
+			else:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+				DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+				DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, false)
+				_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 		1: # Vollbild (Rahmenlos) – randloses Fenster über den ganzen Bildschirm
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 		2: # Vollbild (Exklusiv) – echtes Vollbild, nutzt Monitorauflösung

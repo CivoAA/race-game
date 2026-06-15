@@ -8,10 +8,10 @@ const TILE_SIZE = 1.2
 #   Default-Tile (gekauft):  +25 additiv, KEIN Multiplikator mehr (rein additiver Ertrag)
 const BASIC_TILE_EARN   = 0.0   # Standard-/Start-Felder: kein Grundertrag (nur Upgrades zählen)
 const DIRT_TILE_EARN    = 1.0   # Dreck-Felder: Grundertrag +1, per Dreck-Upgrade steigerbar
-# Sand: günstigste BEZAHLTE Strecke (übernimmt das frühere Default-Balancing: +25, kein Multiplikator).
+# Sand: günstigste BEZAHLTE Strecke (+15 Grundertrag, kein Multiplikator).
 # Eigene additive Upgrades: sandstraightbonus / sandcurvebonus (kind "psandstraight"/"psandcurve").
-const SAND_TILE_EARN     = 25.0
-const PREMIUM_TILE_EARN  = 150.0  # Default-Strecke (gebufft) – mittlere Stufe zwischen Sand (+25) und Renn (+1000)
+const SAND_TILE_EARN     = 15.0
+const PREMIUM_TILE_EARN  = 150.0  # Default-Strecke (gebufft) – mittlere Stufe zwischen Sand (+15) und Renn (+1000)
 const PREMIUM_TILE_MULT  = 1.0  # Default-Tiles geben keinen Multiplikator mehr (1.0 = neutral)
 # Rennstrecke: teuerstes Streckenteil – hoher flacher Ertrag (+1000) UND ein fester ×1.2 obendrauf.
 # Eigene additive Upgrades: racestraightbonus / racecurvebonus (kind "pracestraight"/"pracecurve").
@@ -63,9 +63,15 @@ const MODEL_ROTATION_OFFSET = PI / 2.0
 const ROLL_FACTOR = 0.055   # rad Roll pro rad/s Gierrate
 const ROLL_MAX    = 0.30    # ~17° maximale Kurvenneigung
 const ROLL_SMOOTH = 12.0
-const PITCH_FACTOR = 0.14   # rad Pitch pro m/s Vertikalgeschwindigkeit
+# Rampen-Nasenneigung = Steigung zur VORAUSSCHAU-Position (PITCH_LOOKAHEAD s in der Zukunft), begrenzt
+# auf PITCH_MAX, geglättet mit PITCH_SMOOTH; Drehung um die Querachse (manuelle Basis). Die Vorausschau
+# sorgt dafür, dass sich die Schnauze schon HEBT, bevor der Sprungbogen beginnt (keine Asset-Kollision).
 const PITCH_MAX   = 0.50    # ~29° maximale Nasenneigung
 const PITCH_SMOOTH = 9.0
+const PITCH_LOOKAHEAD = 0.22  # s Vorausschau → Nase hebt sich entsprechend früher beim Auffahren
+# Zusatz-Höhe für die AUFFAHRT-Hälfte des Rampenbogens (max. am Beginn, klingt zum Scheitel aus).
+# Das Auto schwebt dadurch beim Auffahren früher/etwas höher und rutscht nicht mehr in die Rampe.
+const RAMP_TAKEOFF_LIFT = 0.12
 
 # Steilkurve (Carrera-Stil): Mittellinien-Höhe am Apex (m) und max. Auto-Querneigung (rad).
 # Muss zu TrackGenerator3D (WALL_PEAK_H/WALL_BANK_DEG) passen, damit das Auto auf der Fahrbahn sitzt.
@@ -76,6 +82,9 @@ const WALL_ROLL_SMOOTH = 25.0  # schnelleres Einrasten der Querneigung als ROLL_
 var _prev_yaw: float     = 0.0
 var _prev_car_y: float   = 0.0
 var _yaw_init: bool      = false
+# Geglättete Rampen-Nasenneigung (rad). Wird über die QUERACHSE per manueller Basis gedreht
+# (NICHT über rotation.x – das wäre eine Fass-Rolle, da die Front entlang lokaler −X zeigt).
+var _pitch: float        = 0.0
 
 # Querneigungs-Intensität (0..1) je Wegpunkt (nur Steilwandkurven-Wegpunkte > 0).
 var _wp_bank: PackedFloat32Array = PackedFloat32Array()
@@ -99,6 +108,10 @@ const LOOP_SEGS = 22
 const TELEPORT_TIME = 0.15
 var _wp_teleport: PackedByteArray = PackedByteArray()
 
+# Markiert die Wegpunkte des Rampen-Sprungbogens (1 = in der Luft über die Rampe). Dort wird die
+# Nase über die Querachse geneigt (Auffahrt hoch, in der Luft runter, Landung wieder eben).
+var _wp_jump: PackedByteArray = PackedByteArray()
+
 
 func _ready() -> void:
 	var car_script = load(Paths.SCRIPT_CAR_3D)
@@ -115,6 +128,7 @@ func start(grid_state: Array, resume_elapsed: float = 0.0) -> void:
 		push_warning("Keine gültige Route – mind. 2 verbundene Tiles nötig.")
 		return
 	_yaw_init     = false
+	_pitch        = 0.0
 	# Effektiv bereits gefahrene Zeit dieses Autos (gestaffelten Startversatz abziehen).
 	var t := resume_elapsed - start_delay
 	if t <= 0.0:
@@ -159,6 +173,26 @@ func _sample_at_time(t: float) -> void:
 			return
 
 
+# Wie _sample_at_time, aber OHNE Seiteneffekte (setzt weder car.position noch Sichtbarkeit): liefert
+# nur {pos, wp} für die VORAUSSCHAU der Nasen-Neigung. wp = Index des Segment-Start-Wegpunkts.
+func _sample_pose_at_time(t: float) -> Dictionary:
+	var n := waypoints.size()
+	if n < 2 or lap_time <= 0.0:
+		return {"pos": car.position if car != null else Vector3.ZERO, "wp": _cur_wp}
+	var t_in_lap := fmod(t, lap_time)
+	if t_in_lap < 0.0:
+		t_in_lap += lap_time
+	for i in range(n):
+		var st := _seg_time[i]
+		if t_in_lap <= _cum_time[i] + st or i == n - 1:
+			# Teleport-Segment: am Eingang stehen bleiben (kein Streak über die Karte).
+			if i < _wp_teleport.size() and _wp_teleport[i] == 1:
+				return {"pos": waypoints[i], "wp": i}
+			var f := (t_in_lap - _cum_time[i]) / st if st > 0.0 else 0.0
+			return {"pos": waypoints[i].lerp(waypoints[(i + 1) % n], clampf(f, 0.0, 1.0)), "wp": i}
+	return {"pos": waypoints[0], "wp": 0}
+
+
 func stop() -> void:
 	driving = false
 
@@ -178,7 +212,7 @@ func _process(delta: float) -> void:
 
 	var prev_pos := car.position
 	_sample_at_time(t)
-	_update_orientation(prev_pos, delta)
+	_update_orientation(prev_pos, delta, t)
 
 
 # Richtet das stehende Auto am Start in Fahrtrichtung aus (Start-Tile → erster Wegpunkt),
@@ -194,7 +228,7 @@ func _face_along_start() -> void:
 
 # Visuelle Ausrichtung (Yaw) + Kurvenneigung (Roll) + Rampenneigung (Pitch) aus der
 # tatsächlichen Positionsänderung – funktioniert unverändert mit dem Zeit-Sampling.
-func _update_orientation(prev_pos: Vector3, delta: float) -> void:
+func _update_orientation(prev_pos: Vector3, delta: float, t: float = 0.0) -> void:
 	# Looping: explizite Orientierung. Das Auto MUSS sich um seine QUERACHSE überschlagen (Salto),
 	# nicht um die Längsachse rollen. Da das Modell durch MODEL_ROTATION_OFFSET nach vorne entlang
 	# seiner lokalen −X zeigt, würde ein Euler-Pitch (rotation.x) fälschlich um die Fahrtachse drehen
@@ -218,9 +252,42 @@ func _update_orientation(prev_pos: Vector3, delta: float) -> void:
 
 	var dir := car.position - prev_pos
 	var flat_dir := Vector3(dir.x, 0, dir.z)
+	_prev_car_y = car.position.y
+
+	# Vorausschau: Position PITCH_LOOKAHEAD s in der Zukunft. Liegt der bevorstehende (oder aktuelle)
+	# Abschnitt im Rampensprung, neigt sich die Nase schon JETZT – also bevor der Bogen tatsächlich
+	# beginnt. Dadurch schneidet die flache Schnauze nicht mehr ins ansteigende Rampen-Asset.
+	var ahead := _sample_pose_at_time(t + PITCH_LOOKAHEAD)
+	var ahead_pos: Vector3 = ahead["pos"]
+	var ahead_wp:  int     = int(ahead["wp"])
+	var jump_now:   bool = _cur_wp  < _wp_jump.size() and _wp_jump[_cur_wp]  == 1
+	var jump_ahead: bool = ahead_wp < _wp_jump.size() and _wp_jump[ahead_wp] == 1
+	var jump_active: bool = jump_now or jump_ahead
+
 	if flat_dir.length() > 0.0001:
 		var new_yaw := atan2(flat_dir.x, flat_dir.z)
+
+		# ── Rampensprung: Nase über die QUERACHSE neigen ──────────────────
+		# Zielwinkel = Steigung zur Vorausschau-Position (hoch beim Auffahren, runter im Sinkflug zur
+		# Landung, eben am Scheitel). Über eine MANUELL gebaute Basis (Drehung um die Welt-Querachse
+		# rgt), NICHT über rotation.x – das wäre eine Fass-Rolle, weil die Front entlang der lokalen −X
+		# zeigt (siehe Looping-Zweig). Bleibt aktiv, bis die Neigung sanft auf 0 abgeklungen ist →
+		# das Auto richtet sich beim Runterfahren langsam wieder gerade aus.
+		if jump_active or absf(_pitch) > 0.02:
+			var look := ahead_pos - car.position
+			var look_flat := Vector2(look.x, look.z).length()
+			var pitch_t := clampf(atan2(look.y, maxf(look_flat, 0.001)), -PITCH_MAX, PITCH_MAX) if jump_active else 0.0
+			_pitch = lerp(_pitch, pitch_t, clampf(delta * PITCH_SMOOTH, 0.0, 1.0))
+			var yaw_full := new_yaw + MODEL_ROTATION_OFFSET
+			var fwd := Vector3(-cos(yaw_full), 0.0, sin(yaw_full))
+			var rgt := Vector3(-fwd.z, 0.0, fwd.x)
+			car.basis = Basis(rgt, _pitch) * Basis(Vector3.UP, yaw_full)
+			_prev_yaw = new_yaw
+			_yaw_init = true
+			return
+
 		car.rotation.y = new_yaw + MODEL_ROTATION_OFFSET
+		car.rotation.x = 0.0   # auf normaler Straße keine Längsachsen-Neigung (Rest aus Sprung-Basis löschen)
 
 		# ── Kurvenneigung (Roll) ──────────────────────────────────────────
 		if _yaw_init:
@@ -243,12 +310,6 @@ func _update_orientation(prev_pos: Vector3, delta: float) -> void:
 			car.rotation.z = lerp(car.rotation.z, 0.0, delta * ROLL_SMOOTH)
 		_prev_yaw  = new_yaw
 		_yaw_init  = true
-
-	# ── Rampen-Neigung (Pitch) ────────────────────────────────────────────
-	var vy      := (car.position.y - _prev_car_y) / maxf(delta, 0.001)
-	var pitch_t := clampf(vy * PITCH_FACTOR, -PITCH_MAX, PITCH_MAX)
-	car.rotation.x = lerp(car.rotation.x, pitch_t, delta * PITCH_SMOOTH)
-	_prev_car_y = car.position.y
 
 
 # ── Verbindungs-Logik ──────────────────────────────────────────────────────────
@@ -498,7 +559,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				rec["fixed_mult"] = RACE_TILE_MULT
 				rec["kind"]       = "pracestraight" if t == "race_straight" else "pracecurve"
 			elif is_premium and t in ["sand_straight", "sand_curve"]:
-				# Sand: günstigste bezahlte Strecke (+25, kein Multiplikator); eigene additive Upgrades.
+				# Sand: günstigste bezahlte Strecke (+15, kein Multiplikator); eigene additive Upgrades.
 				rec["base"]       = SAND_TILE_EARN
 				rec["fixed_mult"] = 1.0
 				rec["kind"]       = "psandstraight" if t == "sand_straight" else "psandcurve"
@@ -567,6 +628,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	_wp_bank = PackedFloat32Array()
 	_wp_orient = []
 	_wp_teleport = PackedByteArray()
+	_wp_jump = PackedByteArray()
 	var half_t: float = TILE_SIZE / 2.0
 	for si in range(n):
 		var step = route[si]
@@ -579,6 +641,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		var tile_wps: Array[Vector3] = []
 		var tile_orient: Array = []
 		var tile_tele: PackedByteArray = PackedByteArray()
+		var tile_jump: PackedByteArray = PackedByteArray()
 		var tile_bank: PackedFloat32Array = PackedFloat32Array()
 
 		if _is_portal(sdata) and step.has("portal_to_row"):
@@ -603,12 +666,16 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			tile_orient = [Vector2(0.0, yaw_in), Vector2(0.0, yaw_in), Vector2(0.0, yaw_out), Vector2(0.0, yaw_out)]
 			tile_tele = PackedByteArray([0, 1, 0, 0])   # Segment ab Wegpunkt[1] = Teleport (Mitte→Mitte)
 			tile_bank = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
+			tile_jump = PackedByteArray([0, 0, 0, 0])
 		else:
 			tile_wps = _waypoints_for_tile(center, sdata, step["exit"], step["row"], step["col"])
 			tile_orient = _pending_orient.duplicate()
 			var is_wall : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["wall_start", "wall_end"]
+			# Rampen-Kachel mit Sprungbogen → alle ihre Wegpunkte als „in der Luft" markieren.
+			var is_ramp : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["ramp_start", "ramp_end"]
 			for w in range(tile_wps.size()):
 				tile_tele.append(0)
+				tile_jump.append(1 if is_ramp else 0)
 				tile_bank.append(clampf((tile_wps[w].y - 0.05) / WALL_PEAK_H, 0.0, 1.0) if is_wall else 0.0)
 
 		for _w in range(tile_wps.size()):
@@ -616,6 +683,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		_wp_bank.append_array(tile_bank)
 		_wp_orient.append_array(tile_orient)
 		_wp_teleport.append_array(tile_tele)
+		_wp_jump.append_array(tile_jump)
 		wps.append_array(tile_wps)
 
 	# Segment-Zeittabelle bauen: Position UND Geld leiten sich ab jetzt nur noch hieraus ab.
@@ -684,7 +752,10 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 			for i in range(arc_steps + 1):
 				var t   = float(i) / arc_steps
 				var pos = center.lerp(p_end, t)
-				pos.y   = peak_h * 4.0 * t * (1.0 - t) + 0.05
+				# Auffahrt-Hälfte (t<0.5) etwas anheben (max. am Anfang, linear bis zum Scheitel auf 0):
+				# bringt das Auto früher/höher → kein Einrutschen in die Rampe. Scheitel/Landung bleiben.
+				var lift := RAMP_TAKEOFF_LIFT * maxf(0.0, 1.0 - t / 0.5)
+				pos.y   = peak_h * 4.0 * t * (1.0 - t) + 0.05 + lift
 				wps.append(pos)
 
 	elif type == "straight" or type == "ice" or type == "race_straight" or type == "sand_straight" or type == "water_straight" or type == "glue_straight":
