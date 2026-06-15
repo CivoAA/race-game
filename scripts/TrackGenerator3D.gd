@@ -14,6 +14,9 @@ const CURVE_MODEL_YAW_OFFSET = 90.0
 # Yaw-Korrektur (Grad) für die Spezial-GLBs, falls sie anders ausgerichtet importiert werden.
 # In 90°-Schritten anpassen, bis Rampe/Tribüne richtig stehen.
 const RAMP_MODEL_YAW_OFFSET  = -90.0
+# Globale Yaw-Korrektur der Tribuenen-GRUPPE (Grad). Die Einzel-Ausrichtung passiert pro
+# Instanz richtungsbasiert (siehe _build_stand_stack). Falls die ganze Tribuene um 90°/180°
+# verdreht steht, hier in 90°-Schritten korrigieren.
 const STAND_MODEL_YAW_OFFSET = 0.0
 
 # Gerade und Kurve wurden auf demselben Modellraster gebaut. Beide Modelle mit
@@ -260,6 +263,66 @@ func _make_straight_model(path: String) -> Node3D:
 	return holder
 
 
+# Vorderseite (Sitzrichtung) des Tribuenen-GLB ist lokal -Z. Yaw, damit es eine
+# Himmelsrichtung ANSCHAUT (= Effektrichtung): N=-Z, S=+Z, E=+X, W=-X.
+const _STAND_DIR_YAW := {"N": 0.0, "S": 180.0, "E": 270.0, "W": 90.0}
+# Einheits-Versatz der Tribuene auf ihre Seite (in Anschau-Richtung vom Mittelpunkt weg).
+const _STAND_DIR_OFF := {
+	"N": Vector2(0.0, -1.0), "S": Vector2(0.0, 1.0),
+	"E": Vector2(1.0, 0.0),  "W": Vector2(-1.0, 0.0),
+}
+
+# Baut die Tribuenen-Gruppe für ein Feld. Der Stapel (1..5) wird VISUELL angeordnet und JEDE
+# Tribuene schaut in ihre Effektrichtung (nach AUSSEN), passend zu Economy/_stand_dirs
+# (Basisreihenfolge S,N,E,W):
+#   1 = eine Tribuene (mittig, schaut S)
+#   2 = zwei Rücken-an-Rücken (S+N, schauen nach aussen)
+#   3 = U-Form (S+N+E), drei Seiten eines Rechtecks, alle nach aussen
+#   4/5 = geschlossener, mittiger RECHTECK-Rahmen (S,N,E,W): oben/unten waagerecht,
+#         links/rechts senkrecht, bündig rechtwinklig – KEIN Windrad/Pinwheel.
+# Mehrfach-Anordnungen werden uniform auf eine Kachel eingepasst, damit sie nicht auf
+# Nachbarfelder/die Strecke uebergreifen.
+func _build_stand_stack(stack: int) -> Node3D:
+	var holder = Node3D.new()
+	var count = clampi(stack, 1, 4)   # ab Stack 4 derselbe Rechteck-Rahmen
+
+	# Footprint eines (skalierten) Tribuenen-Modells messen → lange/kurze Seite.
+	var probe = _make_straight_model(Paths.MODEL_TRACK_STAND)
+	var ab = _local_aabb(probe)
+	probe.free()
+	var L: float = maxf(ab.size.x, ab.size.z)   # lange Seite (Breite der Tribuene)
+	var b: float = minf(ab.size.x, ab.size.z)   # kurze Seite (Tiefe)
+
+	# Welche Richtungen sind besetzt + wie weit sitzt jede Tribuene vom Mittelpunkt weg.
+	var dirs: Array
+	var inset: float
+	match count:
+		1:
+			dirs = ["S"];                inset = 0.0            # mittig
+		2:
+			dirs = ["S", "N"];           inset = b / 2.0        # Rücken-an-Rücken (Rücken mittig bündig)
+		3:
+			dirs = ["S", "N", "E"];      inset = (L - b) / 2.0  # drei Seiten des Rahmens
+		_:
+			dirs = ["S", "N", "E", "W"]; inset = (L - b) / 2.0  # voller Rechteck-Rahmen
+
+	for dir in dirs:
+		var off: Vector2 = _STAND_DIR_OFF[dir]
+		var inst = _make_straight_model(Paths.MODEL_TRACK_STAND)
+		inst.position = Vector3(off.x * inset, 0.0, off.y * inset)
+		inst.rotation_degrees.y = _STAND_DIR_YAW[dir]
+		holder.add_child(inst)
+
+	# Mehrfach-Gruppen uniform auf eine Kachel einpassen (kein Uebergreifen auf Nachbarn).
+	if count > 1:
+		var grp = _local_aabb(holder)
+		var ext: float = maxf(grp.size.x, grp.size.z)
+		if ext > TILE_SIZE and ext > 0.0:
+			var k: float = TILE_SIZE / ext
+			holder.scale = Vector3(k, k, k)
+	return holder
+
+
 # Lädt das Kurven-GLB, skaliert es uniform auf die Kachel (füllt die Kachelfläche)
 # und zentriert es. Die Node-Rotation (in generate) richtet die Kurve aus.
 func _make_curve_model(path: String) -> Node3D:
@@ -404,8 +467,9 @@ func generate(grid_state: Array) -> void:
 				continue
 
 			if d["type"] == "stand":
-				# Tribuene: eigenes GLB (eine je Feld). Der Stapel wirkt weiter auf die Oekonomie.
-				var stand = _make_straight_model(Paths.MODEL_TRACK_STAND)
+				# Tribuene: eigenes GLB. Der Stapel (stack) wird auch VISUELL gezeigt – je nach
+				# Anzahl werden mehrere Tribuenen-Modelle angeordnet (siehe _build_stand_stack).
+				var stand = _build_stand_stack(int(d.get("stack", 1)))
 				stand.position = Vector3(
 					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
 					row * TILE_SIZE + TILE_SIZE / 2.0

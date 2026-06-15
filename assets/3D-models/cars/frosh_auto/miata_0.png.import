@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cjlva5miowkdb"
-path.s3tc="res://.godot/imported/Stand_TrackTexture.png-9978c37320666c799a1f57b506a4f152.s3tc.ctex"
-path.etc2="res://.godot/imported/Stand_TrackTexture.png-9978c37320666c799a1f57b506a4f152.etc2.ctex"
+uid="uid://d18cytbowi53h"
+path.s3tc="res://.godot/imported/miata_0.png-2deb46bdd23009432e4d46d09597e497.s3tc.ctex"
+path.etc2="res://.godot/imported/miata_0.png-2deb46bdd23009432e4d46d09597e497.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "200f0b495bcd7805a45064f369a02a09"
+"md5": "8dd9547768e2c312563499dd8ef73ecc"
 }
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/special/Stand_TrackTexture.png"
-dest_files=["res://.godot/imported/Stand_TrackTexture.png-9978c37320666c799a1f57b506a4f152.s3tc.ctex", "res://.godot/imported/Stand_TrackTexture.png-9978c37320666c799a1f57b506a4f152.etc2.ctex"]
+source_file="res://assets/3D-models/cars/frosh_auto/miata_0.png"
+dest_files=["res://.godot/imported/miata_0.png-2deb46bdd23009432e4d46d09597e497.s3tc.ctex", "res://.godot/imported/miata_0.png-2deb46bdd23009432e4d46d09597e497.etc2.ctex"]
 
 [params]
 
