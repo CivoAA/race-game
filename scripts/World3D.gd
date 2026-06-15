@@ -426,7 +426,9 @@ func _start_cars(grid_state: Array) -> void:
 		var ctrl = Node3D.new()
 		ctrl.set_script(script)
 		ctrl.track_idx   = _active_track_idx
-		ctrl.speed       = Economy.get_car_speed(i)
+		# Standard-Auto auf den Tempo-Cap begrenzen (Eis/Steilwand-Bonus addiert CarController absolut
+		# obendrauf und liegt über dem Cap → dort wird es trotzdem schneller).
+		ctrl.speed       = minf(Economy.get_car_speed(i), Economy.SPEED_CAP_TEMPO * Economy.SPEED_SCALE)
 		ctrl.end_mult    = Economy.get_car_end_mult(i)
 		ctrl.tile_bonus  = Economy.get_car_tile_bonus(i)
 		# Startabstand skaliert invers mit der Auto-Anzahl: je mehr Autos, desto dichter starten

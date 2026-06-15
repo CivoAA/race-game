@@ -846,20 +846,21 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 		var s_lv := Economy.get_upgrade_level(upg_id)
 		var smax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
 		return "×%.1f /Nachbarfeld%s" % [Economy.get_effect("standbonus", s_lv), smax_tag]
-	# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu".
+	# Aktuellen Ertrag pro Feld zeigen, bei nicht-maxed mit "von → zu". Halb-Schritte (verdreifachte
+	# Tile-Upgrades) zeigt format_half unter 10 mit Nachkommastelle (9.5), ab 10 ganzzahlig.
 	var base_e := int(entry.get("field_earn_base", 0))
 	var lv     := Economy.get_upgrade_level(upg_id)
-	var cur    := base_e + int(round(Economy.get_effect(upg_id, lv)))
+	var cur    := Economy.format_half(float(base_e) + Economy.get_effect(upg_id, lv))
 	# Rampe: zusätzlich den Sprung-Multiplikator (steigt je 5 Stufen) statt "Feld" zeigen.
 	if upg_id == "rampbonus":
-		var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%d" % (base_e + int(round(Economy.get_effect(upg_id, lv + 1))))
-		return "+%d%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
+		var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%s" % Economy.format_half(float(base_e) + Economy.get_effect(upg_id, lv + 1))
+		return "+%s%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
 	# Rennstrecke/-kurve: zusätzlich zum +Ertrag den festen ×1.2 anzeigen.
 	var race_suffix := " · ×1.2" if upg_id in ["racestraightbonus", "racecurvebonus"] else ""
 	if Economy.is_maxed(upg_id):
-		return "Ertrag/Feld: +%d (MAX)%s" % [cur, race_suffix]
-	var nxt := base_e + int(round(Economy.get_effect(upg_id, lv + 1)))
-	return "Ertrag/Feld: +%d → +%d%s" % [cur, nxt, race_suffix]
+		return "Ertrag/Feld: +%s (MAX)%s" % [cur, race_suffix]
+	var nxt := Economy.format_half(float(base_e) + Economy.get_effect(upg_id, lv + 1))
+	return "Ertrag/Feld: +%s → +%s%s" % [cur, nxt, race_suffix]
 
 
 # Färbt einen Freischalt-Button: leistbar = helleres Blau, sonst gedämpft.

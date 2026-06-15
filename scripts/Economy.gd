@@ -23,6 +23,12 @@ const SPEED_TRIPLE_EVERY = 15.0   # je so viele Stufen verdreifacht sich das Tem
 # Verlauf weiter: bis SPEED_BASE_LEVELS wieder ×growth, darüber ×SPEED_TAIL_GROWTH. Siehe _speed_cost.
 const SPEED_EARLY_LEVELS = 10     # Anzahl Stufen mit dem sanfteren Einstiegs-Wachstum
 const SPEED_EARLY_GROWTH = 3.6    # Kosten-Wachstum je Stufe für die ersten SPEED_EARLY_LEVELS Stufen
+# Tempo-Obergrenze fürs STANDARD-Auto (car_tier 0, speed_div = 1): es fährt nie schneller als
+# Tempo 150 (= SPEED_CAP_TEMPO · SPEED_SCALE = 15 m/s), egal wie viele Tempo-Stufen gekauft sind.
+# NUR die Eisgerade und die Steilwandkurve dürfen es darüber hinaus beschleunigen (absoluter
+# Segment-Aufschlag in CarController, liegt über dem Cap). Tier-/Super-Autos (speed_div = 3) sind
+# nicht gedeckelt – sie brauchen die hohen Tempo-Stufen, um effektiv 150 zu erreichen.
+const SPEED_CAP_TEMPO = 150.0
 
 # ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
 # MEHRFACH kaufbar (super_car_count): jeder Kauf „kombiniert" SUPER_CAR_COST_CARS normale Autos zu
@@ -112,53 +118,62 @@ const UPGRADES = {
 	# Die Dreck-Upgrades nutzen eine eigene Wertereihe (_dirt_field_earn, special-case in
 	# _effect_at); base/per_level werden dort ignoriert. Dreck-Gerade & -Kurve getrennt.
 	# Dreck-Upgrades bewusst günstig & sanft skalierend → früh leicht hochzuziehen.
+	# Dreck-Upgrades: 3× so viele Stufen (60 statt 20). Ertrag/Kosten special-cased über
+	# _tile_series (steigende 0.5-Schrittfolge + geom. Kosten g^(1/3)); Gesamtertrag & -kosten
+	# bleiben wie bei den alten 20 Stufen. base/per_level werden ignoriert. base_cost/growth bleiben
+	# die ALTEN Werte (Quelle für die Gesamt-Ziele, NICHT mehr direkt der Preis).
 	"dirtstraightbonus": {
 		"category": "tile", "name": "Dreck-Geraden-Ertrag (+ je Feld)",
-		"base_cost": 25, "growth": 2.3, "max_level": 20,
+		"base_cost": 25, "growth": 2.3, "max_level": 60,
 		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
 	},
 	"dirtcurvebonus": {
 		"category": "tile", "name": "Dreck-Kurven-Ertrag (+ je Feld)",
-		"base_cost": 25, "growth": 2.3, "max_level": 20,
+		"base_cost": 25, "growth": 2.3, "max_level": 60,
 		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
 	},
 	# Gerade/Kurve geben einen FLACHEN +Ertrag pro Feld (kein Multiplikator mehr, siehe
 	# CarController.PREMIUM_TILE_*). Das Upgrade skaliert bewusst halb so stark wie früher
 	# (per_level 12.5 statt 25) und beginnt damit auch bei der Hälfte.
+	# 3× so viele Stufen (36 statt 12). Ertrag/Kosten special-cased über _tile_series (steigende
+	# 0.5-Schrittfolge + geom. Kosten g^(1/3)); Gesamtertrag (per_level·alt_max=150) & Gesamtkosten
+	# bleiben wie bei den alten 12 Stufen. per_level/base_cost/growth = ALTE Werte (Ziel-Quelle).
 	"straightbonus": {
 		"category": "tile", "name": "Geraden-Ertrag (+ je Gerade)",
-		"base_cost": 200, "growth": 3.0, "max_level": 12,
+		"base_cost": 200, "growth": 3.0, "max_level": 36,
 		"base": 0.0, "per_level": 12.5, "unit": " /Gerade",
 	},
 	"curvebonus": {
 		"category": "tile", "name": "Kurven-Ertrag (+ je Kurve)",
-		"base_cost": 200, "growth": 3.0, "max_level": 12,
+		"base_cost": 200, "growth": 3.0, "max_level": 36,
 		"base": 0.0, "per_level": 12.5, "unit": " /Kurve",
 	},
 	# Sand: günstigste bezahlte Strecke (+15 Grundertrag). Rein additive Upgrades; günstig
 	# (base_cost 100) und mit moderatem Effekt (per_level 7.5), passend zum niedrigen Grundertrag.
+	# 3× so viele Stufen (36 statt 12), Ertrag/Kosten via _tile_series (Gesamt = alte 12 Stufen).
 	"sandstraightbonus": {
 		"category": "tile", "name": "Sand-Geraden-Ertrag (+ je Gerade)",
-		"base_cost": 100, "growth": 3.0, "max_level": 12,
+		"base_cost": 100, "growth": 3.0, "max_level": 36,
 		"base": 0.0, "per_level": 7.5, "unit": " /Gerade",
 	},
 	"sandcurvebonus": {
 		"category": "tile", "name": "Sand-Kurven-Ertrag (+ je Kurve)",
-		"base_cost": 100, "growth": 3.0, "max_level": 12,
+		"base_cost": 100, "growth": 3.0, "max_level": 36,
 		"base": 0.0, "per_level": 7.5, "unit": " /Kurve",
 	},
 	# Rennstrecke ist ein EIGENES Streckenteil (nicht mehr identisch zur Default-Gerade/-Kurve):
 	# höherer flacher +Ertrag (CarController.RACE_TILE_EARN) UND ein fester ×1.2 (RACE_TILE_MULT).
 	# Diese beiden Upgrades addieren NUR (+ je Feld, kein Multiplikator – Wunsch), skalieren aber
 	# doppelt so stark wie die Default-Variante (per_level 25 statt 12.5) und kosten ~10× mehr.
+	# 3× so viele Stufen (36 statt 12), Ertrag/Kosten via _tile_series (Gesamt = alte 12 Stufen).
 	"racestraightbonus": {
 		"category": "tile", "name": "Rennstrecken-Ertrag (+ je Gerade)",
-		"base_cost": 2000, "growth": 3.0, "max_level": 12,
+		"base_cost": 2000, "growth": 3.0, "max_level": 36,
 		"base": 0.0, "per_level": 25.0, "unit": " /Gerade",
 	},
 	"racecurvebonus": {
 		"category": "tile", "name": "Rennkurven-Ertrag (+ je Kurve)",
-		"base_cost": 2400, "growth": 3.0, "max_level": 12,
+		"base_cost": 2400, "growth": 3.0, "max_level": 36,
 		"base": 0.0, "per_level": 25.0, "unit": " /Kurve",
 	},
 	# Eisgerade: gibt KEIN Geld, sondern macht das Auto auf den nächsten Feldern schneller.
@@ -513,8 +528,8 @@ const TILE_UNLOCK_COST = {
 	"sand_straight":  5000,
 	"sand_curve":     7000,
 	# Default (gebufft, +150): mittlere Stufe, etwas günstiger als die (neue) Rennstrecke.
-	"def_straight":  70000,
-	"def_curve":     80000,
+	"def_straight":  50000,
+	"def_curve":     60000,
 	# Rennstrecke (+1000 · ×1.2): teuerstes reguläres Streckenteil.
 	"race_straight": 200000,
 	"race_curve":    220000,
@@ -772,7 +787,12 @@ func _apply_speed_to_active_runs() -> void:
 		for car in _tracks[i].get("run_cars", []):
 			var lk := float(car.get("lap_k", 0.0))
 			# Auto-eigenes Tempo = globales Tempo ÷ speed_div (Super-Auto: 3; normal: 1).
-			var car_sp := sp / maxf(0.001, float(car.get("speed_div", 1.0)))
+			var car_div := maxf(0.001, float(car.get("speed_div", 1.0)))
+			var car_sp := sp / car_div
+			# Standard-Auto (speed_div ≤ 1): auf den Tempo-Cap begrenzen (Eis/Steilwand bleiben über
+			# den absoluten Segment-Aufschlag in CarController weiterhin schneller, nicht via lap_k).
+			if car_div <= 1.0:
+				car_sp = minf(car_sp, SPEED_CAP_TEMPO * SPEED_SCALE)
 			if lk > 0.0 and car_sp > 0.0:
 				car["lap_time"] = lk / car_sp
 			# Runden-Zähler dieses Autos auf den aktuellen Stand snappen (neues lap_time → future-only).
@@ -1066,10 +1086,12 @@ func _def_for(id: String) -> Dictionary:
 
 # Effektwert (base + per_level * level) eines Upgrades bei gegebenem Level.
 func _effect_at(id: String, level: int) -> float:
-	# Dreck-Ertrag folgt einer eigenen, beschleunigenden Wertereihe (Bonus = Feldertrag − 1,
-	# da Dreck-Grundertrag = 1). Per-Feld-Ertrag: 1,2,3,5,7,9,12,15,…
-	if id == "dirtstraightbonus" or id == "dirtcurvebonus":
-		return float(_dirt_field_earn(level) - 1)
+	# Verdreifachte Tile-Upgrades (Dreck/Sand/Default/Renn, je Gerade+Kurve): kumulierter Ertrag =
+	# Summe der steigenden 0.5-Schrittfolge aus _tile_series bis zur aktuellen Stufe. base/per_level
+	# werden ignoriert (Gesamt-Ertrag = wie die alten 12/20 Stufen, nur über 3× so viele verteilt).
+	if _is_tripled_tile(id):
+		var cum: PackedFloat32Array = _tile_series(id)["eff_cum"]
+		return cum[clampi(level, 0, cum.size() - 1)]
 	# Fahrzeit: eigene Stufen-Sequenz (10,15,…,30,40,…,60,90,…).
 	if id == "drive_time":
 		return float(_drive_time_value(level))
@@ -1120,6 +1142,95 @@ func _dirt_field_earn(level: int) -> int:
 	return total
 
 
+# ── Verdreifachte Tile-Upgrades (Dreck/Sand/Default/Renn) ───────────────────────
+# Jedes dieser Upgrades hat jetzt 3× so viele Stufen. Ertrag und Kosten werden EINMALIG generiert
+# (gecacht) statt aus base/per_level/growth: eine STEIGENDE, auf 0.5 gerundete Ertrags-Schrittfolge
+# (kleinster Schritt +0.5) und eine geometrische Kostenreihe mit growth^(1/3). Beide Reihen sind so
+# skaliert, dass Gesamtertrag UND Gesamtkosten denen der alten Stufenzahl (max_level/3) entsprechen.
+# base_cost/growth/per_level im UPGRADES-Eintrag bleiben die ALTEN Werte und dienen nur als Ziel-Quelle.
+const TRIPLED_TILE_IDS = [
+	"dirtstraightbonus", "dirtcurvebonus",
+	"sandstraightbonus", "sandcurvebonus",
+	"straightbonus", "curvebonus",
+	"racestraightbonus", "racecurvebonus",
+]
+var _tile_series_cache: Dictionary = {}
+
+
+func _is_tripled_tile(id: String) -> bool:
+	return id in TRIPLED_TILE_IDS
+
+
+# Liefert {eff_cum: PackedFloat32Array (Größe max+1, kumulierter Ertrag je Stufe),
+#          cost: PackedInt64Array (Größe max, Kosten der Stufe i→i+1)} – gecacht.
+func _tile_series(id: String) -> Dictionary:
+	if _tile_series_cache.has(id):
+		return _tile_series_cache[id]
+	var d: Dictionary = UPGRADES[id]
+	var new_max := int(d["max_level"])
+	var old_max := new_max / 3
+	var bc := float(d["base_cost"])
+	var g  := float(d["growth"])
+	# Alte Gesamtkosten (Summe der alten Stufenpreise base_cost·growth^i, i = 0 … old_max-1).
+	var total_cost := 0.0
+	for i in range(old_max):
+		total_cost += round(bc * pow(g, i))
+	# Alter Gesamtertrag: Dreck folgt der _dirt_field_earn-Reihe, die übrigen sind linear (per_level).
+	var total_eff: float
+	if id == "dirtstraightbonus" or id == "dirtcurvebonus":
+		total_eff = float(_dirt_field_earn(old_max) - 1)
+	else:
+		total_eff = float(d["per_level"]) * old_max
+	var res := {
+		"eff_cum": _build_rising_halfsteps(new_max, total_eff),
+		"cost":    _build_geom_cost(new_max, g, total_cost),
+	}
+	_tile_series_cache[id] = res
+	return res
+
+
+# Steigende, auf 0.5 gerundete Ertrags-Schritte über n Stufen, Summe ≈ total. Start ≈ 0.6·Schnitt
+# (mind. 0.5), Steigung so gewählt, dass die Summe `total` möglichst genau trifft. Rückgabe ist die
+# KUMULATIVE Reihe der Größe n+1 (cum[0]=0, cum[k]=Σ der ersten k Schritte) → get_effect = cum[level].
+func _build_rising_halfsteps(n: int, total: float) -> PackedFloat32Array:
+	var avg := total / float(maxi(1, n))
+	var start := maxf(0.5, avg * 0.6)
+	var best_inc := PackedFloat32Array()
+	var best_err := INF
+	var b := 0.0
+	while b <= 1.0:
+		var sum := 0.0
+		var inc := PackedFloat32Array()
+		for L in range(n):
+			var v := maxf(0.5, round((start + b * float(L)) / 0.5) * 0.5)
+			inc.append(v)
+			sum += v
+		var err := absf(sum - total)
+		if err < best_err:
+			best_err = err
+			best_inc = inc
+		b += 0.0005
+	var cum := PackedFloat32Array()
+	cum.append(0.0)
+	var acc := 0.0
+	for v in best_inc:
+		acc += v
+		cum.append(acc)
+	return cum
+
+
+# Geometrische Kostenreihe über n Stufen mit Wachstum growth^(1/3), Basis so skaliert, dass die
+# Summe `total` (= alte Gesamtkosten) trifft. So liegt der Preis an jeder 3×-Grenze auf dem alten Wert.
+func _build_geom_cost(n: int, g: float, total: float) -> PackedInt64Array:
+	var gc := pow(g, 1.0 / 3.0)
+	var denom := pow(gc, float(n)) - 1.0
+	var base := total / float(maxi(1, n)) if absf(denom) < 0.0000001 else total * (gc - 1.0) / denom
+	var cost := PackedInt64Array()
+	for i in range(n):
+		cost.append(int(round(base * pow(gc, float(i)))))
+	return cost
+
+
 # Sanfterer Kosten-Einstieg des Tile-Bonus (siehe _tilebonus_cost): die ersten 10 Stufen wachsen
 # mit TILEBONUS_EARLY_GROWTH statt dem regulären growth (1.413), danach stetig wieder regulär.
 const TILEBONUS_EARLY_LEVELS = 10
@@ -1159,6 +1270,12 @@ func get_upgrade_cost(id: String) -> int:
 		return _speed_cost(get_upgrade_level(id))
 	if id == "tilebonus":
 		return _tilebonus_cost(get_upgrade_level(id))
+	# Verdreifachte Tile-Upgrades: Kosten der NÄCHSTEN Stufe aus _tile_series (geom. mit growth^(1/3),
+	# Summe = alte Gesamtkosten; liegt an jeder 3×-Grenze exakt auf dem alten Preis).
+	if _is_tripled_tile(id):
+		var lvl := get_upgrade_level(id)
+		var cost: PackedInt64Array = _tile_series(id)["cost"]
+		return 0 if lvl >= cost.size() else int(cost[lvl])
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0
@@ -1274,10 +1391,22 @@ func effect_text(id: String, level: int) -> String:
 	var unit = get_upgrade_unit(id)
 	if id == "endmult":
 		return "×%.2f" % v
+	# Verdreifachte Tile-Upgrades kommen in 0.5-Schritten: unter 10 mit Nachkommastelle, ab 10 ganz.
+	if _is_tripled_tile(id):
+		return "%s%s" % [format_half(v), unit]
 	# Ganzzahlig ohne Nachkommastellen, sonst eine Stelle
 	if absf(v - round(v)) < 0.001:
 		return "%d%s" % [int(round(v)), unit]
 	return "%.1f%s" % [v, unit]
+
+
+# Anzeige von +Ertrags-Werten, die in 0.5-Schritten kommen (verdreifachte Tile-Upgrades): unter 10
+# mit einer Nachkommastelle (z. B. „9.5"), ab 10 ganzzahlig gerundet (Halb-Schritte sind dort
+# vernachlässigbar/unleserlich). 9.0 → „9", 9.5 → „9.5", 10.5 → „11".
+func format_half(value: float) -> String:
+	if value < 10.0 and absf(value - round(value)) > 0.01:
+		return "%.1f" % value
+	return str(int(round(value)))
 
 
 # ── Zahl-Formatierung (Idle-Stil: 1.23K, 4.56M, … sonst wissenschaftlich) ──────
