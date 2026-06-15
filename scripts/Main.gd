@@ -47,26 +47,27 @@ var _build_panel_bot: float = 0.0
 #                    (Kreuzung: eine zweite Strecke darunter bringt doppeltes Geld)
 # Reihenfolge oben→unten: Dreck-Kurve, Dreck-Gerade, Default-Gerade, Default-Kurve, Rampe.
 # key/unlock: Default-Tiles & Rampe müssen einmalig freigeschaltet werden (unlock-Preis);
-# der Kaufpreis startet danach bei 20 % des Freischaltpreises (base_price) und skaliert idle.
+# der Kaufpreis startet danach für Sand/Default/Renn bei 5 % des Freischaltpreises (base_price) und
+# skaliert idle (bewusst flaches growth, damit das Baumenü günstig bleibt).
 const SHOP_ITEMS = [
 	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
 	# Sand: günstigste BEZAHLTE Strecke (+15, eigene additive Upgrades sandstraightbonus/sandcurvebonus).
 	# Liegt zwischen Dreck und Eis/Default; niedrige Unlock- und Platzierpreise.
-	{"tier": "sand",    "type": "sand_straight", "name": "Sand-Gerade", "key": "sand_straight", "unlock": 5000, "base_price": 500, "growth": 4.0,  "upgrade": "sandstraightbonus"},
-	{"tier": "sand",    "type": "sand_curve",    "name": "Sand-Kurve",  "key": "sand_curve",    "unlock": 7000, "base_price": 750, "growth": 2.33, "upgrade": "sandcurvebonus"},
+	{"tier": "sand",    "type": "sand_straight", "name": "Sand-Gerade", "key": "sand_straight", "unlock": 5000, "base_price": 250, "growth": 2.6, "upgrade": "sandstraightbonus"},
+	{"tier": "sand",    "type": "sand_curve",    "name": "Sand-Kurve",  "key": "sand_curve",    "unlock": 7000, "base_price": 350, "growth": 1.8, "upgrade": "sandcurvebonus"},
 	# Eis: Gerade + Kurve teilen sich EINEN Schlüssel (gemeinsam freischalten) UND einen Preis-Pool
 	# (Kauf des einen verteuert auch das andere; Preis von der Geraden). Upgrade icebonus gilt für beide.
 	# Direkt hinter Sand, da der Freischaltpreis (25k) preislich dazwischen passt.
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
 	# Default (gebufft): +150 Grundertrag, mittlere Stufe – etwas günstiger als die (neue) Rennstrecke.
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 70000, "base_price": 14000, "growth": 4.0, "upgrade": "straightbonus"},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 80000, "base_price": 16000, "growth": 2.33, "upgrade": "curvebonus"},
+	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 50000, "base_price": 2500, "growth": 2.6, "upgrade": "straightbonus"},
+	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 60000, "base_price": 3000, "growth": 1.8, "upgrade": "curvebonus"},
 	# Rennbelag: EIGENES Teil – hoher flacher Ertrag (+1000) UND ein fester ×1.2, eigene additive
 	# Upgrades (racestraightbonus/racecurvebonus). Teuerstes reguläres Teil + eigenes Pixelart (racing-Ordner).
-	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 200000, "base_price": 40000, "growth": 4.0,  "upgrade": "racestraightbonus"},
-	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 220000, "base_price": 44000, "growth": 2.33, "upgrade": "racecurvebonus"},
+	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 200000, "base_price": 10000, "growth": 2.6,  "upgrade": "racestraightbonus"},
+	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 220000, "base_price": 11000, "growth": 1.8, "upgrade": "racecurvebonus"},
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
 	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
@@ -1123,11 +1124,11 @@ func _tile_price(item: Dictionary) -> int:
 # Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
 # Grundwerte: Dreck = 1, Sand = 15, Default gebufft = 150, Rennstrecke/-kurve = 1000; das
 # zugehörige Upgrade addiert seinen Live-Effekt. Der Renn-×1.2 wird hier nicht eingerechnet.
-func _tile_field_earn(item: Dictionary) -> int:
+func _tile_field_earn(item: Dictionary) -> float:
 	var t := String(item.get("type", ""))
 	# Test-Beläge (Wasser/Kleber): bewusst ohne Effekt → 0 Ertrag pro Feld.
 	if item.get("tier", "") == "test":
-		return 0
+		return 0.0
 	# Grundertrag je Belag (Wahrheitsquelle: CarController.*_TILE_EARN). Sand = günstigste bezahlte
 	# Strecke (+15), Default gebufft (+150), Rennstrecke (+1000), Dreck +1.
 	var base := 25
@@ -1139,7 +1140,7 @@ func _tile_field_earn(item: Dictionary) -> int:
 		base = 1000   # = CarController.RACE_TILE_EARN
 	elif t == "straight" or t == "curve":
 		base = 150    # = CarController.PREMIUM_TILE_EARN
-	return base + int(round(Economy.get_effect(item.get("upgrade", ""))))
+	return float(base) + Economy.get_effect(item.get("upgrade", ""))
 
 
 # Shop-Item (Default/Rampe) zu einem Tile-Typ; curve_alt→Kurve, ramp_*→Rampe. Leer falls keins.
@@ -1307,7 +1308,7 @@ func _tile_effect_text(item: Dictionary) -> String:
 	# Rennstrecke/-kurve: flacher +Ertrag UND der feste ×1.2 (RACE_TILE_MULT) – beides anzeigen.
 	var t := String(item.get("type", ""))
 	if t == "race_straight" or t == "race_curve":
-		return "+%d pro Feld  ·  ×%.1f" % [_tile_field_earn(item), RACE_TILE_MULT]
+		return "+%s pro Feld  ·  ×%.1f" % [Economy.format_half(_tile_field_earn(item)), RACE_TILE_MULT]
 	match item["tier"]:
 		"ramp":
 			var dirs = ["→", "↓", "←", "↑"]
@@ -1323,10 +1324,10 @@ func _tile_effect_text(item: Dictionary) -> String:
 		"stand":
 			return "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
 		"dirt":
-			return "+%d pro Feld" % _tile_field_earn(item)
+			return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))
 		"test":
 			return "Test · noch kein Effekt"
-	return "+%d pro Feld" % _tile_field_earn(item)
+	return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))
 
 
 # Kurzer Preis/Status für die kompakte Bau-Karte → {text, color}.

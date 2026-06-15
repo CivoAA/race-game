@@ -112,6 +112,14 @@ var _wp_teleport: PackedByteArray = PackedByteArray()
 # Nase über die Querachse geneigt (Auffahrt hoch, in der Luft runter, Landung wieder eben).
 var _wp_jump: PackedByteArray = PackedByteArray()
 
+# Eis-Wheelie: auf einem Eisfeld (ice/ice_curve) – wo das Auto jetzt schon selbst Tempo bekommt –
+# stellt es die Nase steil auf und fährt „auf den Hinterrädern" (Speed-Boost-Optik). Der Winkel liegt
+# bewusst deutlich über PITCH_MAX (Rampe). Nur auf dem Eisfeld selbst, sanft ein-/ausgeblendet.
+const ICE_WHEELIE_PITCH = PI * 30.0 / 180.0   # ~30° Nase hoch
+const ICE_PITCH_SMOOTH  = 14.0   # schnelles Aufstellen → Wheelie schon beim Auffahren, nicht erst mittig
+# Markiert Wegpunkte, die auf einem Eisfeld liegen (1 = Wheelie). Parallel zu _wp_jump.
+var _wp_ice: PackedByteArray = PackedByteArray()
+
 
 func _ready() -> void:
 	var car_script = load(Paths.SCRIPT_CAR_3D)
@@ -263,6 +271,9 @@ func _update_orientation(prev_pos: Vector3, delta: float, t: float = 0.0) -> voi
 	var jump_now:   bool = _cur_wp  < _wp_jump.size() and _wp_jump[_cur_wp]  == 1
 	var jump_ahead: bool = ahead_wp < _wp_jump.size() and _wp_jump[ahead_wp] == 1
 	var jump_active: bool = jump_now or jump_ahead
+	# Eis-Wheelie nur, solange das Auto auf dem Eisfeld SELBST steht (kein Lookahead) und kein
+	# Rampensprung aktiv ist (Rampe hat Vorrang bei der Nasenneigung).
+	var ice_now: bool = (not jump_active) and _cur_wp < _wp_ice.size() and _wp_ice[_cur_wp] == 1
 
 	if flat_dir.length() > 0.0001:
 		var new_yaw := atan2(flat_dir.x, flat_dir.z)
@@ -273,11 +284,20 @@ func _update_orientation(prev_pos: Vector3, delta: float, t: float = 0.0) -> voi
 		# rgt), NICHT über rotation.x – das wäre eine Fass-Rolle, weil die Front entlang der lokalen −X
 		# zeigt (siehe Looping-Zweig). Bleibt aktiv, bis die Neigung sanft auf 0 abgeklungen ist →
 		# das Auto richtet sich beim Runterfahren langsam wieder gerade aus.
-		if jump_active or absf(_pitch) > 0.02:
+		# Eis-Wheelie: auf dem Eisfeld Zielwinkel = ICE_WHEELIE_PITCH (Nase steil hoch, ~40°), sonst
+		# Rampenlogik. Beim Verlassen klingt _pitch über denselben Zweig sanft wieder auf 0 ab.
+		if jump_active or ice_now or absf(_pitch) > 0.02:
 			var look := ahead_pos - car.position
 			var look_flat := Vector2(look.x, look.z).length()
-			var pitch_t := clampf(atan2(look.y, maxf(look_flat, 0.001)), -PITCH_MAX, PITCH_MAX) if jump_active else 0.0
-			_pitch = lerp(_pitch, pitch_t, clampf(delta * PITCH_SMOOTH, 0.0, 1.0))
+			var pitch_t: float
+			if ice_now:
+				pitch_t = ICE_WHEELIE_PITCH
+			elif jump_active:
+				pitch_t = clampf(atan2(look.y, maxf(look_flat, 0.001)), -PITCH_MAX, PITCH_MAX)
+			else:
+				pitch_t = 0.0
+			var smooth: float = ICE_PITCH_SMOOTH if ice_now else PITCH_SMOOTH
+			_pitch = lerp(_pitch, pitch_t, clampf(delta * smooth, 0.0, 1.0))
 			var yaw_full := new_yaw + MODEL_ROTATION_OFFSET
 			var fwd := Vector3(-cos(yaw_full), 0.0, sin(yaw_full))
 			var rgt := Vector3(-fwd.z, 0.0, fwd.x)
@@ -599,16 +619,17 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			rec["is_jump"]      = d.get("jump_mult", 1.0) != 1.0
 		tile_rewards.append(rec)
 
-	# Eisgerade: legt auf die nächsten get_ice_range() Felder (in Fahrtrichtung, über die
-	# geschlossene Schleife) einen absoluten Tempo-Bonus. Mehrere Eisgeraden summieren sich.
-	# Das eigene Feld bleibt normal schnell – nur die FOLGE-Felder werden „rutschig".
+	# Eisgerade: legt einen absoluten Tempo-Bonus auf das EIGENE Feld UND die nächsten
+	# get_ice_range() Felder (in Fahrtrichtung, über die geschlossene Schleife). Das Auto wird also
+	# schon auf dem Eisfeld selbst schneller (j=0) und bleibt es die Folge-Felder lang. Mehrere
+	# Eisgeraden summieren sich.
 	var ice_bonus := Economy.get_ice_speed_bonus()
 	var ice_range := Economy.get_ice_range()
 	if ice_bonus > 0.0 and n > 0:
 		for ik in range(n):
 			var idata = route[ik]["data"]
 			if typeof(idata) == TYPE_DICTIONARY and idata.get("type", "") in ["ice", "ice_curve"]:
-				for j in range(1, ice_range + 1):
+				for j in range(0, ice_range + 1):
 					step_bonus[(ik + j) % n] += ice_bonus
 
 	# Steilwandkurve: beim Rausfahren bekommen die nächsten get_wall_range() Felder denselben
@@ -629,6 +650,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 	_wp_orient = []
 	_wp_teleport = PackedByteArray()
 	_wp_jump = PackedByteArray()
+	_wp_ice = PackedByteArray()
 	var half_t: float = TILE_SIZE / 2.0
 	for si in range(n):
 		var step = route[si]
@@ -642,6 +664,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		var tile_orient: Array = []
 		var tile_tele: PackedByteArray = PackedByteArray()
 		var tile_jump: PackedByteArray = PackedByteArray()
+		var tile_ice: PackedByteArray = PackedByteArray()
 		var tile_bank: PackedFloat32Array = PackedFloat32Array()
 
 		if _is_portal(sdata) and step.has("portal_to_row"):
@@ -667,15 +690,19 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			tile_tele = PackedByteArray([0, 1, 0, 0])   # Segment ab Wegpunkt[1] = Teleport (Mitte→Mitte)
 			tile_bank = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
 			tile_jump = PackedByteArray([0, 0, 0, 0])
+			tile_ice = PackedByteArray([0, 0, 0, 0])
 		else:
 			tile_wps = _waypoints_for_tile(center, sdata, step["exit"], step["row"], step["col"])
 			tile_orient = _pending_orient.duplicate()
 			var is_wall : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["wall_start", "wall_end"]
 			# Rampen-Kachel mit Sprungbogen → alle ihre Wegpunkte als „in der Luft" markieren.
 			var is_ramp : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["ramp_start", "ramp_end"]
+			# Eisfeld → alle seine Wegpunkte für den Wheelie markieren (Nase hoch, nur hier).
+			var is_ice : bool = typeof(sdata) == TYPE_DICTIONARY and sdata.get("type", "") in ["ice", "ice_curve"]
 			for w in range(tile_wps.size()):
 				tile_tele.append(0)
 				tile_jump.append(1 if is_ramp else 0)
+				tile_ice.append(1 if is_ice else 0)
 				tile_bank.append(clampf((tile_wps[w].y - 0.05) / WALL_PEAK_H, 0.0, 1.0) if is_wall else 0.0)
 
 		for _w in range(tile_wps.size()):
@@ -684,7 +711,19 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		_wp_orient.append_array(tile_orient)
 		_wp_teleport.append_array(tile_tele)
 		_wp_jump.append_array(tile_jump)
+		_wp_ice.append_array(tile_ice)
 		wps.append_array(tile_wps)
+
+	# Wheelie schon auf dem ANFAHRT-Segment auslösen: das erste Wegpunkt eines Eisfeldes ist seine
+	# Mitte (Gerade: [Mitte, Ausgangskante]), die Anfahrt von der Eingangskante gehört noch zum
+	# Vorgänger-Step. Darum auch den jeweils VORHERGEHENDEN Wegpunkt jedes Eis-Wegpunkts markieren →
+	# das Auto stellt die Nase bereits beim Auffahren auf, nicht erst in der Feldmitte.
+	var ni := _wp_ice.size()
+	if ni > 0:
+		var orig := _wp_ice.duplicate()
+		for w in range(ni):
+			if orig[w] == 1:
+				_wp_ice[(w - 1 + ni) % ni] = 1
 
 	# Segment-Zeittabelle bauen: Position UND Geld leiten sich ab jetzt nur noch hieraus ab.
 	_build_time_table(wps, step_speed, step_bonus)
