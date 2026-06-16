@@ -8,11 +8,31 @@ const CAM_DISTANCE      = 7.0
 const CAM_FOV           = 60.0
 const SUN_ENERGY    = 1.0
 const SUN_ANGLE_DEG = 55.0
-const GROUND_SIZE   = 24.0
+# Boden bewusst SEHR groß: die Kamera (45° Höhe, 60° FOV) blickt nie über den Horizont,
+# der „blaue Hintergrund" oben war nur die sichtbare KANTE der zu kleinen Bodenplatte.
+# Eine riesige Platte schiebt den Rand weit aus dem Bild → kein Himmel/Hintergrund mehr sichtbar.
+const GROUND_SIZE   = 200.0
 const GROUND_COLOR  = Color(0.22, 0.38, 0.18)
 const GROUND_Y      = -0.02
+
+# ── Deko (belebt die Grünfläche, OHNE die baubare Strecke zu berühren) ───────────
+# Reservierter Bereich = MAXIMALE Grid-Größe (aus Economy.GRID_STEPS) + Rand. Deko wird nur
+# AUSSERHALB dieses Rechtecks gestreut → wächst die Strecke per Prestige, bleibt sie deko-frei.
+const DECO_KEEPOUT_MARGIN = 0.9     # zusätzlicher Sicherheitsrand um das Max-Grid (Welt-Einheiten)
+const DECO_FIELD_RADIUS   = 16.0    # Streufeld-Radius um die Streckenmitte
+const DECO_COUNT          = 240     # Anzahl Deko-Objekte (Bäume/Büsche/Felsen/Blumen)
 const TILE_SIZE_3D  = 1.2
 const CAR_STAGGER   = 0.5   # Sekunden Startabstand zwischen mehreren Autos
+
+# ziel.mp3-Wellenform: ~0–0.35 s Stille, dann der eigentliche „Ding" (~0.4–0.8 s), danach
+# nur noch ein leiser Ausklang bis ~2.3 s. Deshalb:
+#  • SKIP überspringt NUR die führende Stille → Ding ertönt sofort beim Überfahren (war „zu spät").
+#    (Vorher 1.0 → das sprang HINTER den ganzen Ding in den stillen Ausklang → „viel zu leise".)
+#  • LEN = Länge des hörbaren Teils. Wir lösen den nächsten Ding frühestens nach LEN aus, NICHT
+#    erst wenn die ganze (überwiegend stille) Datei durch ist → schnelle Strecken bekommen einen
+#    sauberen Ding pro Runde, ohne sich abzuschneiden, statt zu warten oder zu stottern.
+const FINISH_SFX_SKIP = 0.35
+const FINISH_SFX_LEN  = 0.5
 
 # CurrencyHud wird durch GameHUD (Autoload) ersetzt
 
@@ -37,6 +57,7 @@ var _grid_state:      Array = []   # für Auto-Respawn bei Live-Upgrade gemerkt
 var _finish_btn:   Button = null
 var _bottom_bar:   Control = null   # untere Leiste (wie im 2D-Bauplan), trägt den Finish-Button
 var _finish_sfx:   AudioStreamPlayer = null   # Jingle beim Überfahren der Ziellinie (nur hier in 3D)
+var _finish_sfx_next_ms: float = 0.0          # frühester Zeitpunkt (ms) für den nächsten Ding (Cooldown)
 
 
 func _ready() -> void:
@@ -66,6 +87,7 @@ func _ready() -> void:
 	_setup_hud()
 
 	generator.generate(grid_state)
+	_setup_decorations()
 
 	# Lauf-Status kommt immer aus Economy (single source of truth); der Timer-Text
 	# wird von GameHUD gerendert.
@@ -166,8 +188,18 @@ func _setup_finish_sfx() -> void:
 func _on_lap_credited_sfx(track_idx: int, _amount: int) -> void:
 	if track_idx != _active_track_idx or not Display.finish_sound:
 		return
-	if _finish_sfx != null:
-		_finish_sfx.play()
+	if _finish_sfx == null:
+		return
+	# Cooldown über die HÖRBARE Länge (nicht über die ganze, größtenteils stille Datei): Solange
+	# der laufende Ding noch nicht durch ist, neue Runde NICHT neu starten → schneidet sich nie
+	# selbst ab. Bei sehr schnellen Strecken ergibt das einen sauberen Ding alle FINISH_SFX_LEN s
+	# statt eines abgehackten Dauer-Neustarts.
+	var now := float(Time.get_ticks_msec())
+	if now < _finish_sfx_next_ms:
+		return
+	# Ab FINISH_SFX_SKIP starten → führende Stille der Datei weg, der „Ding" kommt sofort & laut.
+	_finish_sfx.play(FINISH_SFX_SKIP)
+	_finish_sfx_next_ms = now + FINISH_SFX_LEN * 1000.0
 
 
 # Upgrade gekauft, während diese Strecke gezeigt wird: Autos neu aufsetzen, damit Tempo,
@@ -577,3 +609,168 @@ func _setup_ground() -> void:
 	mat.roughness        = 0.9
 	ground.material_override = mat
 	ground.position = Vector3(_track_cx, GROUND_Y, _track_cz)
+
+
+# ── Deko ────────────────────────────────────────────────────────────────────────
+
+# Streut prozedurale Deko (Bäume, Büsche, Felsen, Blumen) auf die Grünfläche rund um die
+# Strecke. Belebt die leere Fläche, beeinflusst aber NIE die baubare Strecke: alle Objekte
+# liegen außerhalb des reservierten Max-Grid-Rechtecks (größte mögliche Grid-Stufe + Rand).
+func _setup_decorations() -> void:
+	var deco_root := Node3D.new()
+	deco_root.name = "Decorations"
+	add_child(deco_root)
+
+	# Reservierter (deko-freier) Bereich = größte mögliche Grid-Größe, in Welt-Koordinaten.
+	# Das Grid wächst stets vom Ursprung (0,0) nach +X/+Z, daher Rechteck ab 0.
+	var max_cols := 1
+	var max_rows := 1
+	for step in Economy.GRID_STEPS:
+		max_cols = maxi(max_cols, step.y)
+		max_rows = maxi(max_rows, step.x)
+	var keep_x0 := -DECO_KEEPOUT_MARGIN
+	var keep_x1 := max_cols * TILE_SIZE_3D + DECO_KEEPOUT_MARGIN
+	var keep_z0 := -DECO_KEEPOUT_MARGIN
+	var keep_z1 := max_rows * TILE_SIZE_3D + DECO_KEEPOUT_MARGIN
+
+	# Streufeld um die Mitte des MAX-Grids zentrieren (fix, unabhängig von der aktuellen Stufe).
+	var fcx := max_cols * TILE_SIZE_3D / 2.0
+	var fcz := max_rows * TILE_SIZE_3D / 2.0
+
+	# Deterministisch pro Strecke → Anordnung ist stabil (kein Flackern beim Auto-Respawn).
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x5EED + _active_track_idx * 1013
+
+	var placed := 0
+	var attempts := 0
+	while placed < DECO_COUNT and attempts < DECO_COUNT * 12:
+		attempts += 1
+		var px := fcx + rng.randf_range(-DECO_FIELD_RADIUS, DECO_FIELD_RADIUS)
+		var pz := fcz + rng.randf_range(-DECO_FIELD_RADIUS, DECO_FIELD_RADIUS)
+		# Im reservierten Strecken-Rechteck? → verwerfen.
+		if px > keep_x0 and px < keep_x1 and pz > keep_z0 and pz < keep_z1:
+			continue
+		var pos := Vector3(px, 0.0, pz)
+		var roll := rng.randf()
+		if roll < 0.68:
+			deco_root.add_child(_make_tree(rng, pos))
+		elif roll < 0.88:
+			deco_root.add_child(_make_bush(rng, pos))
+		elif roll < 0.95:
+			deco_root.add_child(_make_rock(rng, pos))
+		else:
+			deco_root.add_child(_make_flowers(rng, pos))
+		placed += 1
+
+
+func _deco_mat(color: Color, rough: float = 0.95) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness    = rough
+	return mat
+
+
+# Niedrig-Poly-Baum: Stamm (Zylinder) + 1–2 Laub-Kegel mit leicht variierter Grün-Tönung.
+func _make_tree(rng: RandomNumberGenerator, pos: Vector3) -> Node3D:
+	var holder := Node3D.new()
+	holder.position = pos
+	holder.rotation.y = rng.randf_range(0.0, TAU)
+	var scale := rng.randf_range(0.8, 1.4)
+
+	var trunk_h := 0.5 * scale
+	var trunk := MeshInstance3D.new()
+	var tcyl := CylinderMesh.new()
+	tcyl.top_radius    = 0.05 * scale
+	tcyl.bottom_radius = 0.07 * scale
+	tcyl.height        = trunk_h
+	trunk.mesh = tcyl
+	trunk.material_override = _deco_mat(Color(0.36, 0.25, 0.16))
+	trunk.position = Vector3(0.0, trunk_h / 2.0, 0.0)
+	holder.add_child(trunk)
+
+	var green := Color(0.18, 0.42 + rng.randf_range(-0.06, 0.10), 0.16)
+	var crown_h := 0.7 * scale
+	var crown := MeshInstance3D.new()
+	var ccone := CylinderMesh.new()
+	ccone.top_radius    = 0.0
+	ccone.bottom_radius = 0.34 * scale
+	ccone.height        = crown_h
+	crown.mesh = ccone
+	crown.material_override = _deco_mat(green)
+	crown.position = Vector3(0.0, trunk_h + crown_h / 2.0, 0.0)
+	holder.add_child(crown)
+
+	# Höherer Baum bekommt eine zweite, kleinere Krone obendrauf (Tannen-Optik).
+	if scale > 1.05:
+		var crown2 := MeshInstance3D.new()
+		var ccone2 := CylinderMesh.new()
+		ccone2.top_radius    = 0.0
+		ccone2.bottom_radius = 0.24 * scale
+		ccone2.height        = 0.5 * scale
+		crown2.mesh = ccone2
+		crown2.material_override = _deco_mat(green.lightened(0.05))
+		crown2.position = Vector3(0.0, trunk_h + crown_h * 0.75 + 0.25 * scale, 0.0)
+		holder.add_child(crown2)
+	return holder
+
+
+# Runder Busch (abgeflachte Kugel).
+func _make_bush(rng: RandomNumberGenerator, pos: Vector3) -> Node3D:
+	var holder := Node3D.new()
+	holder.position = pos
+	var s := rng.randf_range(0.7, 1.2)
+	var bush := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.28 * s
+	sph.height = 0.42 * s
+	bush.mesh = sph
+	bush.material_override = _deco_mat(Color(0.16, 0.40 + rng.randf_range(-0.05, 0.08), 0.18))
+	bush.position = Vector3(0.0, 0.16 * s, 0.0)
+	holder.add_child(bush)
+	return holder
+
+
+# Grauer Fels (gedrehte, ungleichmäßig skalierte Kugel → kantiger Eindruck).
+func _make_rock(rng: RandomNumberGenerator, pos: Vector3) -> Node3D:
+	var holder := Node3D.new()
+	holder.position = pos
+	holder.rotation = Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(0.0, TAU), rng.randf_range(-0.3, 0.3))
+	var rock := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radial_segments = 6
+	sph.rings = 3
+	sph.radius = 0.22
+	sph.height = 0.34
+	rock.mesh = sph
+	var g := rng.randf_range(0.38, 0.52)
+	rock.material_override = _deco_mat(Color(g, g, g * 1.02), 1.0)
+	rock.scale = Vector3(rng.randf_range(0.8, 1.6), rng.randf_range(0.6, 1.0), rng.randf_range(0.8, 1.6))
+	rock.position = Vector3(0.0, 0.10, 0.0)
+	holder.add_child(rock)
+	return holder
+
+
+# Kleine Blumengruppe: bunte Farbtupfer für etwas Farbe in der Fläche.
+func _make_flowers(rng: RandomNumberGenerator, pos: Vector3) -> Node3D:
+	var holder := Node3D.new()
+	holder.position = pos
+	var palette := [
+		Color(0.95, 0.85, 0.25), Color(0.92, 0.35, 0.45),
+		Color(0.85, 0.55, 0.95), Color(0.95, 0.95, 0.95),
+	]
+	var n := rng.randi_range(3, 6)
+	for _i in range(n):
+		var col: Color = palette[rng.randi() % palette.size()]
+		var f := MeshInstance3D.new()
+		var sph := SphereMesh.new()
+		sph.radius = 0.05
+		sph.height = 0.10
+		f.mesh = sph
+		var fmat := _deco_mat(col, 0.8)
+		fmat.emission_enabled = true
+		fmat.emission = col
+		fmat.emission_energy_multiplier = 0.25
+		f.material_override = fmat
+		f.position = Vector3(rng.randf_range(-0.22, 0.22), 0.08, rng.randf_range(-0.22, 0.22))
+		holder.add_child(f)
+	return holder

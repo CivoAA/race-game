@@ -56,8 +56,8 @@ const CAR_ASCEND_BASE       = 100_000_000_000.0  # Geld-Schwelle 1. Aufstieg (10
 const CAR_ASCEND_GROWTH     = 10.0               # Schwelle ×10 je weiterer Stufe
 const CAR_ASCEND_POINT_MULT = 4.0                # ×4 Prestigepunkte je Stufe (stapelt: ×4, ×16, …)
 const CAR_ASCEND_COUNT_MULT = 2.0                # ×2 Prestige-Zähler je Stufe (stapelt: ×2, ×4, …) →
-                                                 # jedes Prestige schaltet entspr. mehr Baum-Knoten frei,
-                                                 # macht den Werkstatt-Reset (prestige_count→0) weicher
+												 # jedes Prestige schaltet entspr. mehr Baum-Knoten frei,
+												 # macht den Werkstatt-Reset (prestige_count→0) weicher
 
 # ── Upgrade-Definitionen ────────────────────────────────────────────────────────
 # category: "general" oder "car" (car_* sind Vorlagen für car<idx>_<suffix>)
