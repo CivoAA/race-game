@@ -107,6 +107,9 @@ const TEX_GRASS_2D = "res://assets/2D-tiles/grass2.png"
 const TEX_START_2D = "res://assets/2D-tiles/allgemein/start.png"
 # Looping-Artwork (2D): EIN Bild, standardmäßig OW gemalt – für die NS-Basislage 90° gedreht.
 const TEX_LOOP_2D    = "res://assets/2D-tiles/allgemein/looping.png"
+# Steilwandkurve-Artwork (2D): EIN Bild, 32×64 = deckt das GANZE 2-Kachel-Paar ab (Basislage rot=0:
+# senkrecht, wall_start oben/Nord, wall_end unten/Süd). Wird nur am wall_start gezeichnet.
+const TEX_WALL_2D    = "res://assets/2D-tiles/allgemein/bankedTurn.png"
 # Portal-Artwork (2D): zwei Endpunkte eines Paares (portal1/portal2), je OW gemalt, per Drehung ausgerichtet.
 const TEX_PORTAL1_2D = "res://assets/2D-tiles/allgemein/portal1.png"
 const TEX_PORTAL2_2D = "res://assets/2D-tiles/allgemein/portal2.png"

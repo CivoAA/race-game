@@ -612,16 +612,16 @@ func _show_shop_cat(idx: int) -> void:
 #   coming true  → noch nicht verfügbar (Button deaktiviert)
 func _tile_entries() -> Array:
 	return [
-		{"name": "Dreck-Gerade", "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+1 Ertrag · frei", "upgrade": "dirtstraightbonus", "field_earn_base": 1},
-		{"name": "Dreck-Kurve",  "key": "",            "model": Paths.MODEL_TRACK_CURVE_DIRT,       "desc": "+1 Ertrag · frei", "upgrade": "dirtcurvebonus", "field_earn_base": 1},
+		{"name": "Erd-Gerade",  "key": "",            "model": Paths.MODEL_TRACK_STRAIGHT_DIRT,    "desc": "+1 Ertrag · frei", "upgrade": "dirtstraightbonus", "field_earn_base": 1},
+		{"name": "Erd-Kurve",   "key": "",            "model": Paths.MODEL_TRACK_CURVE_DIRT,       "desc": "+1 Ertrag · frei", "upgrade": "dirtcurvebonus", "field_earn_base": 1},
 		# Sand: günstigste bezahlte Strecke (+15, eigene additive Upgrades) – zwischen Dreck und Eis/Default.
 		{"name": "Sand-Gerade",   "key": "sand_straight", "model": Paths.MODEL_TRACK_STRAIGHT_SAND,  "desc": "+15 Ertrag", "upgrade": "sandstraightbonus", "field_earn_base": 15},
 		{"name": "Sand-Kurve",    "key": "sand_curve",    "model": Paths.MODEL_TRACK_CURVE_SAND,     "desc": "+15 Ertrag", "upgrade": "sandcurvebonus", "field_earn_base": 15},
 		# Eis: EIN Eintrag schaltet Gerade + Kurve frei und führt das gemeinsame Upgrade (icebonus).
 		# Direkt hinter Sand, da der Freischaltpreis (25k) preislich dazwischen passt.
 		{"name": "Eis (Gerade + Kurve)", "key": "ice", "model": Paths.MODEL_TRACK_STRAIGHT_ICE,     "desc": "Speed-Boost · kein Geld", "upgrade": "icebonus", "field_earn_base": 0},
-		{"name": "Gerade",       "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+150 Ertrag", "upgrade": "straightbonus", "field_earn_base": 150},
-		{"name": "Kurve",        "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+150 Ertrag", "upgrade": "curvebonus", "field_earn_base": 150},
+		{"name": "Straßen-Gerade", "key": "def_straight","model": Paths.MODEL_TRACK_STRAIGHT_DEFAULT, "desc": "+150 Ertrag", "upgrade": "straightbonus", "field_earn_base": 150},
+		{"name": "Straßen-Kurve",  "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+150 Ertrag", "upgrade": "curvebonus", "field_earn_base": 150},
 		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+1000 Ertrag · ×1.2", "upgrade": "racestraightbonus", "field_earn_base": 1000},
 		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+1000 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 1000},
 		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},

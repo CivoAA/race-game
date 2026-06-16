@@ -27,7 +27,7 @@ const C_LINE     := Color(0.247, 0.255, 0.278)   # #3f4147
 
 # Build-Panel-Konstanten – vertikales, scrollbares Panel am LINKEN Rand
 const BUILD_PANEL_X   = 0
-const BUILD_PANEL_W   = 196                      # etwas breiter → 2-Spalten-Icon-Raster
+const BUILD_PANEL_W   = 232                      # einspaltige Zeilen-Karten (Thumbnail + Name + Preis)
 const BUILD_PANEL_TOP = 50                       # bündig an der Top-Nav (0–50)
 # Untere Werkzeug-Buttons (Hammer = Baumenü öffnen, Papierkorb = löschen).
 # Gleiche Größe; sitzen über der 42px-Run-Bar.
@@ -54,8 +54,8 @@ var _build_panel_bot: float = 0.0
 # der Kaufpreis startet danach für Sand/Default/Renn bei 5 % des Freischaltpreises (base_price) und
 # skaliert idle (bewusst flaches growth, damit das Baumenü günstig bleibt).
 const SHOP_ITEMS = [
-	{"tier": "dirt",    "type": "curve",    "name": "Dreck-Kurve",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
-	{"tier": "dirt",    "type": "straight", "name": "Dreck-Gerade", "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
+	{"tier": "dirt",    "type": "curve",    "name": "Erd-Kurve",   "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
+	{"tier": "dirt",    "type": "straight", "name": "Erd-Gerade",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
 	# Sand: günstigste BEZAHLTE Strecke (+15, eigene additive Upgrades sandstraightbonus/sandcurvebonus).
 	# Liegt zwischen Dreck und Eis/Default; niedrige Unlock- und Platzierpreise.
 	{"tier": "sand",    "type": "sand_straight", "name": "Sand-Gerade", "key": "sand_straight", "unlock": 5000, "base_price": 250, "growth": 2.6, "upgrade": "sandstraightbonus"},
@@ -66,8 +66,8 @@ const SHOP_ITEMS = [
 	{"tier": "ice",     "type": "ice",      "name": "Eisgerade",    "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
 	{"tier": "ice",     "type": "ice_curve","name": "Eiskurve",     "key": "ice",         "unlock": 25000, "base_price": 5000,  "growth": 3.5, "upgrade": "icebonus"},
 	# Default (gebufft): +150 Grundertrag, mittlere Stufe – etwas günstiger als die (neue) Rennstrecke.
-	{"tier": "default", "type": "straight", "name": "Gerade",       "key": "def_straight","unlock": 50000, "base_price": 2500, "growth": 2.6, "upgrade": "straightbonus"},
-	{"tier": "default", "type": "curve",    "name": "Kurve",        "key": "def_curve",   "unlock": 60000, "base_price": 3000, "growth": 1.8, "upgrade": "curvebonus"},
+	{"tier": "default", "type": "straight", "name": "Straßen-Gerade", "key": "def_straight","unlock": 50000, "base_price": 2500, "growth": 2.6, "upgrade": "straightbonus"},
+	{"tier": "default", "type": "curve",    "name": "Straßen-Kurve",  "key": "def_curve",   "unlock": 60000, "base_price": 3000, "growth": 1.8, "upgrade": "curvebonus"},
 	# Rennbelag: EIGENES Teil – hoher flacher Ertrag (+1000) UND ein fester ×1.2, eigene additive
 	# Upgrades (racestraightbonus/racecurvebonus). Teuerstes reguläres Teil + eigenes Pixelart (racing-Ordner).
 	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 200000, "base_price": 10000, "growth": 2.6,  "upgrade": "racestraightbonus"},
@@ -160,6 +160,9 @@ var _status_lbl:    Label       = null
 var _hint_lbl:      Label       = null
 var _fahren_btn:    Button      = null
 var _build_cards:   Array       = []
+# Ausklappbare Bau-Kategorien: Label → eingeklappt? bzw. Label → Header-Button (für Chevron-Update).
+var _section_collapsed:   Dictionary = {}
+var _section_header_btns: Dictionary = {}
 var _hover_popup:    Panel = null     # schwebende Effekt-Box rechts neben der gehoverten Tile-Karte
 var _hover_name_lbl: Label = null
 var _hover_eff_lbl:  Label = null
@@ -208,6 +211,7 @@ func _ready() -> void:
 	_setup_grid_highlight()
 	_setup_camera()
 	_setup_run_bar()
+	_load_section_collapsed()   # vor dem Panel-Aufbau → Header-Chevrons starten korrekt
 	_setup_build_panel()
 	_setup_build_toggle_btn()
 	_layout_bottom_ui()
@@ -652,7 +656,7 @@ func _setup_build_panel() -> void:
 	_hint_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	footer.add_child(_hint_lbl)
 
-	# ── Scrollbares 2-Spalten-Icon-Raster zwischen Kopf und Fuß ─────────────────
+	# ── Scrollbare, einspaltige Zeilen-Liste mit Kategorie-Überschriften ────────
 	var scroll_top := BUILD_PANEL_TOP + 44
 	var scroll := ScrollContainer.new()
 	scroll.position = Vector2(PADX, scroll_top)
@@ -661,16 +665,27 @@ func _setup_build_panel() -> void:
 	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	_build_layer.add_child(scroll)
 
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
-	scroll.add_child(grid)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 5)
+	# Breite NICHT fixieren → die Liste füllt den Scrollbereich (abzüglich Scrollleiste), damit der
+	# Preis-Text rechts nie abgeschnitten wird, sobald die Scrollleiste erscheint.
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
 
-	for i in range(SHOP_SLOT_COUNT):
-		var card := _make_build_card(i)
-		grid.add_child(card)
-		_build_cards.append(card)
+	# Kategorien in fester Anzeige-Reihenfolge (SECTION_ORDER); je Kategorie eine klickbare Überschrift,
+	# darunter ihre Karten in SHOP_ITEMS-Reihenfolge. _build_cards bleibt nach SHOP-Index indiziert
+	# (NICHT nach Anzeige-Reihenfolge) – _update_build_ui/_on_shop_slot_gui_input rechnen mit dem Index.
+	_build_cards.resize(SHOP_SLOT_COUNT)
+	for sec in SECTION_ORDER:
+		var hdr := _make_section_header(sec)
+		list.add_child(hdr)
+		_section_header_btns[sec] = hdr
+		for i in range(SHOP_SLOT_COUNT):
+			if _shop_section_label(i) == sec:
+				var card := _make_build_card(i)
+				list.add_child(card)
+				_build_cards[i] = card
+	_refresh_section_headers()
 
 	# Papierkorb – unten rechts über der Run-Bar (nur Slow-Modus)
 	_trash_panel = _make_trash_card()
@@ -878,53 +893,90 @@ func _apply_fahren_style(btn: Button, enabled: bool) -> void:
 	btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 
 
-const CARD_W = 78
-const CARD_H = 82
+const ROW_H    = 48   # Höhe einer Zeilen-Karte
+const THUMB_SZ = 38   # Kantenlänge des Vorschau-Chips (links in der Zeile)
 
+# Eine Zeilen-Karte: links ein gerahmter Vorschau-Chip (echtes Streckenteil-Artwork oder
+# Fallback-Icon + optionales Schloss-Overlay), rechts Name (oben) und Preis/Status (unten).
+# Layout über Anker → die Texte folgen der Kartenbreite (Liste füllt das Panel).
 func _make_build_card(idx: int) -> Panel:
 	var card := Panel.new()
-	card.custom_minimum_size = Vector2(CARD_W, CARD_H)
+	card.custom_minimum_size = Vector2(0, ROW_H)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.clip_contents = true
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
-	# Großer, tier-farbiger Icon-Chip oben
+	var pad := (ROW_H - THUMB_SZ) / 2.0   # vertikal zentrierter Chip
+	var text_x := pad + THUMB_SZ + 10.0   # Textspalte beginnt rechts vom Chip
+
+	# Vorschau-Chip (dunkler Rahmen, tier-farbiger Rand)
 	var chip := Panel.new()
 	chip.name = "Chip"
-	chip.position = Vector2(8, 8)
-	chip.size     = Vector2(CARD_W - 16, 36)
+	chip.position = Vector2(pad, pad)
+	chip.size     = Vector2(THUMB_SZ, THUMB_SZ)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(chip)
 
+	# Echtes Streckenteil-Artwork (Pixelart, scharf skaliert)
+	var thumb := TextureRect.new()
+	thumb.name = "Thumb"
+	thumb.position = Vector2(pad + 3, pad + 3)
+	thumb.size     = Vector2(THUMB_SZ - 6, THUMB_SZ - 6)
+	thumb.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	thumb.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(thumb)
+
+	# Fallback-Icon (nur für Teile ohne eigenes Artwork: Steilkurve/Tribüne)
 	var icon := Label.new()
 	icon.name = "Icon"
-	icon.position = Vector2(8, 8)
-	icon.size     = Vector2(CARD_W - 16, 36)
+	icon.position = Vector2(pad, pad)
+	icon.size     = Vector2(THUMB_SZ, THUMB_SZ)
 	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	icon.add_theme_font_size_override("font_size", 20)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(icon)
 
-	# Kurzer Name (ggf. abgeschnitten – voller Name + Effekt stehen im Fuß)
+	# Schloss-Overlay (nur bei gesperrten Teilen)
+	var lock := Label.new()
+	lock.name = "Lock"
+	lock.position = Vector2(pad, pad)
+	lock.size     = Vector2(THUMB_SZ, THUMB_SZ)
+	lock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lock.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lock.add_theme_font_size_override("font_size", 18)
+	lock.add_theme_color_override("font_color", Color(1.0, 0.86, 0.55))
+	lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lock.visible = false
+	card.add_child(lock)
+
+	# Name (oben), füllt bis zum rechten Rand mit
 	var name_lbl := Label.new()
 	name_lbl.name = "Name"
-	name_lbl.position = Vector2(3, 47)
-	name_lbl.size     = Vector2(CARD_W - 6, 14)
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	name_lbl.anchor_right = 1.0
+	name_lbl.offset_left  = text_x
+	name_lbl.offset_right = -10
+	name_lbl.offset_top   = 6
+	name_lbl.offset_bottom = 26
+	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_lbl.clip_text = true
-	name_lbl.add_theme_font_size_override("font_size", 9)
+	name_lbl.add_theme_font_size_override("font_size", 13)
 	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(name_lbl)
 
-	# Kurzer Preis/Status unten
+	# Preis/Status (unten)
 	var price_lbl := Label.new()
 	price_lbl.name = "Price"
-	price_lbl.position = Vector2(3, 62)
-	price_lbl.size     = Vector2(CARD_W - 6, 15)
-	price_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	price_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	price_lbl.anchor_right = 1.0
+	price_lbl.offset_left  = text_x
+	price_lbl.offset_right = -10
+	price_lbl.offset_top   = 25
+	price_lbl.offset_bottom = 44
+	price_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	price_lbl.clip_text = true
-	price_lbl.add_theme_font_size_override("font_size", 9)
+	price_lbl.add_theme_font_size_override("font_size", 11)
 	price_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(price_lbl)
 
@@ -932,6 +984,69 @@ func _make_build_card(idx: int) -> Panel:
 	card.mouse_entered.connect(func(): _show_tile_hover(idx))
 	card.mouse_exited.connect(func(): _hide_tile_hover(idx))
 	return card
+
+
+# Kategorie-Überschrift in der Bau-Liste: klickbar zum Ein-/Ausklappen (Chevron links).
+func _make_section_header(text: String) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, 24)
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment  = HORIZONTAL_ALIGNMENT_LEFT
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.add_theme_font_size_override("font_size", 10)
+	b.add_theme_color_override("font_color",       C_TEXT_DIM)
+	b.add_theme_color_override("font_hover_color", C_TEXT)
+	b.add_theme_color_override("font_pressed_color", C_TEXT)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.content_margin_left = 2
+	sb.content_margin_top = 4
+	var sb_h := sb.duplicate() as StyleBoxFlat
+	sb_h.bg_color = C_SURFACE
+	sb_h.set_corner_radius_all(6)
+	b.add_theme_stylebox_override("normal",  sb)
+	b.add_theme_stylebox_override("hover",   sb_h)
+	b.add_theme_stylebox_override("pressed", sb)
+	b.add_theme_stylebox_override("focus",   sb)
+	b.pressed.connect(func(): _toggle_section(text))
+	return b
+
+
+# Kategorie ein-/ausklappen (Karten dieser Kategorie ein-/ausblenden) + Zustand persistent speichern.
+func _toggle_section(label: String) -> void:
+	_section_collapsed[label] = not bool(_section_collapsed.get(label, false))
+	_update_build_ui()
+	_refresh_section_headers()
+	_save_section_collapsed()
+
+
+# Klapp-Zustand der Kategorien aus den Einstellungen laden (überdauert Spielneustarts).
+func _load_section_collapsed() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(Paths.SETTINGS_FILE)
+	var arr: Array = cfg.get_value("build", "collapsed_sections", [])
+	_section_collapsed = {}
+	for label in arr:
+		_section_collapsed[String(label)] = true
+
+
+# Eingeklappte Kategorien in die Einstellungen schreiben (nur die Liste der eingeklappten Labels).
+func _save_section_collapsed() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(Paths.SETTINGS_FILE)   # bestehende Einstellungen erhalten
+	var arr: Array = []
+	for label in _section_collapsed:
+		if _section_collapsed[label]:
+			arr.append(label)
+	cfg.set_value("build", "collapsed_sections", arr)
+	cfg.save(Paths.SETTINGS_FILE)
+
+
+# Chevron + Resttext aller Kategorie-Header an den Klapp-Zustand anpassen.
+func _refresh_section_headers() -> void:
+	for label in _section_header_btns:
+		var collapsed: bool = bool(_section_collapsed.get(label, false))
+		_section_header_btns[label].text = ("▸  %s" if collapsed else "▾  %s") % label
 
 
 func _make_trash_card() -> Panel:
@@ -1255,45 +1370,60 @@ func _update_build_ui() -> void:
 		var locked   = not Economy.is_tile_unlocked(item["key"])
 		var selected = (i == selected_shop_slot)
 
-		# Gesperrte Tiles (Default-Strecken & Rampe) direkt in der Bau-Leiste anzeigen,
-		# damit sie dort per Klick einmalig freigeschaltet werden können.
-		card.visible = true
+		# Gesperrte Tiles (Default-Strecken & Rampe) direkt in der Bau-Leiste anzeigen, damit sie dort
+		# freigeschaltet werden können – außer die Kategorie ist eingeklappt.
+		card.visible = not bool(_section_collapsed.get(_shop_section_label(i), false))
 
 		var chip      = card.get_node("Chip")  as Panel
+		var thumb     = card.get_node("Thumb") as TextureRect
 		var icon_lbl  = card.get_node("Icon")  as Label
+		var lock_lbl  = card.get_node("Lock")  as Label
 		var name_lbl  = card.get_node("Name")  as Label
 		var price_lbl = card.get_node("Price") as Label
 
-		icon_lbl.text = _tile_icon_glyph(item)
 		name_lbl.text = item["name"]
 
-		# Chip-Farbe je Tier (gesperrt = gedämpft)
-		var chip_bg: Color
-		var chip_fg: Color
+		# Tier-Akzentfarbe (Chip-Rand + Fallback-Icon). Gesperrt = gedämpftes Braun.
+		var accent: Color
 		match item["tier"]:
-			"dirt":
-				chip_bg = Color(0.26, 0.31, 0.19); chip_fg = Color(0.72, 0.90, 0.56)
-			"ramp":
-				chip_bg = Color(0.40, 0.25, 0.06); chip_fg = Color(1.00, 0.78, 0.36)
-			"ice":
-				chip_bg = Color(0.12, 0.30, 0.42); chip_fg = Color(0.62, 0.90, 1.00)
-			"wall":
-				chip_bg = Color(0.34, 0.16, 0.40); chip_fg = Color(0.86, 0.62, 1.00)
-			"loop":
-				chip_bg = Color(0.14, 0.26, 0.44); chip_fg = Color(0.60, 0.80, 1.00)
-			"portal":
-				chip_bg = Color(0.30, 0.18, 0.06); chip_fg = Color(1.00, 0.66, 0.32)
-			"stand":
-				chip_bg = Color(0.22, 0.22, 0.24); chip_fg = Color(0.86, 0.86, 0.90)
-			_:
-				chip_bg = C_ACCENT_MU.darkened(0.05); chip_fg = Color(0.74, 0.84, 1.00)
+			"dirt":   accent = Color(0.72, 0.90, 0.56)
+			"sand":   accent = Color(0.95, 0.82, 0.50)
+			"ramp":   accent = Color(1.00, 0.78, 0.36)
+			"ice":    accent = Color(0.62, 0.90, 1.00)
+			"wall":   accent = Color(0.86, 0.62, 1.00)
+			"loop":   accent = Color(0.60, 0.80, 1.00)
+			"portal": accent = Color(1.00, 0.66, 0.32)
+			"stand":  accent = Color(0.86, 0.86, 0.90)
+			"test":   accent = Color(0.66, 0.84, 0.78)
+			_:        accent = Color(0.74, 0.84, 1.00)
 		if locked:
-			chip_bg = Color(0.20, 0.18, 0.16); chip_fg = Color(0.58, 0.47, 0.36)
+			accent = Color(0.58, 0.47, 0.36)
+
+		# Gerahmter, dunkler Vorschau-Chip mit tier-farbigem Rand.
 		var chip_sb := StyleBoxFlat.new()
-		chip_sb.bg_color = chip_bg
+		chip_sb.bg_color = Color(0.09, 0.10, 0.12)
+		chip_sb.border_color = accent.darkened(0.1) if not locked else Color(0.34, 0.27, 0.20)
+		chip_sb.set_border_width_all(1)
 		chip_sb.set_corner_radius_all(8)
 		chip.add_theme_stylebox_override("panel", chip_sb)
-		icon_lbl.add_theme_color_override("font_color", chip_fg)
+
+		# Echtes Artwork bevorzugen; sonst Fallback-Icon (Steilkurve/Tribüne).
+		var tex := _tile_thumb_texture(item)
+		if tex != null:
+			thumb.visible  = true
+			thumb.texture  = tex
+			var tint := _tile_thumb_tint(item)
+			thumb.modulate = tint if not locked else tint.darkened(0.45) * Color(0.8, 0.78, 0.74)
+			icon_lbl.visible = false
+		else:
+			thumb.visible = false
+			icon_lbl.visible = true
+			icon_lbl.text = _tile_fallback_glyph(item)
+			icon_lbl.add_theme_color_override("font_color", accent)
+
+		lock_lbl.visible = locked
+		if locked:
+			lock_lbl.text = Icons.LOCK
 
 		# Kurzer Preis/Status auf der Karte; voller Effekt steht in der Hover-Box (kein Standard-Tooltip).
 		var pr := _tile_price_short(item, locked)
@@ -1331,24 +1461,80 @@ func _update_build_ui() -> void:
 		name_lbl.add_theme_color_override("font_color", name_col)
 
 
-# Repräsentatives Glyph je Streckenteil (für den Icon-Chip auf der Bau-Karte).
-func _tile_icon_glyph(item: Dictionary) -> String:
-	if item["type"] in ["curve", "race_curve", "sand_curve", "water_curve", "glue_curve"]:
-		return "╰"
+# Geladene Thumbnails cachen (load() selbst cached zwar, aber so sparen wir den Pfad-Aufbau).
+var _thumb_cache: Dictionary = {}
+
+# Vorschau-Textur eines Streckenteils (echtes 2D-Bauplan-Artwork). null → Fallback-Icon nutzen.
+# Cache-Schlüssel = aufgelöster PFAD (NICHT der Typ!), sonst kollidieren Erd- und Straßen-Belag:
+# beide haben type "straight"/"curve" → die zuerst geladene Dreck-Textur würde der Straße untergejubelt.
+func _tile_thumb_texture(item: Dictionary) -> Texture2D:
+	var path := _tile_thumb_path(item)
+	if path == "":
+		return null
+	if _thumb_cache.has(path):
+		return _thumb_cache[path]
+	var tex := load(path) as Texture2D
+	_thumb_cache[path] = tex
+	return tex
+
+# res://-Pfad des Vorschau-Artworks. Sand/Wasser nutzen das Default-Straßen-Artwork (eingefärbt via
+# _tile_thumb_tint); Steilkurve/Tribüne haben kein 2D-Artwork → "" (Fallback-Icon).
+func _tile_thumb_path(item: Dictionary) -> String:
+	var t := String(item.get("type", ""))
+	match String(item.get("tier", "")):
+		"loop":   return Paths.TEX_LOOP_2D
+		"portal": return Paths.TEX_PORTAL1_2D
+		"ramp":   return Paths.TEX_RAMP_2D
+		"wall":   return Paths.TEX_WALL_2D
+		"stand":  return ""   # kein 2D-Artwork → Fallback-Icon
+	# Belag → 2D-Bauplan-Kachel (Gerade = OW, Kurve = OS). Sand/Wasser borgen sich die Default-Form.
+	var is_curve := t.ends_with("curve") or t == "curve"
+	var shape := "curve" if is_curve else "straight"
+	var belag := "default"
+	if item.get("tier", "") == "dirt":               belag = "dirt"
+	elif t == "ice" or t == "ice_curve":             belag = "ice"
+	elif t == "race_straight" or t == "race_curve":  belag = "race"
+	elif t == "glue_straight" or t == "glue_curve":  belag = "glue"
+	# sand_*/water_* → belag bleibt "default" (Form), Farbe kommt aus _tile_thumb_tint.
+	return Paths.tile2d_texture(belag, shape, 0)
+
+# Einfärbung des Thumbnails: Sand sandfarben, Wasser bläulich (beide borgen die Default-Straße),
+# alles andere unverändert (echtes Artwork = weiß).
+func _tile_thumb_tint(item: Dictionary) -> Color:
+	match String(item.get("tier", "")):
+		"sand": return Color(1.00, 0.84, 0.52)
+		"test":
+			if String(item.get("type", "")).begins_with("water"):
+				return Color(0.55, 0.80, 1.00)
+	return Color.WHITE
+
+# Fallback-Icon für Teile ohne 2D-Artwork (nur Steilkurve/Tribüne).
+func _tile_fallback_glyph(item: Dictionary) -> String:
+	match String(item.get("tier", "")):
+		"wall":  return Icons.MOUNTAIN
+		"stand": return Icons.STADIUM
+	return Icons.ROAD
+
+# Anzeige-Reihenfolge der Kategorien in der Bau-Liste (unabhängig von der SHOP_ITEMS-Reihenfolge).
+# Innerhalb einer Kategorie bleibt die SHOP_ITEMS-Reihenfolge erhalten.
+const SECTION_ORDER := ["ERDE", "ASPHALT", "RENNSTRECKE", "EIS", "SAND", "KLEBER", "WASSER", "SPEZIAL"]
+
+# Kategorie-Überschrift für ein Shop-Slot (gleiche Kategorie → keine neue Überschrift).
+# Default-Belag (Gerade/Kurve) und Rennbelag teilen den Tier "default", bekommen aber GETRENNTE
+# Kategorien (ASPHALT vs. RENNSTRECKE); ebenso die Test-Beläge (WASSER vs. KLEBER, kein "TEST" mehr).
+func _shop_section_label(idx: int) -> String:
+	var item: Dictionary = SHOP_ITEMS[idx]
+	var t := String(item["type"])
 	match item["tier"]:
-		"ramp":
-			return Icons.MOUNTAIN
-		"ice":
-			return Icons.SNOWFLAKE
-		"wall":
-			return "◗"
-		"loop":
-			return "◯"
-		"portal":
-			return Icons.CIRCLE_DASHED
-		"stand":
-			return Icons.STADIUM
-	return "━"
+		"dirt":    return "ERDE"
+		"sand":    return "SAND"
+		"ice":     return "EIS"
+		"default":
+			return "RENNSTRECKE" if (t == "race_straight" or t == "race_curve") else "ASPHALT"
+		"ramp", "wall", "loop", "portal", "stand": return "SPEZIAL"
+		"test":
+			return "WASSER" if t.begins_with("water") else "KLEBER"
+	return ""
 
 
 # Voller Effekt-Text eines (freigeschalteten) Teils – für Tooltip + Fußanzeige.
@@ -1374,7 +1560,7 @@ func _tile_effect_text(item: Dictionary) -> String:
 		"dirt":
 			return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))
 		"test":
-			return "Test · noch kein Effekt"
+			return "Noch kein Effekt"
 	return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))
 
 
@@ -1842,49 +2028,32 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 	return node
 
 
-# Steilwandkurven-Tile-Node (programmatisch, Top-Down). rot=0 Basislage:
-#   wall_start = Viertelbogen W↔S (Bogenmitte SW-Ecke), wall_end = Viertelbogen N↔W (NW-Ecke).
-# Die Außenkante (= Steilwand) wird als lila Band hervorgehoben. Node-Rotation dreht in die Weltlage.
+# Steilwandkurven-Tile-Node. Das bankedTurn.png (32×64) deckt das GANZE 2-Kachel-Paar ab:
+# Es wird NUR am wall_start gezeichnet (wall_end bleibt leer, analog zum 3D-GLB). Basislage rot=0:
+# wall_start oben/Nord, Partner (wall_end) südlich → das Bild reicht vom Start eine Kachel nach Süden.
+# Die Node-Rotation (vom Aufrufer gesetzt) dreht das Paar in die Weltlage; der Süd-Versatz (+y lokal)
+# folgt dabei automatisch zur jeweiligen Partner-Kachel.
 func _create_wall_node(data: Dictionary) -> Node2D:
-	var node     = Node2D.new()
-	var half     = TILE_SIZE / 2.0
-	var is_start = data["type"] == "wall_start"
-	var bg_col   = Color(0.13, 0.12, 0.16)
-	var road_col = Color(0.30, 0.30, 0.36)
-	var wall_col = Color(0.62, 0.40, 0.78)   # lila Steilwand (Außenkante)
+	var node = Node2D.new()
+	if data["type"] != "wall_start":
+		return node   # wall_end: leer (das Start-Feld zeichnet das ganze Bild)
 
-	var bg = ColorRect.new()
-	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
-	bg.position = Vector2(-half + 1, -half + 1)
-	bg.color    = bg_col
-	node.add_child(bg)
-
-	var corner: Vector2; var a0: float; var a1: float
-	if is_start:
-		corner = Vector2(-half,  half); a0 = -PI / 2.0; a1 = 0.0
-	else:
-		corner = Vector2(-half, -half); a0 = 0.0;       a1 = PI / 2.0
-
-	var pw = 40.0
-	node.add_child(_arc_band(corner, a0, a1, half - pw / 2.0, half + pw / 2.0, road_col))
-	node.add_child(_arc_band(corner, a0, a1, half + pw / 2.0 - 9.0, half + pw / 2.0 + 3.0, wall_col))
+	var spr = Sprite2D.new()
+	var tex = load(Paths.TEX_WALL_2D) as Texture2D
+	spr.texture = tex
+	spr.centered = true
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	spr.rotation_degrees = 180.0   # Asset ist andersherum gemalt → um 180° gedreht ausrichten
+	# Mitte des Bildes liegt zwischen beiden Kacheln (eine halbe Kachel südlich der Start-Mitte).
+	spr.position = Vector2(0.0, TILE_SIZE / 2.0)
+	if tex != null:
+		var sz = tex.get_size()
+		if sz.x > 0:
+			# Uniform an der BREITE skalieren → 32→TILE_SIZE breit, 64→2·TILE_SIZE hoch (deckt beide Kacheln).
+			var s = TILE_SIZE / sz.x
+			spr.scale = Vector2(s, s)
+	node.add_child(spr)
 	return node
-
-
-# Polygon2D-Bogenband zwischen r_in und r_out um `center`, über den Winkelbereich [a0,a1].
-func _arc_band(center: Vector2, a0: float, a1: float, r_in: float, r_out: float, col: Color) -> Polygon2D:
-	var pts   = PackedVector2Array()
-	var steps = 14
-	for i in range(steps + 1):
-		var a = lerp(a0, a1, float(i) / steps)
-		pts.append(center + Vector2(cos(a), sin(a)) * r_out)
-	for i in range(steps + 1):
-		var a = lerp(a1, a0, float(i) / steps)
-		pts.append(center + Vector2(cos(a), sin(a)) * r_in)
-	var poly = Polygon2D.new()
-	poly.polygon = pts
-	poly.color   = col
-	return poly
 
 
 # Skaliert ein 2D-Tile-Artwork auf TILE_SIZE und behält die Pixelart-Kanten (NEAREST).
@@ -3430,7 +3599,7 @@ func _update_node_labels(node: Node2D, rot_deg: int) -> void:
 
 func _type_display_name(typ: String) -> String:
 	match typ:
-		"straight":   return "Gerade"
+		"straight":   return "Straßen-Gerade"
 		"ice":        return "Eisgerade"
 		"ice_curve":  return "Eiskurve"
 		"race_straight": return "Rennstrecke"
@@ -3441,7 +3610,7 @@ func _type_display_name(typ: String) -> String:
 		"water_curve":    return "Wasser-Kurve"
 		"glue_straight":  return "Kleber-Gerade"
 		"glue_curve":     return "Kleber-Kurve"
-		"curve":      return "Kurve"
+		"curve":      return "Straßen-Kurve"
 		"curve_alt":  return "Kurve 2"
 		"ramp_start": return "Rampe"
 		"ramp_end":   return "Rampe (Ende)"
