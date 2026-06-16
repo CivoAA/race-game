@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://d4m8sijbgpy1b"
-path="res://.godot/imported/Ramp.glb-46909b5102e7e79a049a20a47b302506.scn"
+uid="uid://b04bhd83niyi7"
+path="res://.godot/imported/Loop.glb-7c9b703680a910682c2e3bec3ff2111b.scn"
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/special/Ramp.glb"
-dest_files=["res://.godot/imported/Ramp.glb-46909b5102e7e79a049a20a47b302506.scn"]
+source_file="res://assets/3D-models/tracks/special/looping/Loop.glb"
+dest_files=["res://.godot/imported/Loop.glb-7c9b703680a910682c2e3bec3ff2111b.scn"]
 
 [params]
 

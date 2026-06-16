@@ -12,12 +12,23 @@ const STRAIGHT_MODEL_YAW_OFFSET = 90.0
 const CURVE_MODEL_YAW_OFFSET = 90.0
 
 # Yaw-Korrektur (Grad) für die Spezial-GLBs, falls sie anders ausgerichtet importiert werden.
-# In 90°-Schritten anpassen, bis Rampe/Tribüne richtig stehen.
+# In 90°-Schritten anpassen, bis Rampe/Tribüne/Looping/Steilwand richtig stehen.
 const RAMP_MODEL_YAW_OFFSET  = -90.0
-# Globale Yaw-Korrektur der Tribuenen-GRUPPE (Grad). Die Einzel-Ausrichtung passiert pro
-# Instanz richtungsbasiert (siehe _build_stand_stack). Falls die ganze Tribuene um 90°/180°
-# verdreht steht, hier in 90°-Schritten korrigieren.
+# Yaw-Korrektur der Tribuene (Grad). Das GLB ist pro Anzahl fertig arrangiert; falls die ganze
+# Tribuene um 90°/180° verdreht steht, hier in 90°-Schritten korrigieren.
 const STAND_MODEL_YAW_OFFSET = 0.0
+# Looping-GLB: Basislage S→N (wie eine Gerade bei rot=0). Yaw anpassen, falls das Modell quer steht.
+const LOOP_MODEL_YAW_OFFSET  = 0.0
+# Steilwand-GLB (Bank): EIN 2-Kachel-Modell (Basislage rot=0: Partner südlich, Haarnadel öffnet
+# nach West). 90° im Uhrzeigersinn gedreht, damit das ausgelieferte Asset richtig steht.
+const WALL_MODEL_YAW_OFFSET  = -90.0
+# Das 2-Kachel-Asset sitzt mit seinem Ursprung nicht mittig zwischen den Kacheln → entlang der
+# Achse Start→Partner ("unten") verschieben, damit die Straße bündig auf die Kante trifft (statt
+# auf die Mitte). Wert in KACHELN; negativ = Richtung Start.
+const WALL_MODEL_SHIFT_TILES = 0.5
+# Portal-GLBs (Rampe + Tor): von oben einfahren → nach links, plus 180°-Korrektur des Assets
+# (90 + 180 = 270 ≡ -90).
+const PORTAL_MODEL_YAW_OFFSET = -90.0
 
 # Gerade und Kurve wurden auf demselben Modellraster gebaut. Beide Modelle mit
 # DEMSELBEN Faktor (TILE_SIZE / MODEL_TILE_NATIVE) skalieren und am Modell-Ursprung
@@ -28,217 +39,41 @@ const STAND_MODEL_YAW_OFFSET = 0.0
 # Also 1.0 Modell-Einheit pro Kachel → Skalierung TILE_SIZE/1.0 = 1.2 füllt die Kachel exakt.
 const MODEL_TILE_NATIVE = 1.0
 
-# Steilwandkurve (Carrera-Stil): Querneigung der Fahrbahn am Apex + leichte Mittellinien-Höhe.
-# Muss zu CarController passen (WALL_PEAK_H = Höhenprofil der Wegpunkte). KEINE separate Wand mehr –
-# die Fahrbahn selbst ist die Steilkurve, damit die Autos nicht verdeckt werden.
-const WALL_PEAK_H     = 0.15
-const WALL_BANK_DEG   = 60.0
-const WALL_SEGS       = 40    # feine Geometrie (≥4× so viele Segmente wie zuvor)
+# Gemeinsames Track-Material (Atlas-Textur). Die neuen GLBs werden ohne Material exportiert,
+# tragen aber die passenden UVs → diese eine Textur deckt alle Beläge ab. Einmal erzeugt und
+# über material_override an allen Track-Meshes wiederverwendet.
+var _track_material: StandardMaterial3D
 
 
-# Baut eine Steilkurven-Hälfte (Viertelbogen) prozedural als GEBANKTE Fahrbahn (Carrera-Steilkurve,
-# 60°), ohne verdeckende Wand. Basislage rot=0; die Node-Rotation in generate() (-d["rotation"])
-# dreht das Ganze in die Weltlage. Geometrie folgt denselben CarController-Wegpunkten (gleiche
-# Bogenformel, Apex = gemeinsame Kante beider Kacheln, dort maximale Neigung).
-func _build_wall_mesh(node: Node3D, is_start: bool) -> void:
-	var half   = TILE_SIZE / 2.0
-	var road_w = TILE_SIZE * 0.62
-	var kerb_w = TILE_SIZE * 0.05
-	var road_col = Color(0.21, 0.22, 0.27)
-	var kerb_a   = Color(0.92, 0.92, 0.95)
-	var kerb_b   = Color(0.85, 0.20, 0.18)
-
-	# Bogen-Parameter für die Basislage (rot=0): wall_start = eff90, wall_end = eff180.
-	var cx: float; var cz: float; var a_from: float; var a_to: float
-	if is_start:
-		cx = -half; cz =  half; a_from = PI * 1.5; a_to = PI * 2.0
-	else:
-		cx = -half; cz = -half; a_from = 0.0;      a_to = PI * 0.5
-	var arc_center = Vector3(cx, 0.0, cz)
-	var apex = Vector3(0.0, 0.0, half if is_start else -half)
-	var d_max: float = half * sqrt(2.0)
-	var segs = WALL_SEGS
-
-	for i in range(segs):
-		var tm = (float(i) + 0.5) / segs
-		var ang = lerp(a_from, a_to, tm)
-		var p = Vector3(cx + cos(ang) * half, 0.0, cz + sin(ang) * half)
-		var d = Vector2(p.x - apex.x, p.z - apex.z).length()
-		var hf = clampf(1.0 - d / d_max, 0.0, 1.0)
-		hf = smoothstep(0.0, 1.0, hf)   # gerundeter Scheitel statt spitzer ∧-Übergang an der Naht
-		var h = WALL_PEAK_H * hf
-		# Tangente (Fahrtrichtung) und Außenradiale (von der Bogenmitte weg).
-		var dir_sign = 1.0 if a_to > a_from else -1.0
-		var tang = (Vector3(-sin(ang), 0.0, cos(ang)) * dir_sign).normalized()
-		var yaw  = atan2(tang.x, tang.z)
-		var radial = (p - arc_center); radial.y = 0.0; radial = radial.normalized()
-		var seg_len = (PI * 0.5 * half) / segs + 0.02   # Bogenlänge eines Segments + Überlappung
-
-		# Querneigung der Fahrbahn (außen hoch). Vorzeichen so wählen, dass die Außenkante steigt.
-		var basis_yaw = Basis(Vector3.UP, yaw)
-		var local_x   = basis_yaw.x                       # Querachse der Fahrbahn (vor Roll)
-		var roll_sign = signf(radial.dot(local_x))
-		var bank = deg_to_rad(WALL_BANK_DEG) * hf * roll_sign
-		var road_basis = basis_yaw * Basis(Vector3(0, 0, 1), bank)
-		var seg_pos = Vector3(p.x, ROAD_Y + h, p.z)
-
-		# Gebanktes Fahrbahn-Segment (die Steilkurve selbst – Autos fahren oben drauf, sichtbar).
-		var road = MeshInstance3D.new()
-		var rbox = BoxMesh.new()
-		rbox.size = Vector3(road_w, 0.05, seg_len)
-		road.mesh = rbox
-		road.material_override = _wall_mat(road_col)
-		road.transform = Transform3D(road_basis, seg_pos)
-		node.add_child(road)
-
-		# Flache Rot-Weiß-Randsteine an beiden Kanten (in der Bankebene → verdecken nichts).
-		for s in [-1.0, 1.0]:
-			var kerb = MeshInstance3D.new()
-			var kbox = BoxMesh.new()
-			kbox.size = Vector3(kerb_w, 0.05, seg_len)
-			kerb.mesh = kbox
-			kerb.material_override = _wall_mat(kerb_a if i % 2 == 0 else kerb_b)
-			var off = road_basis * Vector3(s * (road_w / 2.0 + kerb_w / 2.0), 0.0, 0.0)
-			kerb.transform = Transform3D(road_basis, seg_pos + off)
-			node.add_child(kerb)
+func _get_track_material() -> StandardMaterial3D:
+	if _track_material == null:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = load(Paths.TEX_TRACK_ATLAS)
+		mat.roughness = 0.9
+		# Harte Alpha-Kanten (Atlas hat transparente Bereiche) sauber ausstanzen – wie MaterialUtil.
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mat.alpha_scissor_threshold = 0.5
+		_track_material = mat
+	return _track_material
 
 
-func _wall_mat(color: Color) -> StandardMaterial3D:
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.8
-	return mat
-
-
-# Looping-Geometrie (muss zu CarController passen).
-const LOOP_R    = 0.55
-const LOOP_FWD  = 0.45
-const LOOP_OFF  = 0.18
-const LOOP_SEGS = 22
-
-
-# Baut einen senkrechten Looping prozedural: flache Anfahrt-/Ausfahrt-Bahn + Looping-Band (Ribbon),
-# auf dessen Innenseite das Auto herumfährt. Basislage rot=0: vertikal (Süd→Nord), fwd = -Z.
-# Die Node-Rotation in generate() (-d["rotation"]) dreht alles in die Weltlage.
-const LOOP_BAND_W     = 0.34   # Breite der Looping-Fahrbahn (schmaler als zuvor)
-const LOOP_BAND_THICK = 0.14   # Dicke des Bands (mehr Material → Auto buggt nicht durch)
-
-
-func _build_loop_mesh(node: Node3D, _rot: int) -> void:
-	var fwd  = Vector3(0, 0, -1)            # Nord
-	var rgt  = Vector3(-fwd.z, 0, fwd.x)    # rechts = +X
-	var up   = Vector3(0, 1, 0)
-	var road_col  = Color(0.21, 0.22, 0.27)
-	var loop_col  = Color(0.26, 0.50, 0.85)   # blaues Looping-Band
-	var rail_col  = Color(0.92, 0.92, 0.95)
-
-	# Flache Fahrbahn durch die Kachel (Anfahrt + Ausfahrt) – ebenfalls schmaler.
-	var road = _box(Vector3(LOOP_BAND_W, 0.05, TILE_SIZE), road_col, Vector3(0, ROAD_Y, 0))
-	node.add_child(road)
-
-	var lp_in = rgt * LOOP_OFF
-	var loop_center = lp_in + up * LOOP_R   # Kreismittelpunkt (für die Außen-Normale)
-	# Looping-Band als orientierte Segmente entlang der Kreisbahn. Das Band wird NACH AUSSEN
-	# versetzt, sodass seine INNENFLÄCHE auf der Fahrlinie (= Auto-Position) liegt → das Auto
-	# fährt sauber auf der Innenseite und kann nicht durch das Band stechen.
-	var prev = _loop_point(lp_in, fwd, rgt, up, 0.0)
-	for i in range(1, LOOP_SEGS + 1):
-		var th = TAU * float(i) / float(LOOP_SEGS)
-		var p = _loop_point(lp_in, fwd, rgt, up, th)
-		var mid = (prev + p) * 0.5
-		var tang = (p - prev)
-		var seg_len = tang.length() + 0.02
-		tang = tang.normalized()
-		# Bandebene: Quer = rgt, Normale steht senkrecht auf Tangente & Quer.
-		var nrm = rgt.cross(tang).normalized()
-		var side = tang.cross(nrm).normalized()
-		var basis = Basis(side, nrm, tang)
-		# Außen-Richtung (vom Kreismittelpunkt weg), auf die Band-Normale projiziert.
-		var outward = signf(nrm.dot(mid - loop_center))
-		var base_pos = mid + up * ROAD_Y
-		var band_pos = base_pos + nrm * (outward * LOOP_BAND_THICK * 0.5)
-		var seg = MeshInstance3D.new()
-		var sbox = BoxMesh.new()
-		sbox.size = Vector3(LOOP_BAND_W, LOOP_BAND_THICK, seg_len)
-		seg.mesh = sbox
-		seg.material_override = _wall_mat(loop_col)
-		seg.transform = Transform3D(basis, band_pos)
-		node.add_child(seg)
-		# Schmale Rails an den Kanten der Fahrfläche (auf der Innenfläche, leicht erhaben).
-		for s in [-1.0, 1.0]:
-			var rail = MeshInstance3D.new()
-			var rbox = BoxMesh.new()
-			rbox.size = Vector3(0.035, 0.05, seg_len)
-			rail.mesh = rbox
-			rail.material_override = _wall_mat(rail_col)
-			rail.transform = Transform3D(basis, base_pos + basis * Vector3(s * LOOP_BAND_W / 2.0, -outward * 0.02, 0.0))
-			node.add_child(rail)
-		prev = p
-
-
-# Ein Punkt auf der Looping-Kreisbahn bei Winkel th (lokal, Kachelmitte = Ursprung).
-func _loop_point(lp_in: Vector3, fwd: Vector3, rgt: Vector3, up: Vector3, th: float) -> Vector3:
-	return lp_in + fwd * (LOOP_FWD * sin(th)) + up * (LOOP_R * (1.0 - cos(th))) \
-		+ rgt * (-2.0 * LOOP_OFF * (th / TAU))
-
-
-# Portal-Geometrie. Basislage rot=0: offene Seite = West (-X); der Ring steht in der Y-Z-Ebene,
-# das Auto fährt entlang X hindurch. idx 0/1 = Farbe (Portal-Paar visuell unterscheidbar).
-const PORTAL_RING_R = 0.46
-
-
-func _build_portal_mesh(node: Node3D, idx: int) -> void:
-	var half   = TILE_SIZE / 2.0
-	var road_w = TILE_SIZE * 0.4
-	var frame_col = Color(1.0, 0.55, 0.12) if idx == 0 else Color(0.30, 0.55, 1.0)   # A=orange, B=blau
-	var glow_col  = Color(1.0, 0.72, 0.30) if idx == 0 else Color(0.55, 0.80, 1.0)
-	var road_col  = Color(0.21, 0.22, 0.27)
-
-	# Flacher Fahrbahn-Stutzen von der offenen Seite (West) zur Mitte.
-	var road = _box(Vector3(TILE_SIZE, 0.05, road_w), road_col, Vector3(0, ROAD_Y, 0))
-	node.add_child(road)
-
-	# Aufrechter Portal-Ring in der Y-Z-Ebene (das Auto fährt entlang X hindurch).
-	var ring_cy = PORTAL_RING_R + 0.04
-	var ring_segs = 20
-	var tube = 0.07
-	for i in range(ring_segs):
-		var a = TAU * float(i) / float(ring_segs)
-		var p = Vector3(0.0, ring_cy + PORTAL_RING_R * sin(a), PORTAL_RING_R * cos(a))
-		var seg = MeshInstance3D.new()
-		var sbox = BoxMesh.new()
-		sbox.size = Vector3(tube, tube + 0.02, (TAU * PORTAL_RING_R) / ring_segs + 0.03)
-		seg.mesh = sbox
-		seg.material_override = _portal_mat(frame_col, true)
-		# Segment tangential zum Ring ausrichten (Rotation um X).
-		seg.transform = Transform3D(Basis(Vector3(1, 0, 0), -a), p)
-		node.add_child(seg)
-
-	# Leuchtende Portal-Scheibe (halbtransparent) in der Ringebene.
-	var disc = MeshInstance3D.new()
-	var cyl = CylinderMesh.new()
-	cyl.top_radius = PORTAL_RING_R * 0.92
-	cyl.bottom_radius = PORTAL_RING_R * 0.92
-	cyl.height = 0.04
-	disc.mesh = cyl
-	var dmat = _portal_mat(glow_col, true)
-	dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	dmat.albedo_color = Color(glow_col.r, glow_col.g, glow_col.b, 0.45)
-	disc.material_override = dmat
-	# Zylinder-Achse (Y) auf die X-Achse drehen → Scheibe steht aufrecht, Fläche zeigt nach West/Ost.
-	disc.transform = Transform3D(Basis(Vector3(0, 0, 1), PI / 2.0), Vector3(0.0, ring_cy, 0.0))
-	node.add_child(disc)
-
-
-func _portal_mat(color: Color, emissive: bool) -> StandardMaterial3D:
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.5
-	if emissive:
-		mat.emission_enabled = true
-		mat.emission = color
-		mat.emission_energy_multiplier = 1.6
-	return mat
+# Legt die gemeinsame Atlas-Textur auf alle Meshes, die (noch) kein eigenes Material haben.
+# Modelle mit eigenem Material (z. B. spätere Re-Exporte) bleiben unangetastet.
+func _apply_track_texture(root: Node) -> void:
+	var meshes := root.find_children("*", "MeshInstance3D", true, false)
+	if root is MeshInstance3D:
+		meshes.append(root)
+	for node in meshes:
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for si in mi.mesh.get_surface_count():
+			# Godot legt materiallosen glTF-Flächen ein leeres (weißes) Default-Material an →
+			# nicht auf null prüfen, sondern auf "hat keine eigene Albedo-Textur".
+			var active := mi.get_active_material(si)
+			var has_tex := active is BaseMaterial3D and (active as BaseMaterial3D).albedo_texture != null
+			if not has_tex:
+				mi.set_surface_override_material(si, _get_track_material())
 
 
 # Lädt ein Geraden-GLB, skaliert es auf TILE_SIZE und zentriert es auf der Kachel.
@@ -251,6 +86,7 @@ func _make_straight_model(path: String) -> Node3D:
 
 	var inst = scene.instantiate()
 	holder.add_child(inst)
+	_apply_track_texture(inst)
 	MaterialUtil.apply_alpha_scissor(inst)
 
 	var aabb = _local_aabb(inst)
@@ -264,64 +100,11 @@ func _make_straight_model(path: String) -> Node3D:
 	return holder
 
 
-# Vorderseite (Sitzrichtung) des Tribuenen-GLB ist lokal -Z. Yaw, damit es eine
-# Himmelsrichtung ANSCHAUT (= Effektrichtung): N=-Z, S=+Z, E=+X, W=-X.
-const _STAND_DIR_YAW := {"N": 0.0, "S": 180.0, "E": 270.0, "W": 90.0}
-# Einheits-Versatz der Tribuene auf ihre Seite (in Anschau-Richtung vom Mittelpunkt weg).
-const _STAND_DIR_OFF := {
-	"N": Vector2(0.0, -1.0), "S": Vector2(0.0, 1.0),
-	"E": Vector2(1.0, 0.0),  "W": Vector2(-1.0, 0.0),
-}
-
-# Baut die Tribuenen-Gruppe für ein Feld. Der Stapel (1..5) wird VISUELL angeordnet und JEDE
-# Tribuene schaut in ihre Effektrichtung (nach AUSSEN), passend zu Economy/_stand_dirs
-# (Basisreihenfolge S,N,E,W):
-#   1 = eine Tribuene (mittig, schaut S)
-#   2 = zwei Rücken-an-Rücken (S+N, schauen nach aussen)
-#   3 = U-Form (S+N+E), drei Seiten eines Rechtecks, alle nach aussen
-#   4/5 = geschlossener, mittiger RECHTECK-Rahmen (S,N,E,W): oben/unten waagerecht,
-#         links/rechts senkrecht, bündig rechtwinklig – KEIN Windrad/Pinwheel.
-# Mehrfach-Anordnungen werden uniform auf eine Kachel eingepasst, damit sie nicht auf
-# Nachbarfelder/die Strecke uebergreifen.
+# Lädt das fertig arrangierte Tribuenen-GLB für einen Stapel. Jede Anzahl (1..4, ab 4 inkl. 5)
+# hat ein eigenes Modell, in dem die Tribuenen bereits fertig angeordnet sind (siehe Paths.stand_model).
+# Skalierung/Bodenausrichtung wie bei einer Geraden (Kachel = MODEL_TILE_NATIVE).
 func _build_stand_stack(stack: int) -> Node3D:
-	var holder = Node3D.new()
-	var count = clampi(stack, 1, 4)   # ab Stack 4 derselbe Rechteck-Rahmen
-
-	# Footprint eines (skalierten) Tribuenen-Modells messen → lange/kurze Seite.
-	var probe = _make_straight_model(Paths.MODEL_TRACK_STAND)
-	var ab = _local_aabb(probe)
-	probe.free()
-	var L: float = maxf(ab.size.x, ab.size.z)   # lange Seite (Breite der Tribuene)
-	var b: float = minf(ab.size.x, ab.size.z)   # kurze Seite (Tiefe)
-
-	# Welche Richtungen sind besetzt + wie weit sitzt jede Tribuene vom Mittelpunkt weg.
-	var dirs: Array
-	var inset: float
-	match count:
-		1:
-			dirs = ["S"];                inset = 0.0            # mittig
-		2:
-			dirs = ["S", "N"];           inset = b / 2.0        # Rücken-an-Rücken (Rücken mittig bündig)
-		3:
-			dirs = ["S", "N", "E"];      inset = (L - b) / 2.0  # drei Seiten des Rahmens
-		_:
-			dirs = ["S", "N", "E", "W"]; inset = (L - b) / 2.0  # voller Rechteck-Rahmen
-
-	for dir in dirs:
-		var off: Vector2 = _STAND_DIR_OFF[dir]
-		var inst = _make_straight_model(Paths.MODEL_TRACK_STAND)
-		inst.position = Vector3(off.x * inset, 0.0, off.y * inset)
-		inst.rotation_degrees.y = _STAND_DIR_YAW[dir]
-		holder.add_child(inst)
-
-	# Mehrfach-Gruppen uniform auf eine Kachel einpassen (kein Uebergreifen auf Nachbarn).
-	if count > 1:
-		var grp = _local_aabb(holder)
-		var ext: float = maxf(grp.size.x, grp.size.z)
-		if ext > TILE_SIZE and ext > 0.0:
-			var k: float = TILE_SIZE / ext
-			holder.scale = Vector3(k, k, k)
-	return holder
+	return _make_straight_model(Paths.stand_model(stack))
 
 
 # Lädt das Kurven-GLB, skaliert es uniform auf die Kachel (füllt die Kachelfläche)
@@ -335,6 +118,7 @@ func _make_curve_model(path: String) -> Node3D:
 
 	var inst = scene.instantiate()
 	holder.add_child(inst)
+	_apply_track_texture(inst)
 	MaterialUtil.apply_alpha_scissor(inst)
 
 	var aabb = _local_aabb(inst)
@@ -370,19 +154,6 @@ func _aabb_recurse(node: Node, xf: Transform3D, res: Array) -> void:
 		_aabb_recurse(child, cur, res)
 
 
-func _box(size: Vector3, color: Color, pos: Vector3) -> MeshInstance3D:
-	var mi  = MeshInstance3D.new()
-	var box = BoxMesh.new()
-	box.size = size
-	mi.mesh  = box
-	var mat  = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness    = 0.85
-	mi.material_override = mat
-	mi.position = pos
-	return mi
-
-
 # Macht ein Eis-Modell eisig: behaelt die Atlas-Textur, senkt aber Roughness und gibt einen
 # leichten Blauton + etwas Metallic, damit die Flaeche den Himmel spiegelt (glTF traegt das nicht).
 func _apply_ice_look(node: Node) -> void:
@@ -402,13 +173,143 @@ func _apply_ice_look(node: Node) -> void:
 		_apply_ice_look(child)
 
 
+# ── Portal-Routen-Rolle ────────────────────────────────────────────────────────
+# Liefert die Zelle des AUSGANGS-Portals (orange). Die Strecke wird ab dem Start (1,1) Richtung
+# Osten verfolgt; das zuerst angefahrene Portal ist der Eingang, sein Partner der Ausgang.
+# (-1,-1) wenn die Route nicht durch ein Portal führt. Spiegelt Main._portal_route_roles().
+func _portal_exit_cell(grid_state: Array) -> Vector2i:
+	var rows := grid_state.size()
+	var cols: int = grid_state[0].size() if rows > 0 else 0
+	if rows < 2 or cols < 2:
+		return Vector2i(-1, -1)
+	var row := 1; var col := 1; var exit_dir := "E"
+	var visited: Dictionary = {}
+	for _i in range(rows * cols * 2):
+		var key := "%d_%d" % [row, col]
+		if key in visited:
+			return Vector2i(-1, -1)
+		visited[key] = true
+		var cur = grid_state[row][col]
+		if typeof(cur) == TYPE_DICTIONARY and cur.get("type", "") == "portal":
+			return _portal_partner_cell(grid_state, row, col)
+		var nxt := _pt_step(row, col, exit_dir)
+		if _pt_ramp_jumps_toward(cur, row, col, exit_dir):
+			if _pt_in_bounds(nxt, rows, cols): nxt = _pt_step(nxt.x, nxt.y, exit_dir)
+		if not _pt_in_bounds(nxt, rows, cols): return Vector2i(-1, -1)
+		var nxt_data = grid_state[nxt.x][nxt.y]
+		if typeof(nxt_data) != TYPE_DICTIONARY: return Vector2i(-1, -1)
+		var nxt_exit := _pt_through(nxt_data, _pt_opp(exit_dir))
+		if nxt_exit == "": return Vector2i(-1, -1)
+		row = nxt.x; col = nxt.y; exit_dir = nxt_exit
+	return Vector2i(-1, -1)
+
+
+# Das ANDERE Portal in der Strecke (von max. 2). (-1,-1) falls keins.
+func _portal_partner_cell(grid_state: Array, row: int, col: int) -> Vector2i:
+	for r in range(grid_state.size()):
+		var line = grid_state[r]
+		for c in range(line.size()):
+			var d = line[c]
+			if typeof(d) == TYPE_DICTIONARY and d.get("type", "") == "portal" and not (r == row and c == col):
+				return Vector2i(r, c)
+	return Vector2i(-1, -1)
+
+
+# Durchgang-Richtung: bei Eintritt über `entry` (Himmelsrichtung) die Ausfahrt-Richtung ("" wenn
+# das Tile von dieser Seite nicht befahrbar ist). Spiegelt Main._ac_through().
+func _pt_through(data: Dictionary, entry: String) -> String:
+	var t = data.get("type", "")
+	var rot := int(data.get("rotation", 0)) % 360
+	var conns: Dictionary
+	if t in ["straight", "ramp_start", "ramp_end", "ice", "race_straight", "sand_straight", "water_straight", "glue_straight"]:
+		conns = _pt_rot_conns(false, true, false, true, rot)
+	elif t == "loop":
+		conns = _pt_rot_conns(true, false, true, false, rot)
+	elif t == "portal":
+		var od := _pt_portal_open_dir(rot)
+		return od if entry == od else ""
+	elif t == "wall_start" or t == "wall_end":
+		conns = _pt_rot_conns(t == "wall_end", false, t == "wall_start", true, rot)
+	elif t in ["curve", "curve_alt", "ice_curve", "race_curve", "sand_curve", "water_curve", "glue_curve"]:
+		match rot:
+			0:   conns = {"N": false, "E": true,  "S": true,  "W": false}
+			90:  conns = {"N": false, "E": false, "S": true,  "W": true}
+			180: conns = {"N": true,  "E": false, "S": false, "W": true}
+			270: conns = {"N": true,  "E": true,  "S": false, "W": false}
+			_:   conns = {}
+	else:
+		return ""
+	if not conns.get(entry, false):
+		return ""
+	for dir in ["N", "E", "S", "W"]:
+		if conns.get(dir, false) and dir != entry:
+			return dir
+	return ""
+
+
+# Verbindungs-Dictionary aus der Basislage (rot=0) um `rot` Grad im Uhrzeigersinn drehen.
+func _pt_rot_conns(bn: bool, be: bool, bs: bool, bw: bool, rot: int) -> Dictionary:
+	var steps := (rot / 90) % 4
+	for _i in range(steps):
+		var tn = bw; var te = bn; var ts = be; var tw = bs
+		bn = tn; be = te; bs = ts; bw = tw
+	return {"N": bn, "E": be, "S": bs, "W": bw}
+
+
+func _pt_portal_open_dir(rot: int) -> String:
+	return ["W", "N", "E", "S"][(int(rot) / 90) % 4]
+
+
+func _pt_step(row: int, col: int, dir: String) -> Vector2i:
+	match dir:
+		"N": return Vector2i(row - 1, col)
+		"S": return Vector2i(row + 1, col)
+		"E": return Vector2i(row, col + 1)
+		"W": return Vector2i(row, col - 1)
+	return Vector2i(-1, -1)
+
+
+func _pt_opp(dir: String) -> String:
+	match dir:
+		"N": return "S"
+		"S": return "N"
+		"E": return "W"
+		"W": return "E"
+	return ""
+
+
+func _pt_in_bounds(cell: Vector2i, rows: int, cols: int) -> bool:
+	return cell.x >= 0 and cell.x < rows and cell.y >= 0 and cell.y < cols
+
+
+# True, wenn das Tile eine Rampe ist und exit_dir zur Partner-Kachel zeigt (Sprung übers Mittelfeld).
+func _pt_ramp_jumps_toward(data, row: int, col: int, exit_dir: String) -> bool:
+	if typeof(data) != TYPE_DICTIONARY:
+		return false
+	var t = data.get("type", "")
+	if t != "ramp_start" and t != "ramp_end":
+		return false
+	var pr := int(data.get("ramp_partner_row", -1))
+	var pc := int(data.get("ramp_partner_col", -1))
+	if pr < 0 or pc < 0:
+		return false
+	var to_dir := ""
+	if pc > col: to_dir = "E"
+	elif pc < col: to_dir = "W"
+	elif pr > row: to_dir = "S"
+	elif pr < row: to_dir = "N"
+	return to_dir == exit_dir
+
+
 func generate(grid_state: Array) -> void:
 	for child in get_children():
 		child.queue_free()
 
 	var grid_rows = grid_state.size()
 	var grid_cols = grid_state[0].size() if grid_rows > 0 else 0
-	var portal_idx := 0   # 0 = erstes Portal (Farbe A), 1 = zweites (Farbe B)
+	# Welches der beiden Portale ist der Ausgang (orange)? Ergibt sich aus der gefahrenen Route
+	# (Eingang = zuerst angefahrenes Portal). (-1,-1) wenn unbestimmt → beide bleiben Eingang/blau.
+	var portal_exit := _portal_exit_cell(grid_state)
 
 	for row in range(grid_rows):
 		for col in range(grid_cols):
@@ -431,52 +332,67 @@ func generate(grid_state: Array) -> void:
 				add_child(ramp)
 				continue
 
-			# Steilwandkurve: prozedural (ansteigende, geneigte Fahrbahn + 70°-Außenwand).
+			# Steilwandkurve: EIN GLB deckt beide Haarnadel-Kacheln ab (wie die Rampe). Nur am
+			# wall_start instanzieren, wall_end bleibt leer. Platziert auf dem Mittelpunkt zwischen
+			# beiden Kacheln (= gemeinsame Apex-Kante), sodass das 2-Kachel-Modell beide ausfüllt.
 			if d["type"] == "wall_start" or d["type"] == "wall_end":
-				var wall_node = Node3D.new()
-				wall_node.position = Vector3(
-					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
-					row * TILE_SIZE + TILE_SIZE / 2.0
-				)
-				wall_node.rotation_degrees.y = -d["rotation"]
-				_build_wall_mesh(wall_node, d["type"] == "wall_start")
-				add_child(wall_node)
+				if d["type"] == "wall_end":
+					continue
+				var pr := int(d.get("ramp_partner_row", row))
+				var pc := int(d.get("ramp_partner_col", col))
+				# Mittelpunkt beider Kacheln + Korrektur-Verschiebung entlang der Achse Start→Partner.
+				var pdir := Vector3(pc - col, 0.0, pr - row)
+				if pdir.length() > 0.0:
+					pdir = pdir.normalized()
+				var wall = _make_curve_model(Paths.MODEL_TRACK_WALL)
+				wall.position = Vector3(
+					(col + pc) * 0.5 * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
+					(row + pr) * 0.5 * TILE_SIZE + TILE_SIZE / 2.0
+				) + pdir * (TILE_SIZE * WALL_MODEL_SHIFT_TILES)
+				wall.rotation_degrees.y = -d["rotation"] + WALL_MODEL_YAW_OFFSET
+				add_child(wall)
 				continue
 
-			# Looping: prozedural (flache Bahn + senkrechtes Looping-Band).
+			# Looping: eigenes Loop-GLB (Einzelfeld, Basislage S→N wie eine Gerade).
 			if d["type"] == "loop":
-				var loop_node = Node3D.new()
-				loop_node.position = Vector3(
+				var loop = _make_straight_model(Paths.MODEL_TRACK_LOOP)
+				loop.position = Vector3(
 					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
 					row * TILE_SIZE + TILE_SIZE / 2.0
 				)
-				loop_node.rotation_degrees.y = -d["rotation"]
-				_build_loop_mesh(loop_node, d["rotation"])
-				add_child(loop_node)
+				loop.rotation_degrees.y = -d["rotation"] + LOOP_MODEL_YAW_OFFSET
+				add_child(loop)
 				continue
 
-			# Portal: prozedural (Fahrbahn-Stutzen + leuchtender Ring). Farbe je Portal (A/B).
+			# Portal: zwei GLBs auf EINER Kachel – die Rampe (zur Straße, befahrbar) und das Tor
+			# dahinter. Blau = Eingang, Orange = Ausgang. Beide hängen an einem Knoten, der über die
+			# Tile-Rotation in die Weltlage gedreht wird (Basislage rot=0: offen nach West).
 			if d["type"] == "portal":
+				var is_exit := portal_exit.x >= 0 and Vector2i(row, col) == portal_exit
 				var portal_node = Node3D.new()
 				portal_node.position = Vector3(
 					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
 					row * TILE_SIZE + TILE_SIZE / 2.0
 				)
-				portal_node.rotation_degrees.y = -d["rotation"]
-				_build_portal_mesh(portal_node, portal_idx)
-				portal_idx += 1
+				portal_node.rotation_degrees.y = -d["rotation"] + PORTAL_MODEL_YAW_OFFSET
+				portal_node.add_child(_make_straight_model(Paths.MODEL_TRACK_PORTAL_RAMP))
+				var gate_path: String = Paths.MODEL_TRACK_PORTAL_ORANGE if is_exit else Paths.MODEL_TRACK_PORTAL_BLUE
+				portal_node.add_child(_make_straight_model(gate_path))
 				add_child(portal_node)
 				continue
 
 			if d["type"] == "stand":
-				# Tribuene: eigenes GLB. Der Stapel (stack) wird auch VISUELL gezeigt – je nach
-				# Anzahl werden mehrere Tribuenen-Modelle angeordnet (siehe _build_stand_stack).
-				var stand = _build_stand_stack(int(d.get("stack", 1)))
+				# Tribuene: pro Stapel-Anzahl ein eigenes, fertig arrangiertes GLB
+				# (Stand1..Stand4, siehe _build_stand_stack / Paths.stand_model).
+				var stack := int(d.get("stack", 1))
+				var stand = _build_stand_stack(stack)
 				stand.position = Vector3(
 					col * TILE_SIZE + TILE_SIZE / 2.0, 0.0,
 					row * TILE_SIZE + TILE_SIZE / 2.0
 				)
-				stand.rotation_degrees.y = -d["rotation"] + STAND_MODEL_YAW_OFFSET
+				# Stand1 ist im Asset um 180° verdreht → für den Einer-Stapel ausgleichen.
+				var stand_extra := 180.0 if clampi(stack, 1, 4) == 1 else 0.0
+				stand.rotation_degrees.y = -d["rotation"] + STAND_MODEL_YAW_OFFSET + stand_extra
 				add_child(stand)
 				continue
 
