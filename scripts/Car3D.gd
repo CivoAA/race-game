@@ -53,6 +53,8 @@ func _load_model() -> void:
 			model.rotation_degrees.y = TEST_CAR_YAW_FIX
 		model.position.y = CAR_Y
 		add_child(model)
+		# Alpha-Texturen (Alpha-Kanal) auf Scissor stellen → keine Transparenz-Sortierfehler.
+		MaterialUtil.apply_alpha_scissor(model)
 		_meshes.clear()
 		_collect_meshes(model)
 		# Nur normale Autos bekommen die Werkstatt-Lackierung; das Super-Auto behält seine Textur.

@@ -1015,6 +1015,7 @@ func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_path:
 		mi.mesh  = box
 		model.add_child(mi)
 	pivot.add_child(model)
+	MaterialUtil.apply_alpha_scissor(model)
 
 	# Kamera leicht von schräg oben auf das gerahmte Modell ausrichten.
 	var aabb := _calc_aabb(pivot)
@@ -2442,6 +2443,7 @@ func _load_preview_model() -> void:
 		mi.mesh  = box
 		model.add_child(mi)
 	_preview_pivot.add_child(model)
+	MaterialUtil.apply_alpha_scissor(model)
 	_preview_model = model
 	_preview_tier  = Economy.get_car_tier()
 	_collect_meshes(model)

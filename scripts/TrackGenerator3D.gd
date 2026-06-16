@@ -251,6 +251,7 @@ func _make_straight_model(path: String) -> Node3D:
 
 	var inst = scene.instantiate()
 	holder.add_child(inst)
+	MaterialUtil.apply_alpha_scissor(inst)
 
 	var aabb = _local_aabb(inst)
 	if aabb.size.z > 0.0:
@@ -334,6 +335,7 @@ func _make_curve_model(path: String) -> Node3D:
 
 	var inst = scene.instantiate()
 	holder.add_child(inst)
+	MaterialUtil.apply_alpha_scissor(inst)
 
 	var aabb = _local_aabb(inst)
 	if aabb.size.x > 0.0 and aabb.size.z > 0.0:
