@@ -55,19 +55,19 @@ const HINTS := {
 
 	# ── Streckenteile (Schlüssel = Upgrade-ID der Tile) ──────────────────────
 	"dirtstraightbonus":
-		"Dreck-Gerade: ein von Anfang an gratis Streckenteil. Jedes überfahrene Feld bringt "
-		+ "etwas Währung; dieses Upgrade erhöht den Ertrag pro Dreck-Gerade.",
+		"Erd-Gerade: ein von Anfang an gratis Streckenteil. Jedes überfahrene Feld bringt "
+		+ "etwas Währung; dieses Upgrade erhöht den Ertrag pro Erd-Gerade.",
 	"dirtcurvebonus":
-		"Dreck-Kurve: gratis Kurvenstück. Wie die Dreck-Gerade, nur als Kurve – das Upgrade "
-		+ "steigert den Ertrag pro Dreck-Kurve.",
+		"Erd-Kurve: gratis Kurvenstück. Wie die Erd-Gerade, nur als Kurve – das Upgrade "
+		+ "steigert den Ertrag pro Erd-Kurve.",
 	"straightbonus":
-		"Normale Gerade: bringt mehr Währung pro Feld als die Dreck-Variante. Das Upgrade "
+		"Normale Gerade: bringt mehr Währung pro Feld als die Erd-Variante. Das Upgrade "
 		+ "erhöht den Ertrag pro Gerade.",
 	"curvebonus":
-		"Normale Kurve: bringt mehr Währung pro Feld als die Dreck-Variante. Das Upgrade "
+		"Normale Kurve: bringt mehr Währung pro Feld als die Erd-Variante. Das Upgrade "
 		+ "erhöht den Ertrag pro Kurve.",
 	"sandstraightbonus":
-		"Sand-Gerade: die günstigste bezahlte Strecke, etwas ertragreicher als Dreck. Das Upgrade "
+		"Sand-Gerade: die günstigste bezahlte Strecke, etwas ertragreicher als Erde. Das Upgrade "
 		+ "erhöht den Ertrag pro Sand-Gerade.",
 	"sandcurvebonus":
 		"Sand-Kurve: das Kurvenstück der günstigen Sand-Strecke. Das Upgrade erhöht den Ertrag "

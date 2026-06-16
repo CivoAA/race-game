@@ -123,14 +123,14 @@ const UPGRADES = {
 	# bleiben wie bei den alten 20 Stufen. base/per_level werden ignoriert. base_cost/growth bleiben
 	# die ALTEN Werte (Quelle für die Gesamt-Ziele, NICHT mehr direkt der Preis).
 	"dirtstraightbonus": {
-		"category": "tile", "name": "Dreck-Geraden-Ertrag (+ je Feld)",
+		"category": "tile", "name": "Erd-Geraden-Ertrag (+ je Feld)",
 		"base_cost": 25, "growth": 2.3, "max_level": 60,
-		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
+		"base": 0.0, "per_level": 0.0, "unit": " /Erde",
 	},
 	"dirtcurvebonus": {
-		"category": "tile", "name": "Dreck-Kurven-Ertrag (+ je Feld)",
+		"category": "tile", "name": "Erd-Kurven-Ertrag (+ je Feld)",
 		"base_cost": 25, "growth": 2.3, "max_level": 60,
-		"base": 0.0, "per_level": 0.0, "unit": " /Dreck",
+		"base": 0.0, "per_level": 0.0, "unit": " /Erde",
 	},
 	# Gerade/Kurve geben einen FLACHEN +Ertrag pro Feld (kein Multiplikator mehr, siehe
 	# CarController.PREMIUM_TILE_*). Das Upgrade skaliert bewusst halb so stark wie früher
