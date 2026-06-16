@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bbf710ckbu8io"
-path="res://.godot/imported/Stand.glb-1ee948cc4171d110389320571d750d81.scn"
+uid="uid://bprbsabvo14tb"
+path="res://.godot/imported/Bank.glb-373a248ed599b76ef48ff03144d6dbed.scn"
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/special/Stand.glb"
-dest_files=["res://.godot/imported/Stand.glb-1ee948cc4171d110389320571d750d81.scn"]
+source_file="res://assets/3D-models/tracks/curve/steilcurve/Bank.glb"
+dest_files=["res://.godot/imported/Bank.glb-373a248ed599b76ef48ff03144d6dbed.scn"]
 
 [params]
 

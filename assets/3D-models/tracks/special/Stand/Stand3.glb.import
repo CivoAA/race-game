@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cv5eom1ojroip"
-path="res://.godot/imported/RaceStraight.glb-8fea8e8145c49236b1e814e021bfc17e.scn"
+uid="uid://c8diusfa4p5mk"
+path="res://.godot/imported/Stand3.glb-80b13e0c3d3e0422dd5b57acf471c885.scn"
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/staight/RaceStraight.glb"
-dest_files=["res://.godot/imported/RaceStraight.glb-8fea8e8145c49236b1e814e021bfc17e.scn"]
+source_file="res://assets/3D-models/tracks/special/Stand/Stand3.glb"
+dest_files=["res://.godot/imported/Stand3.glb-80b13e0c3d3e0422dd5b57acf471c885.scn"]
 
 [params]
 

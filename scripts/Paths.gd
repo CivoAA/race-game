@@ -71,9 +71,29 @@ const MODEL_TRACK_CURVE_SAND       = "res://assets/3D-models/tracks/curve/SandCu
 const MODEL_TRACK_CURVE_WATER      = "res://assets/3D-models/tracks/curve/WaterCurve.glb"
 const MODEL_TRACK_CURVE_GLUE       = "res://assets/3D-models/tracks/curve/GlueCurve.glb"
 
+# Gemeinsame Track-Textur (Atlas). Die neuen GLBs kommen OHNE Material/Textur, tragen aber UVs,
+# die in diesen Atlas mappen → die Textur wird in TrackGenerator3D pro Mesh als Albedo gesetzt.
+const TEX_TRACK_ATLAS = "res://assets/3D-models/tracks/textures/TrackTexture.png"
+
 # Spezialfelder mit eigenem GLB (ersetzen die früher prozedural gebaute Geometrie).
-const MODEL_TRACK_RAMP  = "res://assets/3D-models/tracks/special/Ramp.glb"
-const MODEL_TRACK_STAND = "res://assets/3D-models/tracks/special/Stand.glb"
+const MODEL_TRACK_RAMP  = "res://assets/3D-models/tracks/special/ramp/Ramp.glb"
+# Looping und Steilwandkurve sind jetzt ebenfalls eigene GLBs (vorher prozedural gebaut).
+# Loop = ein Feld (Basislage S→N wie eine Gerade), Bank = ein gebanktes Kurven-Viertel pro Kachel.
+const MODEL_TRACK_LOOP  = "res://assets/3D-models/tracks/special/looping/Loop.glb"
+const MODEL_TRACK_WALL  = "res://assets/3D-models/tracks/curve/steilcurve/Bank.glb"
+# Portal: pro Feld zwei GLBs auf EINER Kachel – die Rampe (zur Straße, befahrbar) plus das Tor
+# dahinter. Blau = Eingang, Orange = Ausgang (Rolle ergibt sich aus der gefahrenen Route).
+const MODEL_TRACK_PORTAL_RAMP   = "res://assets/3D-models/tracks/special/portal/PortalRamp.glb"
+const MODEL_TRACK_PORTAL_BLUE   = "res://assets/3D-models/tracks/special/portal/PortalBlue.glb"
+const MODEL_TRACK_PORTAL_ORANGE = "res://assets/3D-models/tracks/special/portal/PortalOrange.glb"
+# Tribüne: pro Stapel-Anzahl ein eigenes, fertig arrangiertes GLB (Stand1..Stand4). Stapel ab 4
+# (auch 5) nutzt Stand4. Pfad immer über stand_model(count) beziehen.
+const MODEL_TRACK_STANDS := [
+	"res://assets/3D-models/tracks/special/Stand/Stand1.glb",
+	"res://assets/3D-models/tracks/special/Stand/Stand2.glb",
+	"res://assets/3D-models/tracks/special/Stand/Stand3.glb",
+	"res://assets/3D-models/tracks/special/Stand/Stand4.glb",
+]
 
 # ── 2D-Tile-Texturen (Bauplan-Ansicht) ─────────────────────────────────────────
 # Belag-Artworks für die 2D-Strecken statt der prozeduralen Zeichnung. Die Dateinamen
@@ -143,6 +163,11 @@ func tile2d_texture(belag: String, shape: String, rotation: int) -> String:
 			270: orient = "NO"
 			_:   orient = "OS"
 	return TILE2D_TEXTURES.get("%s_%s_%s" % [belag, shape, orient], "")
+
+
+# Liefert das fertig arrangierte Tribuenen-GLB für eine Stapel-Anzahl (1..4; ab 4 → Stand4).
+func stand_model(count: int) -> String:
+	return MODEL_TRACK_STANDS[clampi(count, 1, MODEL_TRACK_STANDS.size()) - 1]
 
 
 # ── Speicherung & Einstellungen ───────────────────────────────────────────────
