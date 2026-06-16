@@ -238,6 +238,7 @@ func _ready() -> void:
 	if _rotate_btn != null:
 		_rotate_btn.visible = _load_rotate_button_setting()
 	_track_valid = _is_track_valid()
+	_refresh_portal_images()
 	_update_hint_label()
 
 	GameHUD.build_mode_toggled.connect(_on_build_mode_toggled)
@@ -1017,6 +1018,7 @@ func _on_tab_changed(idx: int) -> void:
 
 	_track_valid = _is_track_valid()
 	_refresh_run_bar()
+	_refresh_portal_images()
 
 	# Lauf-Ende-Popup nur in der 3D-Ansicht – beim Tab-Wechsel im 2D-Bauplan nichts zeigen.
 	if Economy.is_run_active(idx):
@@ -1497,6 +1499,8 @@ func _tile_texture_for(data: Dictionary) -> Texture2D:
 		belag = "ice"
 	elif t == "race_straight" or t == "race_curve":
 		belag = "race"
+	elif t == "glue_straight" or t == "glue_curve":
+		belag = "glue"
 	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve", "race_curve", "sand_curve", "water_curve", "glue_curve"] else "straight"
 	var path := Paths.tile2d_texture(belag, shape, int(data.get("rotation", 0)))
 	if path == "":
@@ -1548,7 +1552,8 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		grid[row][col] = data
 		return
 
-	# Portal-Tile: programmatisch gezeichnet (Stutzen + leuchtender Portal-Ring).
+	# Portal-Tile: Artwork-Paar (portal1/portal2), per Drehung in die Weltlage gerichtet.
+	# Start blau; _refresh_portal_images() färbt den Ausgang nach Strecken-Validierung orange.
 	if data["type"] == "portal":
 		var node = _create_portal_node(data)
 		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
@@ -1836,47 +1841,28 @@ func _arc_band(center: Vector2, a0: float, a1: float, r_in: float, r_out: float,
 	return poly
 
 
-# Looping-Tile-Node (programmatisch, Top-Down). rot=0 Basislage: vertikale Fahrbahn (Süd↔Nord)
-# mit einem Looping-Ring in der Mitte und einer ×2-Marke. Node-Rotation dreht in die Weltlage.
+# Skaliert ein 2D-Tile-Artwork auf TILE_SIZE und behält die Pixelart-Kanten (NEAREST).
+# extra_rot_deg dreht das Bild relativ zur Node (z. B. OW-Artwork → NS-Basislage).
+func _make_tile_sprite(tex_path: String, extra_rot_deg: float = 0.0) -> Sprite2D:
+	var spr = Sprite2D.new()
+	var tex = load(tex_path) as Texture2D
+	spr.texture = tex
+	spr.centered = true
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	spr.rotation_degrees = extra_rot_deg
+	if tex != null:
+		var sz = tex.get_size()
+		if sz.x > 0 and sz.y > 0:
+			spr.scale = Vector2(TILE_SIZE / sz.x, TILE_SIZE / sz.y)
+	return spr
+
+
+# Looping-Tile-Node. rot=0 Basislage: vertikale Fahrbahn (Süd↔Nord). Das Artwork ist OW
+# (waagerecht) gemalt → 90° gedreht, dann mit der Node in die Weltlage rotiert. Der ×-Faktor
+# steckt im zentralen „×x.x"-Gesamt-Badge (_make_mult_marker / _cell_total_mult).
 func _create_loop_node(data: Dictionary) -> Node2D:
-	var node     = Node2D.new()
-	var half     = TILE_SIZE / 2.0
-	var pw       = 28.0
-	var bg_col   = Color(0.13, 0.12, 0.16)
-	var road_col = Color(0.30, 0.30, 0.36)
-	var loop_col = Color(0.36, 0.62, 0.95)
-
-	var bg = ColorRect.new()
-	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
-	bg.position = Vector2(-half + 1, -half + 1)
-	bg.color    = bg_col
-	node.add_child(bg)
-
-	# Vertikale Fahrbahn (Süd↔Nord)
-	var road = ColorRect.new()
-	road.size     = Vector2(pw, TILE_SIZE)
-	road.position = Vector2(-pw / 2.0, -half)
-	road.color    = road_col
-	node.add_child(road)
-
-	# Looping-Ring (Kreis-Band)
-	var r_out = 27.0
-	var r_in  = 17.0
-	var pts   = PackedVector2Array()
-	var steps = 26
-	for i in range(steps + 1):
-		var a = TAU * float(i) / steps
-		pts.append(Vector2(cos(a), sin(a)) * r_out)
-	for i in range(steps + 1):
-		var a = TAU * float(steps - i) / steps
-		pts.append(Vector2(cos(a), sin(a)) * r_in)
-	var ring = Polygon2D.new()
-	ring.polygon = pts
-	ring.color   = loop_col
-	node.add_child(ring)
-
-	# Kein eigenes „×2" mehr – der tatsächliche Faktor steht im zentralen „×x.x"-Gesamt-Badge
-	# (_make_mult_marker / _cell_total_mult), das Looping-Upgrades live berücksichtigt.
+	var node = Node2D.new()
+	node.add_child(_make_tile_sprite(Paths.TEX_LOOP_2D, 90.0))
 	return node
 
 
@@ -1891,61 +1877,73 @@ func _count_portals() -> int:
 	return n
 
 
-# Portal-Tile-Node (programmatisch, Top-Down). rot=0 Basislage: offene Seite = West (links);
-# Fahrbahn-Stutzen von links zur Mitte + leuchtender Portal-Ring. Node-Rotation dreht in die Weltlage.
-func _create_portal_node(data: Dictionary) -> Node2D:
-	var node     = Node2D.new()
-	var half     = TILE_SIZE / 2.0
-	var pw       = 30.0
-	var bg_col   = Color(0.12, 0.10, 0.14)
-	var road_col = Color(0.30, 0.30, 0.36)
-	var frame_col = Color(1.0, 0.55, 0.12)
-	var glow_col  = Color(1.0, 0.78, 0.40, 0.5)
-
-	var bg = ColorRect.new()
-	bg.size     = Vector2(TILE_SIZE - 2, TILE_SIZE - 2)
-	bg.position = Vector2(-half + 1, -half + 1)
-	bg.color    = bg_col
-	node.add_child(bg)
-
-	# Fahrbahn-Stutzen von der offenen Seite (West) zur Mitte.
-	var road = ColorRect.new()
-	road.size     = Vector2(half, pw)
-	road.position = Vector2(-half, -pw / 2.0)
-	road.color    = road_col
-	node.add_child(road)
-
-	# Portal-Ring (Kreis-Band) + Glüh-Scheibe in der Mitte.
-	var glow = Polygon2D.new()
-	glow.polygon = _circle_pts(Vector2.ZERO, 24.0, 24)
-	glow.color   = glow_col
-	node.add_child(glow)
-	var ring = Polygon2D.new()
-	ring.polygon = _ring_pts(26.0, 19.0, 24)
-	ring.color   = frame_col
-	node.add_child(ring)
+# Portal-Tile-Node. rot=0 Basislage: offene Seite = West (OW). Das Artwork ist OW gemalt →
+# keine Extra-Drehung, die Node-Rotation richtet es in die Weltlage. Farbe nach Routen-Rolle:
+# Ausgang = portal2 (orange), Eingang ODER (noch) unbestimmt = portal1 (blau). Die endgültige
+# Färbung setzt _refresh_portal_images() nach jeder Strecken-Änderung (_invalidate_track).
+func _create_portal_node(data: Dictionary, is_exit: bool = false) -> Node2D:
+	var node = Node2D.new()
+	var tex_path = Paths.TEX_PORTAL2_2D if is_exit else Paths.TEX_PORTAL1_2D
+	var spr = _make_tile_sprite(tex_path)
+	spr.name = "PortalSprite"
+	node.add_child(spr)
 	return node
 
 
-# Gefülltes Kreis-Polygon.
-func _circle_pts(center: Vector2, r: float, steps: int) -> PackedVector2Array:
-	var pts = PackedVector2Array()
-	for i in range(steps + 1):
-		var a = TAU * float(i) / steps
-		pts.append(center + Vector2(cos(a), sin(a)) * r)
-	return pts
+# Rolle der beiden Portale entlang der gefahrenen Route: Eingang (zuerst angefahren) und sein
+# Partner = Ausgang. Liefert {"entry": Vector2i, "exit": Vector2i} nur bei GÜLTIGER Strecke, die
+# durch die Portale führt – sonst {} (dann bleiben beide blau). Trace wie _is_track_valid.
+func _portal_route_roles() -> Dictionary:
+	if not _track_valid:
+		return {}
+	var row = 1; var col = 1; var exit_dir = "E"
+	var visited: Dictionary = {}
+	for _i in range(GRID_ROWS * GRID_COLS * 2):
+		var key = "%d_%d" % [row, col]
+		if key in visited:
+			return {}
+		visited[key] = true
+		var cur = grid[row][col]
+		if cur != null and cur.get("type", "") == "portal":
+			var part = _portal_partner_m(row, col)
+			if part.x < 0:
+				return {}
+			return {"entry": Vector2i(row, col), "exit": part}
+		var nxt = _ac_step(row, col, exit_dir)
+		if _ramp_jumps_toward(grid[row][col], row, col, exit_dir):
+			if _ac_in_bounds(nxt): nxt = _ac_step(nxt.x, nxt.y, exit_dir)
+		if not _ac_in_bounds(nxt): return {}
+		var nxt_data = grid[nxt.x][nxt.y]
+		if nxt_data == null: return {}
+		var nxt_exit = _ac_through(nxt_data, _ac_opp(exit_dir))
+		if nxt_exit == "": return {}
+		row = nxt.x; col = nxt.y; exit_dir = nxt_exit
+	return {}
 
 
-# Ring-Polygon (außen r_out, innen r_in).
-func _ring_pts(r_out: float, r_in: float, steps: int) -> PackedVector2Array:
-	var pts = PackedVector2Array()
-	for i in range(steps + 1):
-		var a = TAU * float(i) / steps
-		pts.append(Vector2(cos(a), sin(a)) * r_out)
-	for i in range(steps + 1):
-		var a = TAU * float(steps - i) / steps
-		pts.append(Vector2(cos(a), sin(a)) * r_in)
-	return pts
+# Färbt die Portale je nach Routen-Rolle um: Ausgang → orange (portal2), Eingang/unbestimmt →
+# blau (portal1). Wird aus _invalidate_track() nach jeder Strecken-Änderung aufgerufen.
+func _refresh_portal_images() -> void:
+	var roles = _portal_route_roles()
+	var exit_cell = roles.get("exit", Vector2i(-1, -1))
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d == null or d.get("type", "") != "portal":
+				continue
+			var node = d.get("node", null)
+			if node == null:
+				continue
+			var spr = node.get_node_or_null("PortalSprite")
+			if spr == null:
+				continue
+			var is_exit = Vector2i(r, c) == exit_cell
+			var tex = load(Paths.TEX_PORTAL2_2D if is_exit else Paths.TEX_PORTAL1_2D) as Texture2D
+			spr.texture = tex
+			if tex != null:
+				var sz = tex.get_size()
+				if sz.x > 0 and sz.y > 0:
+					spr.scale = Vector2(TILE_SIZE / sz.x, TILE_SIZE / sz.y)
 
 
 # Himmelsrichtung CW um `rot` Grad drehen (N→E→S→W→N).
@@ -3726,6 +3724,7 @@ func _invalidate_track() -> void:
 		tile_selector.set_status("")
 	_refresh_run_bar()
 	_refresh_mult_markers()
+	_refresh_portal_images()
 	_persist_track_for_current()
 
 
