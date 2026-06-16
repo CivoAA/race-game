@@ -85,6 +85,11 @@ const MODEL_TRACK_STAND = "res://assets/3D-models/tracks/special/Stand.glb"
 const TEX_GRASS_2D = "res://assets/2D-tiles/grass2.png"
 # Start-Feld-Markierung (Ziel/Start-Flagge) – liegt über grass2, ersetzt das alte grüne Overlay.
 const TEX_START_2D = "res://assets/2D-tiles/allgemein/start.png"
+# Looping-Artwork (2D): EIN Bild, standardmäßig OW gemalt – für die NS-Basislage 90° gedreht.
+const TEX_LOOP_2D    = "res://assets/2D-tiles/allgemein/looping.png"
+# Portal-Artwork (2D): zwei Endpunkte eines Paares (portal1/portal2), je OW gemalt, per Drehung ausgerichtet.
+const TEX_PORTAL1_2D = "res://assets/2D-tiles/allgemein/portal1.png"
+const TEX_PORTAL2_2D = "res://assets/2D-tiles/allgemein/portal2.png"
 # Rampen-Artwork (96×32 = 3 Kacheln breit: links Absprung, Mitte Sprungfeld, rechts Landung).
 const TEX_RAMP_2D  = "res://assets/2D-tiles/ramp.png"
 const TILE2D_TEXTURES := {
@@ -114,6 +119,14 @@ const TILE2D_TEXTURES := {
 	"race_curve_SW":       "res://assets/2D-tiles/racing/track_curve_SW.png",
 	"race_curve_NW":       "res://assets/2D-tiles/racing/track_curve_NW.png",
 	"race_curve_NO":       "res://assets/2D-tiles/racing/track_curve_NO.png",
+	# Kleber-/Slime-Belag (eigener Pixelart-Satz im Unterordner "glue", Dateipräfix "slime",
+	# Geraden-Tippfehler "stright"). Orientierungen exakt wie oben (OW/NS, OS/SW/NW/NO).
+	"glue_straight_OW":    "res://assets/2D-tiles/glue/slime_stright_OW.png",
+	"glue_straight_NS":    "res://assets/2D-tiles/glue/slime_stright_NS.png",
+	"glue_curve_OS":       "res://assets/2D-tiles/glue/slime_curve_OS.png",
+	"glue_curve_SW":       "res://assets/2D-tiles/glue/slime_curve_SW.png",
+	"glue_curve_NW":       "res://assets/2D-tiles/glue/slime_curve_NW.png",
+	"glue_curve_NO":       "res://assets/2D-tiles/glue/slime_curve_NO.png",
 }
 
 # Liefert den res://-Pfad der 2D-Textur für Belag (default/dirt/ice), Form (straight/curve)
