@@ -34,6 +34,10 @@ const BUILD_PANEL_TOP = 50                       # bündig an der Top-Nav (0–5
 const BOTTOM_BTN_W    = 56
 const BOTTOM_BTN_H    = 72
 const PAN_BORDER      = 150   # px jenseits des Grid-Rands für Kamera-Pan
+# Mausrad-Zoom: Standard 1.0; jeweils ~2–3 Stufen rein/raus, multiplikativ pro Rad-Schritt.
+const ZOOM_MIN  = 0.6
+const ZOOM_MAX  = 1.8
+const ZOOM_STEP = 1.15
 # Computed at _ready() — depend on viewport height (RUI.vh()), not hardcoded 540.
 # Die Boden-Werkzeuge (Hammer/Papierkorb/Drehen) liegen anker-basiert (siehe _layout_bottom_ui),
 # damit sie bei jeder Fenstergröße bündig an der Menüleiste kleben statt fix zu verschwinden.
@@ -382,10 +386,52 @@ func _setup_camera() -> void:
 
 
 func _update_camera_limits() -> void:
-	camera_2d.limit_left   = -PAN_BORDER
-	camera_2d.limit_right  = GRID_COLS * TILE_SIZE + PAN_BORDER
-	camera_2d.limit_top    = -PAN_BORDER
-	camera_2d.limit_bottom = GRID_ROWS * TILE_SIZE + PAN_BORDER
+	# Die Pan-Grenzen müssen die sichtbare Welt-Fläche (Viewport / Zoom) umschließen – sonst
+	# sperrt Godot die betroffene Achse komplett. Genau das verhinderte bisher das Links/Rechts-
+	# Schieben: Grid 600px + 2×150 (= 900) < Viewport 960px. Wir spannen die Limits darum um die
+	# größere von Grid- bzw. sichtbarer Breite/Höhe und geben zusätzlich PAN_BORDER Spielraum.
+	var grid_w := float(GRID_COLS * TILE_SIZE)
+	var grid_h := float(GRID_ROWS * TILE_SIZE)
+	var vis    := get_viewport_rect().size / camera_2d.zoom
+	var half_x := maxf(grid_w, vis.x) * 0.5 + PAN_BORDER
+	var half_y := maxf(grid_h, vis.y) * 0.5 + PAN_BORDER
+	camera_2d.limit_left   = int(grid_w * 0.5 - half_x)
+	camera_2d.limit_right  = int(grid_w * 0.5 + half_x)
+	camera_2d.limit_top    = int(grid_h * 0.5 - half_y)
+	camera_2d.limit_bottom = int(grid_h * 0.5 + half_y)
+
+
+# Mausrad: in die 2D-Ansicht hinein-/herauszoomen (zum Cursor hin). Liegt in _unhandled_input,
+# damit das Rad über Build-Panel/Shop weiterhin die Liste scrollt statt zu zoomen.
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	# Über dem Bau-Panel nicht zoomen: die Shop-Liste „verschluckt" das Rad am Scroll-Anfang/-Ende
+	# nicht, sonst würde Weiterscrollen am Listenende plötzlich die Ansicht zoomen.
+	if _build_layer != null and _build_layer.visible:
+		var panel := Rect2(BUILD_PANEL_X, BUILD_PANEL_TOP, BUILD_PANEL_W, _build_panel_bot - BUILD_PANEL_TOP)
+		if panel.has_point(event.position):
+			return
+	if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		_zoom_at(ZOOM_STEP)
+		get_viewport().set_input_as_handled()
+	elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		_zoom_at(1.0 / ZOOM_STEP)
+		get_viewport().set_input_as_handled()
+
+
+# Zoomt multiplikativ um `factor` und verschiebt die Kamera so, dass der Welt-Punkt unter dem
+# Cursor stehen bleibt – fühlt sich an wie „zum Mauszeiger zoomen".
+func _zoom_at(factor: float) -> void:
+	var old_zoom := camera_2d.zoom.x
+	var new_zoom := clampf(old_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+	if is_equal_approx(new_zoom, old_zoom):
+		return
+	var world_before := camera_2d.get_global_mouse_position()
+	camera_2d.zoom = Vector2(new_zoom, new_zoom)
+	var world_after := camera_2d.get_global_mouse_position()
+	camera_2d.position += world_before - world_after
+	_update_camera_limits()
 
 
 const RUN_BAR_H = 42
@@ -2054,7 +2100,9 @@ func _input(event: InputEvent) -> void:
 				_panning = false
 			return
 	if _panning and event is InputEventMouseMotion:
-		camera_2d.position = _pan_start_cam - event.position + _pan_start_mouse
+		# Maus-Weg durch den Zoom teilen: rausgezoomt zeigt ein Bildschirm-Pixel mehr Welt, sonst
+		# „hinkt" die Kamera dem Cursor hinterher und das Schieben fühlt sich zäh an.
+		camera_2d.position = _pan_start_cam - (event.position - _pan_start_mouse) / camera_2d.zoom
 		return
 
 	# Bearbeitungssperre während ein Run läuft (erst pausieren)
