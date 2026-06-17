@@ -7,7 +7,7 @@ extends Control
 ##  • Optionen = dieselben Einstellungen wie im Spiel (PauseMenu), nur Vollbild, mit Auto-Speichern.
 ## Einstellungen lesen/schreiben dieselbe settings.cfg wie das In-Game-Menü → immer deckungsgleich.
 
-const LANGUAGES    = [["Deutsch", "de"], ["English", "en"]]
+const LANGUAGES    = [["German", "de"], ["English", "en"], ["Español", "es"], ["Français", "fr"]]
 const WINDOW_MODES = ["Fenster", "Vollbild (Rahmenlos)", "Vollbild (Exklusiv)"]
 # Wählbare Bildschirmauflösungen (Label + Fenstergröße).
 const RESOLUTIONS = [
@@ -95,6 +95,9 @@ var _rename_modal:  Control
 var _delete_modal:  Control
 var _credits_modal: Control
 var _bug_modal:     Control
+var _lang_warn_modal:     Control
+var _lang_warn_title_lbl: Label
+var _lang_warn_text_lbl:  Label
 var _delete_text_lbl: Label
 
 # Discord-Webhook-URL (Discord → Kanal → Bearbeiten → Integrationen → Webhooks → Neuer Webhook → URL kopieren).
@@ -170,8 +173,11 @@ func _ready() -> void:
 	_delete_modal  = _build_delete_modal()
 	_credits_modal = _build_credits_modal()
 	_bug_modal     = _build_bug_modal()
+	_lang_warn_modal = _build_lang_warn_modal()
 	_show_main()
 	_apply_settings()
+	# Hintergrundmusik erst jetzt (im Hauptmenü) starten – nicht schon im Splash-Screen.
+	MusicPlayer.start_music()
 	_refresh_profiles()
 	# Nach dem ersten Layout den Straßen-Horizont auf die blaue Linie setzen.
 	call_deferred("_update_bg")
@@ -669,6 +675,55 @@ func _confirm_delete() -> void:
 	Economy.delete_slot(_active_profile)
 	_refresh_profiles()
 	_delete_modal.visible = false
+
+
+# ── Sprachwarnung (auto-generierte Übersetzung) ───────────────────────────────
+# Hinweis-Modal, das bei JEDEM Sprachwechsel außer zu Deutsch erscheint: Die nicht-deutschen
+# Übersetzungen sind maschinell erzeugt und können Fehler enthalten. Texte werden beim Anzeigen
+# per tr() in der bereits umgeschalteten Zielsprache gesetzt (auto_translate aus).
+func _build_lang_warn_modal() -> Control:
+	var overlay := _make_overlay()
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(460, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_lang_warn_title_lbl = Label.new()
+	_lang_warn_title_lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	_lang_warn_title_lbl.add_theme_font_size_override("font_size", 26)
+	_lang_warn_title_lbl.add_theme_color_override("font_color", Color(0.96, 0.74, 0.26))
+	_emboss(_lang_warn_title_lbl)
+	vbox.add_child(_lang_warn_title_lbl)
+	_add_hline(vbox)
+
+	_lang_warn_text_lbl = Label.new()
+	_lang_warn_text_lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	_lang_warn_text_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lang_warn_text_lbl.custom_minimum_size = Vector2(404, 0)
+	_lang_warn_text_lbl.add_theme_color_override("font_color", C_TEXT)
+	_lang_warn_text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(_lang_warn_text_lbl)
+
+	_add_spacer(vbox, 6)
+	_add_hline(vbox)
+	_add_menu_button(vbox, Icons.CHECK, "OK", C_ACCENT, func(): _lang_warn_modal.visible = false)
+
+	return overlay
+
+
+# In der Zielsprache (bereits gesetzt) befüllen und einblenden.
+func _show_lang_warn_modal() -> void:
+	_lang_warn_title_lbl.text = "%s  %s" % [Icons.ALERT_TRIANGLE, tr("ACHTUNG")]
+	_lang_warn_text_lbl.text  = tr("Die Übersetzung dieser Sprache wurde automatisch erstellt und kann deshalb Fehler oder ungenaue Formulierungen enthalten.\n\nFalls dir etwas auffällt, melde es uns bitte im Hauptmenü unten rechts über „Report a bug“ – so können wir die Übersetzungen weiter verbessern.")
+	_lang_warn_modal.visible = true
 
 
 # ── Credits-Modal ─────────────────────────────────────────────────────────────
@@ -1478,6 +1533,8 @@ func _hide_all() -> void:
 	_delete_modal.visible  = false
 	_credits_modal.visible = false
 	_bug_modal.visible     = false
+	if _lang_warn_modal != null:
+		_lang_warn_modal.visible = false
 
 
 func _show_main() -> void:
@@ -1512,9 +1569,9 @@ func _sync_settings_ui() -> void:
 			_lang_option.selected = i
 			break
 
-	_master_slider.value    = settings.get_value("options", "master_volume", 100.0)
-	_music_slider.value     = settings.get_value("options", "music_volume",  80.0)
-	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
+	_master_slider.value    = settings.get_value("options", "master_volume", 50.0)
+	_music_slider.value     = settings.get_value("options", "music_volume",  50.0)
+	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    50.0)
 	_lbl_master_val.text    = "%d%%" % int(_master_slider.value)
 	_lbl_music_val.text     = "%d%%" % int(_music_slider.value)
 	_lbl_sfx_val.text       = "%d%%" % int(_sfx_slider.value)
@@ -1557,9 +1614,13 @@ func _infer_default_ctrl_mode() -> String:
 
 func _on_language_changed(index: int) -> void:
 	if _loading_settings: return
-	settings.set_value("options", "language", LANGUAGES[index][1])
-	TranslationServer.set_locale(LANGUAGES[index][1])
+	var locale: String = LANGUAGES[index][1]
+	settings.set_value("options", "language", locale)
+	TranslationServer.set_locale(locale)
 	_settings_dirty = true
+	# Nicht-deutsche Sprachen sind maschinell übersetzt → einmaliger Hinweis pro Wechsel.
+	if locale != "de":
+		_show_lang_warn_modal()
 
 
 func _on_master_volume_changed(value: float) -> void:
@@ -1664,13 +1725,13 @@ func _on_notation_changed(index: int) -> void:
 # ── Einstellungen anwenden ────────────────────────────────────────────────────
 
 func _apply_settings() -> void:
-	AudioServer.set_bus_volume_db(0, _vol_db(settings.get_value("options", "master_volume", 100.0)))
+	AudioServer.set_bus_volume_db(0, _vol_db(settings.get_value("options", "master_volume", 50.0)))
 	var mi := AudioServer.get_bus_index("Music")
 	if mi >= 0:
-		AudioServer.set_bus_volume_db(mi, _vol_db(settings.get_value("options", "music_volume", 80.0)))
+		AudioServer.set_bus_volume_db(mi, _vol_db(settings.get_value("options", "music_volume", 50.0)))
 	var si := AudioServer.get_bus_index("SFX")
 	if si >= 0:
-		AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
+		AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 50.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
 	_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 	TranslationServer.set_locale(settings.get_value("options", "language", "en"))

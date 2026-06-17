@@ -402,6 +402,15 @@ const ACHIEVEMENTS = {
 	"pp_1000":        {"name": "Galaxie",         "desc": "Besitze 1.000 Prestige-Punkte.",      "metric": "prestige_points", "target": 1000},
 	"track_2":        {"name": "Neue Strecke",    "desc": "Schalte Strecke 2 frei.",   "metric": "unlocked_tracks", "target": 2},
 	"track_3":        {"name": "Streckensammler", "desc": "Schalte Strecke 3 frei.",   "metric": "unlocked_tracks", "target": 3},
+	# ── NEU (zur Prüfung, Namen mit * markiert) ──────────────────────────────
+	# Garage-Kosmetik (Event-Erfolge, freigeschaltet beim Kauf in GlobalModal):
+	"first_cosmetic": {"name": "*Stilbewusst",   "desc": "Kaufe deine erste Lackierung oder dein erstes Muster."},
+	"all_patterns":   {"name": "*Mustersammler", "desc": "Besitze alle Muster in der Garage."},
+	"all_paints":     {"name": "*Lacksammler",   "desc": "Besitze alle Farben in der Garage."},
+	# Schwellen-Erfolge (laufen automatisch über die bestehenden Metriken):
+	"lap_1t":         {"name": "*Billionenrunde", "desc": "Verdiene 1.000.000.000.000 mit EINEM Auto in einer Runde.", "metric": "lap_earn",       "target": 1000000000000.0},
+	"money_1q":       {"name": "*Billiardär",     "desc": "Besitze 1.000.000.000.000.000 Währung.",                    "metric": "currency",       "target": 1000000000000000.0},
+	"prestige_25":    {"name": "*Unsterblich",    "desc": "Führe 25 Prestiges durch.",                                 "metric": "prestige_count", "target": 25},
 }
 # Anzeige-Reihenfolge im Erfolge-Tab (links → rechts, oben → unten). Grob nach der WAHRSCHEINLICHEN
 # Freischalt-Progression sortiert (früh → spät), bewusst über Geld-/Runden-/Tile-/Prestige-/Strecken-
@@ -433,6 +442,13 @@ const ACHIEVEMENT_ORDER = [
 	"lap_1b",          # 1B je Runde (sehr spät)
 	"track_3",         # Strecke 3
 	"pp_1000",         # 1.000 ⭐ (sehr spät)
+	# ── NEU (zur Prüfung) ──
+	"first_cosmetic",  # erste Kosmetik gekauft (Garage ab 100B freigeschaltet)
+	"lap_1t",          # 1T je Runde
+	"all_patterns",    # alle Muster
+	"money_1q",        # 1.000T (1e15) Geld
+	"prestige_25",     # 25 Prestiges
+	"all_paints",      # alle Lackfarben (am teuersten → ganz spät)
 ]
 
 # Trophäen: eigene Erfolgs-Währung. Jeder EINGESAMMELTE Erfolg bringt ACH_REWARD Trophäen.

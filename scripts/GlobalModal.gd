@@ -2046,6 +2046,8 @@ func _rebuild_garage_options() -> void:
 		_garage_options_box.add_child(card)
 
 	_update_garage_summary()
+	# Sammel-Erfolge prüfen (auch nachträglich, falls schon alles besessen wird).
+	_check_cosmetic_collection_achievements()
 
 
 func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float, h: float, show_label: bool) -> Panel:
@@ -2273,6 +2275,8 @@ func _on_cosmetic_confirmed() -> void:
 		_flash_garage_summary(tr("Zu wenig Trophäen – %d nötig (Erfolge bringen welche).") % Economy.COSMETIC_COST)
 		return
 	_refresh_garage_trophies()
+	# Kosmetik-Erfolge (erste Kosmetik / alle Lacke / alle Muster) werden in _rebuild_garage_options()
+	# weiter unten geprüft – dieser Aufruf deckt also auch den frischen Kauf ab.
 	_ws_sel[cat] = idx
 	if cat == "paint":
 		var col = opt.get("color", null)
@@ -2281,6 +2285,38 @@ func _on_cosmetic_confirmed() -> void:
 		Economy.set_car_pattern(idx)
 	_rebuild_garage_options()
 	_apply_ws_config()
+
+
+# Schaltet die Kosmetik-Erfolge frei: erste Kosmetik besessen + ALLE Lackfarben / ALLE Muster.
+# Wird sowohl nach einem Kauf als auch beim (Neu-)Aufbau der Garage aufgerufen, damit bereits
+# erfüllte Bedingungen auch nachträglich greifen (unlock_achievement ist idempotent).
+func _check_cosmetic_collection_achievements() -> void:
+	var owns_any := false
+
+	var all_paints := true
+	for o in _ws_options("paint"):
+		if o.has("color"):
+			if Economy.is_paint_unlocked(o.color):
+				owns_any = true
+			else:
+				all_paints = false
+	if all_paints:
+		Economy.unlock_achievement("all_paints")
+
+	var all_patterns := true
+	var pats = _ws_options("pattern")
+	for i in pats.size():
+		if i == 0:
+			continue   # idx 0 = „Keins" (immer frei, keine echte Kosmetik)
+		if Economy.is_pattern_unlocked(i):
+			owns_any = true
+		else:
+			all_patterns = false
+	if all_patterns:
+		Economy.unlock_achievement("all_patterns")
+
+	if owns_any:
+		Economy.unlock_achievement("first_cosmetic")
 
 
 func _build_cosmetic_confirm(parent: Control) -> void:

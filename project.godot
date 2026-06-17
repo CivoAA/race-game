@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="RoadTycoon"
 config/description="2D Top-Down Rennbahn-Baukasten"
-config/version="0.8.6"
+config/version="0.9.0"
 run/main_scene="res://scenes/Splash.tscn"
 config/custom_user_dir_name="RoadTycoon"
 config/features=PackedStringArray("4.6", "GL Compatibility")

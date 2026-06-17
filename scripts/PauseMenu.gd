@@ -1,6 +1,6 @@
 extends CanvasLayer
 
-const LANGUAGES     = [["Deutsch", "de"], ["English", "en"]]
+const LANGUAGES     = [["German", "de"], ["English", "en"], ["Español", "es"], ["Français", "fr"]]
 const WINDOW_MODES  = ["Fenster", "Vollbild (Rahmenlos)", "Vollbild (Exklusiv)"]
 # Wählbare Bildschirmauflösungen (Label + Fenstergröße). Gängige 16:9-Auflösungen plus
 # Breitbild/Ultrawide, damit das Spiel auf möglichst jedem Monitor passt.
@@ -58,6 +58,9 @@ var _quit_modal:         Control
 var _discard_modal:      Control
 var _save_modal:         Control
 var _credits_modal:      Control
+var _lang_warn_modal:     Control
+var _lang_warn_title_lbl: Label
+var _lang_warn_text_lbl:  Label
 
 var _settings_dirty:  bool = false
 # Wie wurden die Einstellungen geöffnet? true = über das Pause-Menü (Zurück → Pause),
@@ -125,6 +128,7 @@ func _ready() -> void:
 	_discard_modal      = _build_discard_modal()
 	_save_modal         = _build_save_modal()
 	_credits_modal      = _build_credits_modal()
+	_lang_warn_modal    = _build_lang_warn_modal()
 
 	_show_pause()
 
@@ -851,6 +855,8 @@ func _hide_all() -> void:
 	_discard_modal.visible      = false
 	_save_modal.visible         = false
 	_credits_modal.visible      = false
+	if _lang_warn_modal != null:
+		_lang_warn_modal.visible = false
 
 
 func _show_pause() -> void:
@@ -1132,9 +1138,9 @@ func _sync_settings_ui() -> void:
 			_lang_option.selected = i
 			break
 
-	_master_slider.value    = settings.get_value("options", "master_volume", 100.0)
-	_music_slider.value     = settings.get_value("options", "music_volume",  80.0)
-	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    100.0)
+	_master_slider.value    = settings.get_value("options", "master_volume", 50.0)
+	_music_slider.value     = settings.get_value("options", "music_volume",  50.0)
+	_sfx_slider.value       = settings.get_value("options", "sfx_volume",    50.0)
 	# Labels explizit setzen: das value_changed-Signal feuert NICHT, wenn der neue
 	# Wert der aktuellen Slider-Position entspricht (z. B. 0 beim ersten Öffnen) –
 	# sonst bliebe die Prozentanzeige stehen, obwohl Knopf und Audio korrekt sind.
@@ -1179,9 +1185,70 @@ func _sync_settings_ui() -> void:
 
 func _on_language_changed(index: int) -> void:
 	if _loading_settings: return
-	settings.set_value("options", "language", LANGUAGES[index][1])
-	TranslationServer.set_locale(LANGUAGES[index][1])
+	var locale: String = LANGUAGES[index][1]
+	settings.set_value("options", "language", locale)
+	TranslationServer.set_locale(locale)
 	_settings_dirty = true
+	# Nicht-deutsche Sprachen sind maschinell übersetzt → einmaliger Hinweis pro Wechsel.
+	if locale != "de":
+		_show_lang_warn_modal()
+
+
+# ── Sprachwarnung (auto-generierte Übersetzung) ───────────────────────────────
+# Erscheint bei JEDEM Sprachwechsel außer zu Deutsch. Eigener Dim-Hintergrund, weil das Modal
+# über dem (ungedimmten) Einstellungs-Panel liegt. Texte beim Anzeigen per tr() in der bereits
+# umgeschalteten Zielsprache (auto_translate aus).
+func _build_lang_warn_modal() -> Control:
+	var overlay := ColorRect.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.color = Color(0, 0, 0, 0.78)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	add_child(overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(460, 0)
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	panel.add_child(vbox)
+
+	_lang_warn_title_lbl = Label.new()
+	_lang_warn_title_lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	_lang_warn_title_lbl.add_theme_font_size_override("font_size", 26)
+	_lang_warn_title_lbl.add_theme_color_override("font_color", Color(0.96, 0.74, 0.26))
+	_lang_warn_title_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
+	_lang_warn_title_lbl.add_theme_constant_override("shadow_offset_x", 1)
+	_lang_warn_title_lbl.add_theme_constant_override("shadow_offset_y", 2)
+	vbox.add_child(_lang_warn_title_lbl)
+	_add_hline(vbox)
+
+	_lang_warn_text_lbl = Label.new()
+	_lang_warn_text_lbl.auto_translate_mode = Control.AUTO_TRANSLATE_MODE_DISABLED
+	_lang_warn_text_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lang_warn_text_lbl.custom_minimum_size = Vector2(404, 0)
+	_lang_warn_text_lbl.add_theme_color_override("font_color", C_TEXT)
+	_lang_warn_text_lbl.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(_lang_warn_text_lbl)
+
+	_add_spacer(vbox, 6)
+	_add_hline(vbox)
+	_add_btn(vbox, Icons.CHECK, "OK", C_ACCENT, func(): _lang_warn_modal.visible = false)
+
+	return overlay
+
+
+# In der Zielsprache (bereits gesetzt) befüllen und einblenden.
+func _show_lang_warn_modal() -> void:
+	_lang_warn_title_lbl.text = "%s  %s" % [Icons.ALERT_TRIANGLE, tr("ACHTUNG")]
+	_lang_warn_text_lbl.text  = tr("Die Übersetzung dieser Sprache wurde automatisch erstellt und kann deshalb Fehler oder ungenaue Formulierungen enthalten.\n\nFalls dir etwas auffällt, melde es uns bitte im Hauptmenü unten rechts über „Report a bug“ – so können wir die Übersetzungen weiter verbessern.")
+	_lang_warn_modal.visible = true
 
 
 func _on_master_volume_changed(value: float) -> void:
@@ -1323,11 +1390,11 @@ func _on_save_confirm() -> void:
 func _on_discard_confirm() -> void:
 	# Einstellungen aus Datei neu laden und anwenden
 	settings.load(Paths.SETTINGS_FILE)
-	AudioServer.set_bus_volume_db(0, _vol_db(settings.get_value("options", "master_volume", 100.0)))
+	AudioServer.set_bus_volume_db(0, _vol_db(settings.get_value("options", "master_volume", 50.0)))
 	var mi := AudioServer.get_bus_index("Music")
-	if mi >= 0: AudioServer.set_bus_volume_db(mi, _vol_db(settings.get_value("options", "music_volume", 80.0)))
+	if mi >= 0: AudioServer.set_bus_volume_db(mi, _vol_db(settings.get_value("options", "music_volume", 50.0)))
 	var si := AudioServer.get_bus_index("SFX")
-	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 100.0)))
+	if si >= 0: AudioServer.set_bus_volume_db(si, _vol_db(settings.get_value("options", "sfx_volume", 50.0)))
 	_apply_window_mode(settings.get_value("options", "window_mode", 0))
 	_apply_resolution(settings.get_value("options", "resolution", DEFAULT_RESOLUTION))
 	TranslationServer.set_locale(settings.get_value("options", "language", "en"))

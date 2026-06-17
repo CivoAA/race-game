@@ -9,6 +9,7 @@ var _player: AudioStreamPlayer
 # true  = Musik läuft weiter, wenn das Fenster minimiert / im Hintergrund ist
 # false = Musik pausiert, sobald das Fenster den Fokus verliert
 var _music_on_minimize := true
+var _started := false   # Musik wurde bereits gestartet (verhindert Neustart bei Rückkehr ins Menü)
 
 
 func _ready() -> void:
@@ -34,12 +35,19 @@ func _ready() -> void:
 	# Sicherheitsnetz: Falls der Loop-Flag des Streams mal nicht greift, beim Ende neu starten.
 	# (Bei aktivem Loop wird "finished" nicht ausgelöst → harmlos.)
 	_player.finished.connect(_player.play)
+	# Bewusst NICHT hier abspielen: Die Musik soll erst im Hauptmenü starten (nicht schon im
+	# Splash-Screen). MainMenu._ready ruft dafür start_music() auf.
 
-	# Lauter Einschalt-Pop beim Spielstart vermeiden: Die Audio-Engine gibt beim allerersten
-	# Abspielen manchmal einen kurzen übersteuerten Burst aus (Treiber-/Decoder-Initialisierung,
-	# Bus-Pegel noch nicht von MainMenu gesetzt). Daher zuerst stumm abspielen, damit das
-	# Audiogerät mit Stille „aufwärmt" (ein eventueller Init-Burst wird so mit-gedämpft), kurz
-	# warten (bis MainMenu._ready die Bus-Lautstärken angewandt hat) und dann sanft einblenden.
+
+# Startet die Hintergrundmusik (vom Hauptmenü aufgerufen). Läuft danach dauerhaft weiter, auch
+# beim Wechsel ins Spiel – darum nur einmal starten.
+func start_music() -> void:
+	if _started or _player == null:
+		return
+	_started = true
+	# Lauter Einschalt-Pop vermeiden: Die Audio-Engine gibt beim allerersten Abspielen manchmal
+	# einen kurzen übersteuerten Burst aus. Daher zuerst stumm abspielen (Audiogerät „aufwärmen"),
+	# kurz warten und dann sanft einblenden.
 	_player.volume_db = -80.0
 	_player.play()
 	await get_tree().process_frame

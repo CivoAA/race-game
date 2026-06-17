@@ -1,8 +1,9 @@
 extends Node
 ## Lädt die Übersetzungstabelle (i18n/translations.txt) und registriert sie beim
-## TranslationServer. Deutsch ist die Quellsprache und steht direkt im Code, daher
-## gibt es nur eine englische Übersetzung – fehlt ein Eintrag, bleibt der deutsche
-## Quelltext stehen. Statische Control-Texte werden über auto_translate automatisch
+## TranslationServer. Deutsch ist die Quellsprache und steht direkt im Code; die Tabelle
+## liefert je eine Spalte für Englisch (en), Spanisch (es) und Französisch (fr). Fehlt in
+## einer Zielsprache ein Eintrag, greift Godots Fallback (Englisch); fehlt der Schlüssel
+## ganz, bleibt der deutsche Quelltext stehen. Statische Control-Texte werden über auto_translate automatisch
 ## übersetzt; dynamisch zusammengesetzte Texte (Tabs, Nav) rufen tr() selbst auf und
 ## bauen sich bei NOTIFICATION_TRANSLATION_CHANGED neu auf.
 ##
@@ -27,8 +28,13 @@ func _load_translations() -> void:
 		push_warning("Localization: Übersetzungsdatei nicht gefunden: %s" % CSV_PATH)
 		return
 
+	# Eine Translation je Zielsprache. Spaltenreihenfolge in der Tabelle: key, en, es, fr.
 	var tr_en := Translation.new()
 	tr_en.locale = "en"
+	var tr_es := Translation.new()
+	tr_es.locale = "es"
+	var tr_fr := Translation.new()
+	tr_fr.locale = "fr"
 	# Identitäts-Übersetzung für Deutsch (Quelltext → Quelltext). Nötig, weil Godots
 	# Fallback-Locale standardmäßig "en" ist: ohne eine deutsche Auflösung würden im
 	# Deutsch-Modus genau die hier übersetzten Schlüssel auf Englisch „durchschlagen".
@@ -44,19 +50,32 @@ func _load_translations() -> void:
 			continue
 		var cols := _parse_csv_line(line)
 		if not header_done:
-			header_done = true   # erste echte Zeile ist die Kopfzeile (key,en)
+			header_done = true   # erste echte Zeile ist die Kopfzeile (key,en,es,fr)
 			continue
 		if cols.size() < 2:
 			continue
 		var src := cols[0].replace("\\n", "\n")
-		var dst := cols[1].replace("\\n", "\n")
-		if src == "" or dst == "":
+		if src == "":
 			continue
-		tr_en.add_message(src, dst)
+		# Deutsch immer als Identität; en/es/fr nur, wenn die Spalte gefüllt ist
+		# (leere Zelle → Fallback auf Englisch greift automatisch).
 		tr_de.add_message(src, src)
+		var en := cols[1].replace("\\n", "\n")
+		if en != "":
+			tr_en.add_message(src, en)
+		if cols.size() >= 3:
+			var es := cols[2].replace("\\n", "\n")
+			if es != "":
+				tr_es.add_message(src, es)
+		if cols.size() >= 4:
+			var fr := cols[3].replace("\\n", "\n")
+			if fr != "":
+				tr_fr.add_message(src, fr)
 	f.close()
 
 	TranslationServer.add_translation(tr_en)
+	TranslationServer.add_translation(tr_es)
+	TranslationServer.add_translation(tr_fr)
 	TranslationServer.add_translation(tr_de)
 
 
