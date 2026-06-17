@@ -1162,6 +1162,15 @@ func add_silent(amount: int) -> void:
 	_currency += amount  # Kein sofortiges Speichern (z.B. per Runde)
 
 
+# Meldet ein neu platziertes Streckenteil (vom Bau-Code in Main aufgerufen). Zählt für den geheimen
+# Erfolg „Großbaumeister" (1.000 Teile gesamt) und persistiert sofort (Platzieren ist eine Nutzeraktion).
+func register_tile_placed() -> void:
+	total_tiles_placed += 1
+	if total_tiles_placed >= 1000:
+		unlock_achievement("master_builder")
+	save_game()
+
+
 # ── Upgrade-Abfragen ──────────────────────────────────────────────────────────
 
 func get_upgrade_level(id: String) -> int:
@@ -1882,8 +1891,9 @@ func buy_prestige_node(id: String) -> bool:
 		emit_signal("upgrade_purchased", "car_count")
 	elif id == "track":
 		_check_metric_achievements("unlocked_tracks", float(get_unlocked_tracks()))   # Strecke 2/3-Erfolge
-		# Geheimer Erfolg „Eigenbrötler": Strecke 3 frei, ohne je ein Super-Auto benutzt zu haben.
-		if get_unlocked_tracks() >= 3 and not ever_used_supercar:
+		# Geheimer Erfolg „Eigenbrötler": Strecke 3 frei, ohne je das Auto in der Werkstatt aufgewertet
+		# zu haben (car_ascend wird beim ersten Aufstieg freigeschaltet → guter Indikator).
+		if get_unlocked_tracks() >= 3 and not is_achievement_unlocked("car_ascend"):
 			unlock_achievement("loner")
 	return true
 
@@ -2242,6 +2252,7 @@ func save_game_to_slot(slot: int) -> void:
 		"unlocked_patterns": unlocked_patterns,
 		"car_tier":        car_tier,
 		"super_car_count": super_car_count,
+		"total_tiles_placed": total_tiles_placed,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
 		"name":        _slot_name,
 	}))
@@ -2305,6 +2316,7 @@ func load_game_from_slot(slot: int) -> void:
 				car_tier       = int(data.get("car_tier", 0))
 				# Migration: alter Bool-Unlock (super_car_on) → 1 Super-Auto.
 				super_car_count = int(data.get("super_car_count", 1 if bool(data.get("super_car_on", false)) else 0))
+				total_tiles_placed = int(data.get("total_tiles_placed", 0))
 				_slot_name     = String(data.get("name", ""))
 				# Multi-Track-Grids laden
 				var tg = data.get("track_grids", [])
@@ -2367,6 +2379,7 @@ func _reset_state_to_defaults() -> void:
 	unlocked_patterns = {}
 	car_tier        = 0   # Werkstatt-Auto („2. Auto") ist PROFIL-gebunden
 	super_car_count = 0
+	total_tiles_placed = 0
 	_slot_name      = ""
 	_init_tracks()
 

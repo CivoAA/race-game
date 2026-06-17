@@ -3233,6 +3233,18 @@ func _grant_tile_achievement(tier: String) -> void:
 		"loop":    Economy.unlock_achievement("tile_loop")
 		"portal":  Economy.unlock_achievement("tile_portal")
 		"stand":   Economy.unlock_achievement("tile_stand")
+	Economy.register_tile_placed()   # zählt für den geheimen Erfolg „Großbaumeister"
+
+
+# Zählt 5 voll gestapelte (×5) Tribünen auf der aktuellen Strecke → geheimer Erfolg „Tribünen-Imperium".
+func _check_stand_empire() -> void:
+	var n := 0
+	for grow in grid:
+		for d in grow:
+			if d != null and d.get("type", "") == "stand" and int(d.get("stack", 1)) >= STAND_MAX_STACK:
+				n += 1
+	if n >= 5:
+		Economy.unlock_achievement("stand_empire")
 
 
 func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
@@ -3481,6 +3493,8 @@ func _place_stand(row: int, col: int) -> void:
 			Economy.unlock_achievement("stand_max")   # Erfolg: Tribüne voll gestapelt
 		_free_tile_node(row, col)
 		_spawn_tile(row, col, nd)
+		Economy.register_tile_placed()   # Stapeln zählt auch für „Großbaumeister"
+		_check_stand_empire()            # 5 voll gestapelte Tribünen? → „Tribünen-Imperium"
 		last_placed_row = row; last_placed_col = col
 		_update_currency_label(); _update_build_ui(); _update_grid_highlight(); _invalidate_track()
 		_after_quick_place(row, col)

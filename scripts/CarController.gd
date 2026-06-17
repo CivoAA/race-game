@@ -635,9 +635,13 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			"base": 0.0, "kind": "plain", "fixed_mult": 1.0,
 			"bonus_points": 0.0, "bonus_mult": 1.0, "stand_mult": 1.0, "stand_count": 0,
 			"is_jump": false, "is_loop": false,
+			"type": "", "is_start": false, "is_dirt": false,   # für geheime Erfolge (Routen-Form)
 		}
 		if typeof(d) == TYPE_DICTIONARY:
 			var t = d.get("type", "")
+			rec["type"]     = t
+			rec["is_start"] = bool(d.get("is_start", false))
+			rec["is_dirt"]  = bool(d.get("is_dirt", false))
 			# Default-Tile = gekauft (nicht Dreck, nicht Start) und eine echte Fahrkachel.
 			var is_premium = (not d.get("is_dirt", false)) and (not d.get("is_start", false)) \
 				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve", "sand_straight", "sand_curve"]

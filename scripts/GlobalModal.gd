@@ -1220,6 +1220,13 @@ func _ach_icon_for(id: String) -> String:
 		"track_3":        return Icons.WORLD
 		"loop_jump":      return Icons.RECYCLE
 		"loop_triple":    return Icons.INFINITY
+		"loop_mania":     return Icons.FLAME
+		"only_special":   return Icons.CIRCLE_DASHED
+		"stand_empire":   return Icons.STADIUM
+		"thrifty":        return Icons.COIN
+		"loner":          return Icons.STEERING_WHEEL
+		"marathon":       return Icons.CLOCK
+		"master_builder": return Icons.HAMMER
 		"completionist":  return Icons.ROSETTE_CHECK
 	return Icons.TROPHY
 
