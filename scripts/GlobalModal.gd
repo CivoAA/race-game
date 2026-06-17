@@ -369,6 +369,25 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+# Sprachwechsel zur Laufzeit: Modal-Panels werden einmal gebaut und danach nur ein-/ausgeblendet.
+# Statisch gesetzte (selbst per tr() übersetzte) Texte hier neu setzen; dynamische Inhalte über die
+# vorhandenen Refresh-Funktionen (alle mit Null-Guard, also auch vor dem Bau unkritisch).
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_TRANSLATION_CHANGED:
+		return
+	if _ws_title_lbl != null and is_instance_valid(_ws_title_lbl):
+		_ws_title_lbl.text = "%s  %s" % [Icons.CAR, tr("Auto-Aufstieg")]
+	if not _garage_tab_btns.is_empty():
+		var gtabs := _garage_tabs()
+		for i in _garage_tab_btns.size():
+			if i < gtabs.size() and is_instance_valid(_garage_tab_btns[i]):
+				_garage_tab_btns[i].text = "%s  %s" % [gtabs[i].icon, tr(gtabs[i].name)]
+	_update_test_car_btn()
+	_refresh_werkstatt()
+	_refresh_achievements()
+	_refresh_prestige_action()
+
+
 func _build_modal() -> void:
 	# Abdunkelung und Panel über dem Spielbereich (links der Sidebar, unter Top-Bar,
 	# über der Run-Bar). Anker-basiert → passt sich automatisch an Viewport-Änderungen an.
@@ -563,7 +582,7 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 	for i in SHOP_CATS.size():
 		var cat  = SHOP_CATS[i]
 		var btn  := Button.new()
-		btn.text = "%s   %s" % [_shop_cat_icon(cat.id), cat.name]
+		btn.text = "%s   %s" % [_shop_cat_icon(cat.id), tr(cat.name)]
 		btn.custom_minimum_size = Vector2(0, SHOP_NAV_H)
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -918,7 +937,7 @@ func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
-	btn.text = Icons.ARROW_UP + " Stufe %d  ·  %s %s" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
+	btn.text = Icons.ARROW_UP + (tr(" Stufe %d  ·  %s %s") % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN])
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_style_upgrade_btn(btn, Economy.can_buy(id))
 	btn.pressed.connect(_on_buy_tile_upgrade.bind(id))
@@ -957,7 +976,7 @@ func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
-	btn.text = Icons.ARROW_UP + " Stufe %d  ·  %s %s" % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
+	btn.text = Icons.ARROW_UP + (tr(" Stufe %d  ·  %s %s") % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN])
 	_style_upgrade_btn(btn, Economy.can_buy(id))
 
 
@@ -1386,13 +1405,13 @@ func _select_achievement(idx: int) -> void:
 	_ach_title_lbl.text    = data["name"]
 	_ach_desc_lbl.text     = data["desc"]
 	if done and Economy.is_achievement_claimed(String(data.get("id", ""))):
-		_ach_status_lbl.text = Icons.CHECK + " Eingesammelt"
+		_ach_status_lbl.text = "%s %s" % [Icons.CHECK, tr("Eingesammelt")]
 		_ach_status_lbl.add_theme_color_override("font_color", C_CLAIMED_GREEN)
 	elif done:
-		_ach_status_lbl.text = Icons.CHECK + " Freigeschaltet"
+		_ach_status_lbl.text = "%s %s" % [Icons.CHECK, tr("Freigeschaltet")]
 		_ach_status_lbl.add_theme_color_override("font_color", C_ACCENT)
 	else:
-		_ach_status_lbl.text = Icons.LOCK + " Gesperrt"
+		_ach_status_lbl.text = "%s %s" % [Icons.LOCK, tr("Gesperrt")]
 		_ach_status_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 
 	_update_ach_claim_btn(String(data.get("id", "")))
@@ -1420,14 +1439,14 @@ func _update_ach_claim_btn(id: String) -> void:
 	_ach_claim_btn.visible = true
 	if Economy.is_achievement_claimed(id):
 		_ach_claim_btn.disabled = true
-		_ach_claim_btn.text = "%s Eingesammelt" % Icons.CHECK
+		_ach_claim_btn.text = "%s %s" % [Icons.CHECK, tr("Eingesammelt")]
 		_ach_claim_btn.add_theme_color_override("font_color", C_CLAIMED_GREEN)
 		_ach_claim_sb.bg_color     = C_CLAIMED_BG
 		_ach_claim_sb.border_color = C_CLAIMED_GREEN
 		_ach_claim_sb.set_border_width_all(2)
 	else:
 		_ach_claim_btn.disabled = false
-		_ach_claim_btn.text = "Einsammeln   +%d %s" % [Economy.get_achievement_reward(id), Icons.TROPHY]
+		_ach_claim_btn.text = tr("Einsammeln   +%d %s") % [Economy.get_achievement_reward(id), Icons.TROPHY]
 		_ach_claim_btn.add_theme_color_override("font_color", C_CLAIM_DARK)
 		_ach_claim_sb.bg_color     = C_CLAIM_GOLD
 		_ach_claim_sb.border_color = C_CLAIM_GOLD
@@ -1662,6 +1681,7 @@ func _garage_tabs() -> Array:
 var _ws_sel:         Dictionary    = {"paint": 0, "pattern": 0}
 var _ws_options_box: Control       = null   # Auto-Aufstieg-Inhalt
 var _ws_summary_lbl: Label         = null   # Auto-Aufstieg-Status
+var _ws_title_lbl:   Label         = null   # „🚗 Auto-Aufstieg"-Titel (selbst per tr() übersetzt)
 
 # Garage
 var _garage_active_tab:  int           = 0
@@ -1750,8 +1770,9 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 16)
 	title.add_theme_color_override("font_color", C_TEXT)
-	title.text = "%s  Auto-Aufstieg" % Icons.CAR
+	title.text = "%s  %s" % [Icons.CAR, tr("Auto-Aufstieg")]
 	container.add_child(title)
+	_ws_title_lbl = title
 
 	# Auto-Aufstieg-Inhalt
 	_ws_options_box = Control.new()
@@ -1786,7 +1807,7 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	for i in gtabs.size():
 		var t = gtabs[i]
 		var btn := Button.new()
-		btn.text     = "%s  %s" % [t.icon, t.name]
+		btn.text     = "%s  %s" % [t.icon, tr(t.name)]
 		btn.position = Vector2(sx + i * (SUB_W + SUB_GAP), 12)
 		btn.size     = Vector2(SUB_W, 36)
 		btn.focus_mode = Control.FOCUS_NONE
@@ -1898,7 +1919,7 @@ func _on_toggle_test_car() -> void:
 func _update_test_car_btn() -> void:
 	if _test_car_btn == null:
 		return
-	_test_car_btn.text = "%s  Test-Auto: %s" % [Icons.CAR, ("AN" if Economy.test_blender_car else "AUS")]
+	_test_car_btn.text = "%s  %s: %s" % [Icons.CAR, tr("Test-Auto"), (tr("AN") if Economy.test_blender_car else tr("AUS"))]
 	_style_ws_tab(_test_car_btn, Economy.test_blender_car)
 
 
@@ -2014,11 +2035,11 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		name_lbl.add_theme_font_size_override("font_size", 11)
 		name_lbl.add_theme_color_override("font_color", C_TEXT if selected else C_TEXT_DIM)
-		name_lbl.text = opt.name
+		name_lbl.text = tr(opt.name)
 		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(name_lbl)
 	else:
-		card.tooltip_text = opt.name
+		card.tooltip_text = tr(opt.name)
 
 	# Gesperrte (noch nicht gekaufte) Kosmetik abdunkeln + Schloss/Preis zeigen.
 	if _is_option_locked(cat, opt, idx):
@@ -2038,7 +2059,7 @@ func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: 
 		lock.text = "%s\n%d %s" % [Icons.LOCK, Economy.COSMETIC_COST, Icons.TROPHY] if show_label else Icons.LOCK
 		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(lock)
-		card.tooltip_text = "%s – kaufen für %d Trophäen" % [opt.name, Economy.COSMETIC_COST]
+		card.tooltip_text = tr("%s – kaufen für %d Trophäen") % [tr(opt.name), Economy.COSMETIC_COST]
 
 	card.gui_input.connect(func(e: InputEvent):
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
@@ -2155,17 +2176,17 @@ func _open_cosmetic_confirm(cat: String, idx: int, opt: Dictionary) -> void:
 		return
 	_cosmetic_pending_cat = cat
 	_cosmetic_pending_idx = idx
-	var kind_word := "die Farbe" if cat == "paint" else "das Muster"
-	var nm := String(opt.get("name", "?"))
+	var kind_word := tr("die Farbe") if cat == "paint" else tr("das Muster")
+	var nm := tr(String(opt.get("name", "?")))
 	var have := Economy.get_ach_currency()
 	var can_afford := have >= Economy.COSMETIC_COST
 	# Preis + Währungssymbol in der Währungsfarbe (Trophäen-Gold) hervorheben.
-	var msg := "[center]Möchten Sie %s \"%s\" für [color=#%s]%d %s[/color] kaufen?" % [
+	var msg := tr("[center]Möchten Sie %s \"%s\" für [color=#%s]%d %s[/color] kaufen?") % [
 		kind_word, nm, C_CLAIM_GOLD.to_html(false), Economy.COSMETIC_COST, Icons.TROPHY]
 	if not can_afford:
 		# Hinweis, warum „Kaufen" ausgegraut ist: wie viele Trophäen noch fehlen.
 		var missing := Economy.COSMETIC_COST - have
-		msg += "\n[color=#%s]Dir fehlen %d %s.[/color]" % [C_ACCENT_RD.to_html(false), missing, Icons.TROPHY]
+		msg += "\n" + (tr("[color=#%s]Dir fehlen %d %s.[/color]") % [C_ACCENT_RD.to_html(false), missing, Icons.TROPHY])
 	msg += "[/center]"
 	_cosmetic_confirm_lbl.text = msg
 	# „Kaufen" ausgrauen, wenn das Trophäen-Guthaben nicht reicht.
@@ -2186,7 +2207,7 @@ func _on_cosmetic_confirmed() -> void:
 	var opt: Dictionary = opts[idx] if idx < opts.size() else {}
 	var bought := Economy.buy_paint(opt.color) if cat == "paint" else Economy.buy_pattern(idx)
 	if not bought:
-		_flash_garage_summary("Zu wenig Trophäen – %d nötig (Erfolge bringen welche)." % Economy.COSMETIC_COST)
+		_flash_garage_summary(tr("Zu wenig Trophäen – %d nötig (Erfolge bringen welche).") % Economy.COSMETIC_COST)
 		return
 	_refresh_garage_trophies()
 	_ws_sel[cat] = idx
@@ -2234,7 +2255,7 @@ func _build_cosmetic_confirm(parent: Control) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_color_override("font_color", C_CLAIM_GOLD)
-	title.text = "%s  KAUFEN?" % Icons.TROPHY
+	title.text = "%s  %s" % [Icons.TROPHY, tr("KAUFEN?")]
 	_emboss(title, 0.7)
 	panel.add_child(title)
 
@@ -2254,7 +2275,7 @@ func _build_cosmetic_confirm(parent: Control) -> void:
 	yes.focus_mode = Control.FOCUS_NONE
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
-	yes.text = Icons.TROPHY + "  Kaufen"
+	yes.text = "%s  %s" % [Icons.TROPHY, tr("Kaufen")]
 	yes.add_theme_stylebox_override("normal",  _sbf(C_CLAIM_GOLD.darkened(0.55), C_CLAIM_GOLD))
 	yes.add_theme_stylebox_override("hover",   _sbf(C_CLAIM_GOLD.darkened(0.40), C_CLAIM_GOLD))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_CLAIM_GOLD))
@@ -2297,7 +2318,7 @@ func _update_garage_summary() -> void:
 	var qi = int(_ws_sel.get("pattern", 0))
 	var pat_opts = _ws_options("pattern")
 	var pat_nm = String(pat_opts[qi].name) if qi < pat_opts.size() else "?"
-	_garage_summary_lbl.text = "Lackierung: %s  ·  Muster: %s" % [paint_nm, pat_nm]
+	_garage_summary_lbl.text = tr("Lackierung: %s  ·  Muster: %s") % [tr(paint_nm), tr(pat_nm)]
 
 
 # Tab „Autos": Auto-Prestige-Panel (Aufstieg auf die nächste Auto-Stufe gegen Voll-Reset + ×4 ⭐).
@@ -2314,8 +2335,8 @@ func _build_autos_options() -> void:
 	info.add_theme_color_override("font_color", C_TEXT)
 	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
 	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, tier + 1))
-	info.text = "Aktuelles Auto: %s (Stufe %d)\nUpgrade: %s  →  Reset inkl. Prestige-Baum, danach ×%d %s und %d Baum-Knoten je Prestige" % [
-		_car_tier_name(tier), tier, Economy.format_currency(cost), pts, Icons.STAR, step]
+	info.text = tr("Aktuelles Auto: %s (Stufe %d)\nUpgrade: %s  →  Reset inkl. Prestige-Baum, danach ×%d %s und %d Baum-Knoten je Prestige") % [
+		tr(_car_tier_name(tier)), tier, Economy.format_currency(cost), pts, Icons.STAR, step]
 	_ws_options_box.add_child(info)
 
 	var btn := Button.new()
@@ -2325,7 +2346,7 @@ func _build_autos_options() -> void:
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	btn.add_theme_font_size_override("font_size", 14)
 	btn.disabled = not can
-	btn.text = "%s  Auto upgraden" % Icons.ARROW_BIG_UP
+	btn.text = "%s  %s" % [Icons.ARROW_BIG_UP, tr("Auto upgraden")]
 	if can:
 		btn.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
 		btn.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
@@ -2335,12 +2356,12 @@ func _build_autos_options() -> void:
 	else:
 		btn.add_theme_stylebox_override("normal", _sbf(C_SURFACE, C_LINE))
 		btn.add_theme_color_override("font_color", C_TEXT_DIM)
-		btn.tooltip_text = "Erst genug Guthaben sammeln (%s)" % Economy.format_currency(cost)
+		btn.tooltip_text = tr("Erst genug Guthaben sammeln (%s)") % Economy.format_currency(cost)
 	_ws_options_box.add_child(btn)
 
 	if _ws_summary_lbl != null:
 		if tier >= 1:
-			_ws_summary_lbl.text = "Es fährt nur das %s-Auto · 4 normale Autos = 1 fahrendes Auto (Lack/Muster folgt für dieses Modell)" % _car_tier_name(tier)
+			_ws_summary_lbl.text = tr("Es fährt nur das %s-Auto · 4 normale Autos = 1 fahrendes Auto (Lack/Muster folgt für dieses Modell)") % tr(_car_tier_name(tier))
 		else:
 			_ws_summary_lbl.text = "Nach dem Upgrade fährt nur noch das neue Auto auf der Strecke."
 
@@ -2699,7 +2720,7 @@ func _make_upgrade_card(id: String) -> Panel:
 	lv_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lv_lbl.add_theme_font_size_override("font_size", 11)
 	lv_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	lv_lbl.text = "Stufe %d / %d" % [lv, mx]
+	lv_lbl.text = tr("Stufe %d / %d") % [lv, mx]
 	card.add_child(lv_lbl)
 
 	# Stufen-Fortschrittsbalken (gefüllt nach lv/max)
@@ -2885,13 +2906,13 @@ func _make_super_car_row(row_w: float) -> Control:
 		_hint_targets_upg.append({"id": "super_car", "area": info})
 
 	var n_lbl := Label.new()
-	n_lbl.text = "AUTO 2 (KOMBINATION)  ×%d" % Economy.get_super_car_count()
+	n_lbl.text = "%s  ×%d" % [tr("AUTO 2 (KOMBINATION)"), Economy.get_super_car_count()]
 	n_lbl.add_theme_font_size_override("font_size", 13)
 	n_lbl.add_theme_color_override("font_color", C_TEXT)
 	info.add_child(n_lbl)
 
 	var d_lbl := Label.new()
-	d_lbl.text = "%d Autos → 1 Super-Auto  ·  Tempo ≥%d nötig  ·  +%s/Feld · Tempo ÷%d" % [
+	d_lbl.text = tr("%d Autos → 1 Super-Auto  ·  Tempo ≥%d nötig  ·  +%s/Feld · Tempo ÷%d") % [
 		Economy.SUPER_CAR_COST_CARS, Economy.SUPER_CAR_REQ_SPEED,
 		Economy.format_currency(Economy.SUPER_CAR_TILE_BONUS),
 		int(Economy.SUPER_CAR_SPEED_DIV)]
@@ -3073,7 +3094,7 @@ func _refresh_prestige_action() -> void:
 	if _prestige_points_lbl == null:
 		return
 	# Kopf oben links: nur die Anzahl bisheriger Prestiges (⭐-Punkte stehen in der oberen Leiste).
-	_prestige_points_lbl.text = "%s  %d Prestiges durchgeführt" % [Icons.RECYCLE, Economy.get_prestige_count()]
+	_prestige_points_lbl.text = "%s  %s" % [Icons.RECYCLE, tr("%d Prestiges durchgeführt") % Economy.get_prestige_count()]
 
 	var pending := Economy.prestige_pending_points()
 	var cur     := Economy.get_currency()
@@ -3193,7 +3214,7 @@ func _make_prestige_card(id: String) -> Panel:
 	lv_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lv_lbl.add_theme_font_size_override("font_size", 11)
 	lv_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
-	lv_lbl.text = "Stufe %d / %d" % [level, Economy.get_prestige_node_max(id)]
+	lv_lbl.text = tr("Stufe %d / %d") % [level, Economy.get_prestige_node_max(id)]
 	card.add_child(lv_lbl)
 
 	# Effekt (von → zu, bzw. nur aktuell wenn maxed)
@@ -3208,9 +3229,9 @@ func _make_prestige_card(id: String) -> Panel:
 		var per: Dictionary = Economy.FREE_ROADS_PER_LEVEL
 		eff_lbl.add_theme_font_size_override("font_size", 12)
 		if maxed:
-			eff_lbl.text = "%d Geraden\n%d Kurven" % [per["straight"] * level, per["curve"] * level]
+			eff_lbl.text = tr("%d Geraden\n%d Kurven") % [per["straight"] * level, per["curve"] * level]
 		else:
-			eff_lbl.text = "Geraden %d → %d\nKurven %d → %d" % [
+			eff_lbl.text = tr("Geraden %d → %d\nKurven %d → %d") % [
 				per["straight"] * level, per["straight"] * (level + 1),
 				per["curve"] * level,    per["curve"] * (level + 1)]
 	else:
@@ -3298,7 +3319,7 @@ func _on_buy_prestige_node(id: String) -> void:
 func _on_prestige_pressed() -> void:
 	if not Economy.can_prestige():
 		return
-	_prestige_confirm_lbl.text = "Du erhältst %d %s.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben." % [Economy.prestige_pending_points(), Icons.STAR]
+	_prestige_confirm_lbl.text = tr("Du erhältst %d %s.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben.") % [Economy.prestige_pending_points(), Icons.STAR]
 	_prestige_confirm.visible = true
 
 
@@ -3403,8 +3424,8 @@ func _on_ascend_pressed() -> void:
 	var next_tier := Economy.get_car_tier() + 1
 	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, next_tier))
 	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, next_tier))
-	_ascend_confirm_lbl.text = "Dein Auto wird zu %s aufgewertet (Stufe %d).\n\nGeld, Upgrades, Teile UND der Prestige-Baum\nwerden komplett zurückgesetzt. Danach fährt nur\nnoch dieses Auto, du erhältst ×%d %s pro Prestige\nund jedes Prestige schaltet %d Baum-Knoten frei." % [
-		_car_tier_name(next_tier), next_tier, pts, Icons.STAR, step]
+	_ascend_confirm_lbl.text = tr("Dein Auto wird zu %s aufgewertet (Stufe %d).\n\nGeld, Upgrades, Teile UND der Prestige-Baum\nwerden komplett zurückgesetzt. Danach fährt nur\nnoch dieses Auto, du erhältst ×%d %s pro Prestige\nund jedes Prestige schaltet %d Baum-Knoten frei.") % [
+		tr(_car_tier_name(next_tier)), next_tier, pts, Icons.STAR, step]
 	_ascend_confirm.visible = true
 
 
@@ -3460,7 +3481,7 @@ func _build_ascend_confirm(parent: Control) -> void:
 	yes.focus_mode = Control.FOCUS_NONE
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
-	yes.text = Icons.ARROW_BIG_UP + "  Upgraden"
+	yes.text = "%s  %s" % [Icons.ARROW_BIG_UP, tr("Upgraden")]
 	yes.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
 	yes.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))

@@ -156,6 +156,7 @@ const DRAG_THRESHOLD := 6.0              # Pixel-Schwelle: Klick (Auswahl) vs. Z
 
 # Build-Panel-Nodes
 var _build_layer:   CanvasLayer = null
+var _build_mode_lbl: Label      = null   # „🔨 BAUMODUS"-Kopfzeile (selbst per tr() übersetzt)
 var _status_lbl:    Label       = null
 var _hint_lbl:      Label       = null
 var _fahren_btn:    Button      = null
@@ -571,14 +572,17 @@ func _setup_build_panel() -> void:
 	_build_layer.add_child(bg)
 
 	# ── Kopfzeile: „🔨 BAUMODUS" links, flaches ✕ rechts ────────────────────────
+	# Icon + Label zusammengesetzt → Auto-Übersetzung greift nicht; daher selbst per tr()
+	# (Aktualisierung bei Sprachwechsel via _notification).
 	var mode_lbl := Label.new()
-	mode_lbl.text = Icons.HAMMER + "  BAUMODUS"
+	mode_lbl.text = "%s  %s" % [Icons.HAMMER, tr("BAUMODUS")]
 	mode_lbl.position = Vector2(PADX + 4, BUILD_PANEL_TOP + 9)
 	mode_lbl.size = Vector2(inner_w - 40, 22)
 	mode_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	mode_lbl.add_theme_font_size_override("font_size", 13)
 	mode_lbl.add_theme_color_override("font_color", C_ACCENT)
 	_build_layer.add_child(mode_lbl)
+	_build_mode_lbl = mode_lbl
 
 	const X_SZ = 24
 	var close_btn := Button.new()
@@ -1043,10 +1047,23 @@ func _save_section_collapsed() -> void:
 
 
 # Chevron + Resttext aller Kategorie-Header an den Klapp-Zustand anpassen.
+# `label` bleibt der interne (deutsche) Kategorie-Schlüssel (Klapp-Zustand/Persistenz); nur der
+# angezeigte Text wird per tr() übersetzt (Chevron zusammengesetzt → keine Auto-Übersetzung).
 func _refresh_section_headers() -> void:
 	for label in _section_header_btns:
 		var collapsed: bool = bool(_section_collapsed.get(label, false))
-		_section_header_btns[label].text = ("▸  %s" if collapsed else "▾  %s") % label
+		_section_header_btns[label].text = ("▸  %s" if collapsed else "▾  %s") % tr(label)
+
+
+# Sprachwechsel zur Laufzeit: das Build-Panel wird nur einmal gebaut und danach ein-/ausgeblendet,
+# daher die selbst per tr() übersetzten Texte (BAUMODUS + Kategorie-Header) hier neu setzen.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_TRANSLATION_CHANGED:
+		return
+	if _build_mode_lbl != null and is_instance_valid(_build_mode_lbl):
+		_build_mode_lbl.text = "%s  %s" % [Icons.HAMMER, tr("BAUMODUS")]
+	if not _section_header_btns.is_empty():
+		_refresh_section_headers()
 
 
 func _make_trash_card() -> Panel:

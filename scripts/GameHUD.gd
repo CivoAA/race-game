@@ -349,6 +349,7 @@ func _nav_pages() -> Array:
 var _nav_btns:    Array = []   # je {btn, tab}
 var _active_page: int   = -1   # gerade geöffnete Seite (-1 = Modal geschlossen)
 var _pause_nav_btn: Button = null   # „Pause-Menü"-Eintrag, nur im Mobile-Steuerungsmodus sichtbar
+var _nav_hdr_lbl:   Label  = null   # „☰ Menü"-Überschrift der Seitennav (selbst per tr() übersetzt)
 
 
 func _build_side_menu() -> void:
@@ -371,8 +372,9 @@ func _build_side_menu() -> void:
 	hdr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hdr.add_theme_font_size_override("font_size", 17)
 	hdr.add_theme_color_override("font_color", C_ACCENT)
-	hdr.text = Icons.MENU + " Menü"
+	hdr.text = "%s %s" % [Icons.MENU, tr("Menü")]
 	_ui_root.add_child(hdr)
+	_nav_hdr_lbl = hdr
 
 	var hline := ColorRect.new()
 	hline.position = Vector2(nav_x, nav_top + NAV_HDR_H)
@@ -519,6 +521,8 @@ func _notification(what: int) -> void:
 		var pl = _pause_nav_btn.get_meta("txt_lbl", null)
 		if pl != null and is_instance_valid(pl):
 			pl.text = tr("Pause-Menü")
+	if _nav_hdr_lbl != null and is_instance_valid(_nav_hdr_lbl):
+		_nav_hdr_lbl.text = "%s %s" % [Icons.MENU, tr("Menü")]
 
 
 # Nav-Eintrag = farbiges Tabler-Icon (eigenes Label links) + übersetztes Text-Label.
