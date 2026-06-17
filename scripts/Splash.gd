@@ -10,6 +10,7 @@ const LOGO_HEIGHT := 300.0   # Ziel-Höhe des Logos (Seitenverhältnis bleibt er
 const FADE_IN     := 0.5
 const HOLD        := 4.0
 const FADE_OUT    := 0.5
+const SKIP_FADE   := 0.12   # schnelle Blende beim Wegdrücken (Klick/Taste)
 
 const BOX_COLOR     := Color(0.18, 0.21, 0.26)   # dunkler Kasten hinter dem Logo (weißer Text lesbar, #2e353f)
 const BOX_PADDING   := 40                          # Innenabstand Logo ↔ Kastenrand (px)
@@ -77,23 +78,27 @@ func _ready() -> void:
 	tw.tween_callback(_go_to_menu)
 
 
-# Klick oder Tastendruck überspringt den Splash.
-func _unhandled_input(event: InputEvent) -> void:
+# Klick oder Tastendruck überspringt den Splash – mit schneller Blende (wegdrücken).
+# _input (statt _unhandled_input), weil der Splash-Root-Control sonst den Mausklick im GUI-System
+# „verbraucht" und _unhandled_input ihn nie zu sehen bekäme.
+func _input(event: InputEvent) -> void:
 	if _leaving:
 		return
 	if (event is InputEventKey and event.pressed) \
 			or (event is InputEventMouseButton and event.pressed) \
 			or event is InputEventScreenTouch and event.pressed:
-		_go_to_menu()
+		get_viewport().set_input_as_handled()
+		_go_to_menu(SKIP_FADE)
 
 
-func _go_to_menu() -> void:
+func _go_to_menu(fade := FADE_OUT) -> void:
 	if _leaving:
 		return
 	_leaving = true
 	# Vollflächige Blende auf einer eigenen CanvasLayer am Tree-Root: Sie überlebt den
 	# Szenenwechsel, deckt ihn vollständig ab (kein leerer Zwischen-Frame → kein Flackern)
-	# und blendet danach sanft aufs fertig aufgebaute Hauptmenü auf.
+	# und blendet danach sanft aufs fertig aufgebaute Hauptmenü auf. `fade` = Blenden-Dauer
+	# (beim Klick-Skip kurz, sonst die normale FADE_OUT).
 	var layer := CanvasLayer.new()
 	layer.layer = 128
 	get_tree().root.add_child(layer)
@@ -106,8 +111,8 @@ func _go_to_menu() -> void:
 	layer.add_child(cover)
 
 	var tw := cover.create_tween()
-	tw.tween_property(cover, "modulate:a", 1.0, FADE_OUT)              # Splash unter der Blende verschwinden lassen
+	tw.tween_property(cover, "modulate:a", 1.0, fade)                 # Splash unter der Blende verschwinden lassen
 	tw.tween_callback(func(): cover.get_tree().change_scene_to_file(NEXT_SCENE))
 	tw.tween_interval(0.1)                                            # ein paar Frames, bis das Hauptmenü aufgebaut ist
-	tw.tween_property(cover, "modulate:a", 0.0, FADE_OUT)             # auf das Hauptmenü aufblenden
+	tw.tween_property(cover, "modulate:a", 0.0, fade)                 # auf das Hauptmenü aufblenden
 	tw.tween_callback(layer.queue_free)
