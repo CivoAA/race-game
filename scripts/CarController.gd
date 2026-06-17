@@ -90,7 +90,7 @@ const WALL_BULGE = 0.4
 
 # Debug: zeichnet die IST-Fahrlinie als Kugeln (Steilkurven-Punkte ROT, Rest blau), damit man die
 # SOLL-Linie auf einem Screenshot drübermalen kann. Vor Release auf false setzen.
-const DEBUG_DRAW_PATH := true
+const DEBUG_DRAW_PATH := false
 const WALL_ROLL_SMOOTH = 25.0  # schnelleres Einrasten der Querneigung als ROLL_SMOOTH (kein Durchglitchen)
 # Zusätzliche Längsachsen-Rolle (lokale X, „rechte Tür runter") in der Steilkurve: das Auto kippt zur
 # KURVENMITTE hin (zum Punkt, um den es bei einem Vollkreis fahren würde). 0 = aus. 0.52 ≈ 30°.
