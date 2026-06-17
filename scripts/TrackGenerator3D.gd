@@ -39,41 +39,8 @@ const PORTAL_MODEL_YAW_OFFSET = -90.0
 # Also 1.0 Modell-Einheit pro Kachel → Skalierung TILE_SIZE/1.0 = 1.2 füllt die Kachel exakt.
 const MODEL_TILE_NATIVE = 1.0
 
-# Gemeinsames Track-Material (Atlas-Textur). Die neuen GLBs werden ohne Material exportiert,
-# tragen aber die passenden UVs → diese eine Textur deckt alle Beläge ab. Einmal erzeugt und
-# über material_override an allen Track-Meshes wiederverwendet.
-var _track_material: StandardMaterial3D
-
-
-func _get_track_material() -> StandardMaterial3D:
-	if _track_material == null:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = load(Paths.TEX_TRACK_ATLAS)
-		mat.roughness = 0.9
-		# Harte Alpha-Kanten (Atlas hat transparente Bereiche) sauber ausstanzen – wie MaterialUtil.
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.alpha_scissor_threshold = 0.5
-		_track_material = mat
-	return _track_material
-
-
-# Legt die gemeinsame Atlas-Textur auf alle Meshes, die (noch) kein eigenes Material haben.
-# Modelle mit eigenem Material (z. B. spätere Re-Exporte) bleiben unangetastet.
-func _apply_track_texture(root: Node) -> void:
-	var meshes := root.find_children("*", "MeshInstance3D", true, false)
-	if root is MeshInstance3D:
-		meshes.append(root)
-	for node in meshes:
-		var mi := node as MeshInstance3D
-		if mi.mesh == null:
-			continue
-		for si in mi.mesh.get_surface_count():
-			# Godot legt materiallosen glTF-Flächen ein leeres (weißes) Default-Material an →
-			# nicht auf null prüfen, sondern auf "hat keine eigene Albedo-Textur".
-			var active := mi.get_active_material(si)
-			var has_tex := active is BaseMaterial3D and (active as BaseMaterial3D).albedo_texture != null
-			if not has_tex:
-				mi.set_surface_override_material(si, _get_track_material())
+# Gemeinsame Track-Atlas-Textur: zentral in MaterialUtil.apply_track_texture (gleiche Quelle wie
+# die Shop-3D-Vorschau in GlobalModal). Die GLBs kommen ohne Material, tragen aber die passenden UVs.
 
 
 # Lädt ein Geraden-GLB, skaliert es auf TILE_SIZE und zentriert es auf der Kachel.
@@ -86,7 +53,7 @@ func _make_straight_model(path: String) -> Node3D:
 
 	var inst = scene.instantiate()
 	holder.add_child(inst)
-	_apply_track_texture(inst)
+	MaterialUtil.apply_track_texture(inst)
 	MaterialUtil.apply_alpha_scissor(inst)
 
 	var aabb = _local_aabb(inst)
@@ -118,7 +85,7 @@ func _make_curve_model(path: String) -> Node3D:
 
 	var inst = scene.instantiate()
 	holder.add_child(inst)
-	_apply_track_texture(inst)
+	MaterialUtil.apply_track_texture(inst)
 	MaterialUtil.apply_alpha_scissor(inst)
 
 	var aabb = _local_aabb(inst)
@@ -450,7 +417,9 @@ func generate(grid_state: Array) -> void:
 				curve_path = Paths.MODEL_TRACK_CURVE_DEFAULT
 			var curve = _make_curve_model(curve_path)
 			curve.position = tile_pos
-			curve.rotation_degrees.y = -d["rotation"] + CURVE_MODEL_YAW_OFFSET
+			# Das WaterCurve-GLB ist 180° verdreht modelliert → nur für Wasser zusätzlich umdrehen.
+			var curve_extra_yaw := 180.0 if d["type"] == "water_curve" else 0.0
+			curve.rotation_degrees.y = -d["rotation"] + CURVE_MODEL_YAW_OFFSET + curve_extra_yaw
 			if d["type"] == "ice_curve":
 				_apply_ice_look(curve)
 			add_child(curve)

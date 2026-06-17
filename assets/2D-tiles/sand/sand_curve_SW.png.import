@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://t4fqtfachjm7"
-path="res://.godot/imported/bankedTurn.png-761d703618884422b7713c2c1594538c.ctex"
+uid="uid://bpm4aht3gn1sa"
+path="res://.godot/imported/sand_curve_SW.png-0b4925c48c763d8f04c35708bd9cbb1d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/2D-tiles/allgemein/bankedTurn.png"
-dest_files=["res://.godot/imported/bankedTurn.png-761d703618884422b7713c2c1594538c.ctex"]
+source_file="res://assets/2D-tiles/sand/sand_curve_SW.png"
+dest_files=["res://.godot/imported/sand_curve_SW.png-0b4925c48c763d8f04c35708bd9cbb1d.ctex"]
 
 [params]
 

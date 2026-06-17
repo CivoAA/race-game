@@ -110,9 +110,49 @@ const TEX_LOOP_2D    = "res://assets/2D-tiles/allgemein/looping.png"
 # Steilwandkurve-Artwork (2D): EIN Bild, 32×64 = deckt das GANZE 2-Kachel-Paar ab (Basislage rot=0:
 # senkrecht, wall_start oben/Nord, wall_end unten/Süd). Wird nur am wall_start gezeichnet.
 const TEX_WALL_2D    = "res://assets/2D-tiles/allgemein/bankedTurn.png"
-# Portal-Artwork (2D): zwei Endpunkte eines Paares (portal1/portal2), je OW gemalt, per Drehung ausgerichtet.
-const TEX_PORTAL1_2D = "res://assets/2D-tiles/allgemein/portal1.png"
-const TEX_PORTAL2_2D = "res://assets/2D-tiles/allgemein/portal2.png"
+# Portal-Artwork (2D): richtungsgebunden – man fährt nur von EINER (der offenen) Seite rein.
+# Pro Farbe vier Bilder, nummeriert nach der offenen Einfahr-Seite: 1=Ost, 2=Süd, 3=West, 4=Nord.
+# Blau = Eingang (oder noch unbestimmte Rolle), Gelb = Ausgang (per gefahrener Route gesetzt).
+# Die Bilder sind absolut/welt-orientiert gemalt → keine Node-Drehung, Auswahl über portal_texture().
+const TEX_PORTAL_BLUE := {
+	"E": "res://assets/2D-tiles/allgemein/bluePortal1.png",
+	"S": "res://assets/2D-tiles/allgemein/bluePortal2.png",
+	"W": "res://assets/2D-tiles/allgemein/bluePortal3.png",
+	"N": "res://assets/2D-tiles/allgemein/bluePortal4.png",
+}
+const TEX_PORTAL_YELLOW := {
+	"E": "res://assets/2D-tiles/allgemein/yellowPortal1.png",
+	"S": "res://assets/2D-tiles/allgemein/yellowPortal2.png",
+	"W": "res://assets/2D-tiles/allgemein/yellowPortal3.png",
+	"N": "res://assets/2D-tiles/allgemein/yellowPortal4.png",
+}
+
+# Tribünen-Artwork (2D, top-down Pixelart), richtungsgebunden je Stapel-Stufe:
+#   Stapel 1 (singleGrandstand): EINE Boost-Richtung = Blickrichtung. 1=Süd 2=West 3=Ost 4=Nord.
+#   Stapel 2 (doubleGrandstand): zwei gegenüberliegende Richtungen → NS- oder OW-Variante.
+#   Stapel 3 (tipleGrandstand):  drei Richtungen; der Buchstabe nennt die NICHT geboostete Seite
+#                                (die, in die sie NICHT schaut). O = Ost.
+#   Stapel 4/5: noch KEIN eigenes 4er-Artwork → Platzhalter (tipleGrandstandN blau eingefärbt).
+#               Sobald ein echtes 4er-Artwork da ist, einfach TEX_STAND_QUAD setzen.
+# Alle Bilder sind absolut/welt-orientiert gemalt → keine Node-Drehung (siehe _create_stand_node).
+const TEX_STAND_SINGLE := {
+	"S": "res://assets/2D-tiles/allgemein/singleGrandstand1.png",
+	"W": "res://assets/2D-tiles/allgemein/singleGrandstand2.png",   # Asset 2 schaut nach links = West
+	"E": "res://assets/2D-tiles/allgemein/singleGrandstand3.png",   # Asset 3 schaut nach rechts = Ost
+	"N": "res://assets/2D-tiles/allgemein/singleGrandstand4.png",
+}
+const TEX_STAND_DOUBLE_NS = "res://assets/2D-tiles/allgemein/doubleGrandstandNS.png"
+const TEX_STAND_DOUBLE_OW = "res://assets/2D-tiles/allgemein/doubleGrandstandOW.png"
+const TEX_STAND_TRIPLE := {
+	"N": "res://assets/2D-tiles/allgemein/tipleGrandstandN.png",
+	"E": "res://assets/2D-tiles/allgemein/tipleGrandstandO.png",
+	"S": "res://assets/2D-tiles/allgemein/tipleGrandstandS.png",
+	"W": "res://assets/2D-tiles/allgemein/tipleGrandstandW.png",
+}
+# Stapel 4/5: sobald echtes 4er-Artwork existiert, hier den Pfad eintragen (leer = Platzhalter unten).
+const TEX_STAND_QUAD = ""
+const TEX_STAND_QUAD_PLACEHOLDER = "res://assets/2D-tiles/allgemein/tipleGrandstandN.png"
+const STAND_QUAD_PLACEHOLDER_TINT = Color(0.45, 0.65, 1.0)   # Blaufärbung des Platzhalters
 # Rampen-Artwork (96×32 = 3 Kacheln breit: links Absprung, Mitte Sprungfeld, rechts Landung).
 const TEX_RAMP_2D  = "res://assets/2D-tiles/ramp.png"
 const TILE2D_TEXTURES := {
@@ -150,6 +190,15 @@ const TILE2D_TEXTURES := {
 	"glue_curve_SW":       "res://assets/2D-tiles/glue/slime_curve_SW.png",
 	"glue_curve_NW":       "res://assets/2D-tiles/glue/slime_curve_NW.png",
 	"glue_curve_NO":       "res://assets/2D-tiles/glue/slime_curve_NO.png",
+	# Sandbelag (eigener Pixelart-Satz im Unterordner "sand", korrekte Schreibweise
+	# "straight"/"curve"). Effekt/Preis wie Default – nur das Artwork unterscheidet sich.
+	# Orientierungen exakt wie oben (OW/NS, OS/SW/NW/NO).
+	"sand_straight_OW":    "res://assets/2D-tiles/sand/sand_straight_OW.png",
+	"sand_straight_NS":    "res://assets/2D-tiles/sand/sand_straight_NS.png",
+	"sand_curve_OS":       "res://assets/2D-tiles/sand/sand_curve_OS.png",
+	"sand_curve_SW":       "res://assets/2D-tiles/sand/sand_curve_SW.png",
+	"sand_curve_NW":       "res://assets/2D-tiles/sand/sand_curve_NW.png",
+	"sand_curve_NO":       "res://assets/2D-tiles/sand/sand_curve_NO.png",
 }
 
 # Liefert den res://-Pfad der 2D-Textur für Belag (default/dirt/ice), Form (straight/curve)
@@ -171,6 +220,13 @@ func tile2d_texture(belag: String, shape: String, rotation: int) -> String:
 # Liefert das fertig arrangierte Tribuenen-GLB für eine Stapel-Anzahl (1..4; ab 4 → Stand4).
 func stand_model(count: int) -> String:
 	return MODEL_TRACK_STANDS[clampi(count, 1, MODEL_TRACK_STANDS.size()) - 1]
+
+
+# Richtungsgebundenes Portal-Artwork (2D): open_dir = offene Einfahr-Seite (N/E/S/W),
+# is_exit = Ausgangs-Rolle (gelb) statt Eingang/unbestimmt (blau). Fallback auf "E".
+func portal_texture(open_dir: String, is_exit: bool) -> String:
+	var tbl: Dictionary = TEX_PORTAL_YELLOW if is_exit else TEX_PORTAL_BLUE
+	return tbl.get(open_dir, tbl.get("E", ""))
 
 
 # ── Speicherung & Einstellungen ───────────────────────────────────────────────

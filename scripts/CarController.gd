@@ -74,9 +74,22 @@ const PITCH_LOOKAHEAD = 0.22  # s Vorausschau → Nase hebt sich entsprechend fr
 const RAMP_TAKEOFF_LIFT = 0.12
 
 # Steilkurve (Carrera-Stil): Mittellinien-Höhe am Apex (m) und max. Auto-Querneigung (rad).
-# Muss zu TrackGenerator3D (WALL_PEAK_H/WALL_BANK_DEG) passen, damit das Auto auf der Fahrbahn sitzt.
-const WALL_PEAK_H   = 0.15
-const WALL_BANK_MAX = 1.0472   # 60° – das Auto liegt voll in der gebankten Steilkurve
+# Muss zum Bank.glb-Asset (curve/steilcurve) passen, damit das Auto satt auf der Fahrbahn liegt:
+# Das Asset ist eine SANFT gebankte Kurve (nativ 0.1488 hoch ×1.2 Skalierung ≈ 0.179 Welt; die
+# befahrbare Bankfläche neigt sich ~20-25°, der 90°-Teil ist die NICHT befahrene Außenwand).
+# WALL_PEAK_H = Anstieg der Fahrbahn-Mittellinie zum Apex (Asset-Mitte ≈ 0.074 nativ ×1.2 ≈ 0.089).
+const WALL_PEAK_H   = 0.09
+const WALL_BANK_MAX = 0.38   # ~22° – Auto lehnt sich in die Kurve und liegt flach auf der sanften Bankfläche
+# Scheitel-Tiefe der Steilkurve: wie weit sich der Apex (Bauch des U) über den alten Halbkreis hinaus
+# ins Tile-Innere/in die gebankte Fahrbahn wölbt (× halbe Kachel). Die AUSSEN-Anschlusspunkte bleiben
+# dabei FIX an der Kachelkante, der Eingang steht also NICHT raus – nur der Bauch wird tiefer/runder.
+#   0.0 = alter enger Halbkreis (Radius = halbe Kachel)
+#   ~0.4 = spürbar tiefer (Asset ist ~1.5 Kacheln breit)
+const WALL_BULGE = 0.4
+
+# Debug: zeichnet die IST-Fahrlinie als Kugeln (Steilkurven-Punkte ROT, Rest blau), damit man die
+# SOLL-Linie auf einem Screenshot drübermalen kann. Vor Release auf false setzen.
+const DEBUG_DRAW_PATH := true
 const WALL_ROLL_SMOOTH = 25.0  # schnelleres Einrasten der Querneigung als ROLL_SMOOTH (kein Durchglitchen)
 
 var _prev_yaw: float     = 0.0
@@ -96,8 +109,10 @@ var _cur_wp: int = 0
 var _wp_orient: Array = []
 var _pending_orient: Array = []   # wird in _waypoints_for_tile je Kachel gefüllt (Länge = Wegpunkte)
 
-# Looping-Geometrie (muss zu TrackGenerator3D passen): Radius, Höhe, seitlicher Ein/Ausfahrt-Versatz.
-const LOOP_R    = 0.55   # Kreis-Radius (Höhe = 2·R ≈ 1.1, hoch genug für den Rampensprung darunter)
+# Looping-Geometrie (muss zum Loop.glb passen): Radius, Höhe, seitlicher Ein/Ausfahrt-Versatz.
+# Das Loop-Asset ist ~0.815 hoch (×1.2 ≈ 0.98 Welt); die befahrbare Innen-Tube hat Radius ≈0.45 Welt
+# (Mitte y≈0.48, Top ≈0.93). LOOP_R darf NICHT größer sein, sonst fährt das Auto oben durch die Wand.
+const LOOP_R    = 0.44   # Kreis-Radius (Top = 0.05 + 2·R ≈ 0.93, sitzt in der Asset-Tube)
 const LOOP_FWD  = 0.45   # Vorwärts-Radius (Ellipse, damit der Looping in die Kachel passt)
 const LOOP_OFF  = 0.18   # seitlicher Versatz: rein rechts, raus links (kein Selbst-Überschneiden)
 const LOOP_SEGS = 22
@@ -107,6 +122,11 @@ const LOOP_SEGS = 22
 # ganze Karte zu streaken. _wp_teleport markiert das Segment, das bei Wegpunkt i beginnt.
 const TELEPORT_TIME = 0.15
 var _wp_teleport: PackedByteArray = PackedByteArray()
+# Portal-Rampe (PortalRamp.glb): Das Auto fährt von der Eingangskante eine Rampe HOCH und tief ins
+# Tile zum Tor, bevor es verschwindet (Teleport). Das Tor/Rampen-Hoch sitzt ~0.3 Welt hinter der
+# Tile-Mitte, die Rampe steigt ~0.226 Welt. Werte an das Asset angelehnt, per Debug-Kugeln justierbar.
+const PORTAL_RAMP_H     = 0.22   # Höhe, auf die das Auto die Rampe hochfährt (Welt)
+const PORTAL_GATE_DEPTH = 0.30   # wie tief hinter die Tile-Mitte (Richtung Tor) es fährt/verschwindet
 
 # Markiert die Wegpunkte des Rampen-Sprungbogens (1 = in der Luft über die Rampe). Dort wird die
 # Nase über die Querachse geneigt (Auffahrt hoch, in der Luft runter, Landung wieder eben).
@@ -135,6 +155,8 @@ func start(grid_state: Array, resume_elapsed: float = 0.0) -> void:
 	if waypoints.size() < 2 or lap_time <= 0.0:
 		push_warning("Keine gültige Route – mind. 2 verbundene Tiles nötig.")
 		return
+	if DEBUG_DRAW_PATH:
+		_draw_debug_path()
 	_yaw_init     = false
 	_pitch        = 0.0
 	# Effektiv bereits gefahrene Zeit dieses Autos (gestaffelten Startversatz abziehen).
@@ -632,15 +654,16 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				for j in range(0, ice_range + 1):
 					step_bonus[(ik + j) % n] += ice_bonus
 
-	# Steilwandkurve: beim Rausfahren bekommen die nächsten get_wall_range() Felder denselben
-	# absoluten Tempo-Bonus wie bei der Eisgerade. Emittiert wird am Einfahrt-Feld (wall_start).
+	# Steilwandkurve: der absolute Tempo-Bonus greift SOFORT beim Auffahren – auf dem Einfahrt-Feld
+	# selbst (j=0) UND den nächsten get_wall_range() Folge-Feldern, genau wie bei der Eisgerade.
+	# (Vorher startete er erst ab dem Folgefeld j=1, also erst auf der zweiten Haarnadel-Hälfte.)
 	var wall_bonus := Economy.get_wall_speed_bonus()
 	var wall_range := Economy.get_wall_range()
 	if wall_bonus > 0.0 and n > 0:
 		for wk in range(n):
 			var wdata = route[wk]["data"]
 			if typeof(wdata) == TYPE_DICTIONARY and wdata.get("type", "") == "wall_start":
-				for j in range(1, wall_range + 1):
+				for j in range(0, wall_range + 1):
 					step_bonus[(wk + j) % n] += wall_bonus
 
 	# Wegpunkte aus Route bauen + Zuordnung Wegpunkt→Step (für die Tempo-Faktor-Tabelle)
@@ -682,12 +705,16 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			var vout := _dir_to_vec(ob)
 			var yaw_in := atan2(vin.x, vin.z) + MODEL_ROTATION_OFFSET
 			var yaw_out := atan2(vout.x, vout.z) + MODEL_ROTATION_OFFSET
-			tile_wps.append(center + _dir_to_vec(oa) * half_t)
-			tile_wps.append(center)
-			tile_wps.append(b_center)
-			tile_wps.append(b_center + _dir_to_vec(ob) * half_t)
+			# Eingang/Ausgang fahren NICHT bis zur Mitte, sondern eine Rampe HOCH und tief ins Tile zum
+			# Tor (entgegen der offenen Seite). Dort verschwindet/erscheint das Auto (Teleport).
+			var gate_a : Vector3 = center - _dir_to_vec(oa) * PORTAL_GATE_DEPTH + Vector3(0.0, PORTAL_RAMP_H, 0.0)
+			var gate_b : Vector3 = b_center - _dir_to_vec(ob) * PORTAL_GATE_DEPTH + Vector3(0.0, PORTAL_RAMP_H, 0.0)
+			tile_wps.append(center + _dir_to_vec(oa) * half_t)   # Eingangskante (unten)
+			tile_wps.append(gate_a)                              # Rampe hoch, tief zum Tor → verschwindet
+			tile_wps.append(gate_b)                              # erscheint am Ausgangs-Tor (oben, tief)
+			tile_wps.append(b_center + _dir_to_vec(ob) * half_t) # Ausgangskante (Rampe runter, raus)
 			tile_orient = [Vector2(0.0, yaw_in), Vector2(0.0, yaw_in), Vector2(0.0, yaw_out), Vector2(0.0, yaw_out)]
-			tile_tele = PackedByteArray([0, 1, 0, 0])   # Segment ab Wegpunkt[1] = Teleport (Mitte→Mitte)
+			tile_tele = PackedByteArray([0, 1, 0, 0])   # Segment ab Wegpunkt[1] = Teleport (Tor→Tor)
 			tile_bank = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
 			tile_jump = PackedByteArray([0, 0, 0, 0])
 			tile_ice = PackedByteArray([0, 0, 0, 0])
@@ -871,42 +898,54 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 		# Jede Kachel ist ein Viertelbogen wie eine Kurve (effektive Kurven-Rotation eff). Zusätzlich
 		# hebt sich die Fahrbahn zur GEMEINSAMEN Kante beider Kacheln (Apex) → das Auto fährt dort
 		# „an der Wand". Der Apex ist für beide Kacheln derselbe Weltpunkt → nahtloser Übergang.
-		var eff: int = (int(rot) + (90 if type == "wall_start" else 180)) % 360
-		var cx2: float; var cz2: float; var a_from2: float; var a_to2: float
-		match eff:
-			0:   cx2 =  half; cz2 =  half; a_from2 = PI;        a_to2 = PI * 1.5
-			90:  cx2 = -half; cz2 =  half; a_from2 = PI * 1.5;  a_to2 = PI * 2.0
-			180: cx2 = -half; cz2 = -half; a_from2 = 0.0;       a_to2 = PI * 0.5
-			270: cx2 =  half; cz2 = -half; a_from2 = PI * 0.5;  a_to2 = PI
-			_:   cx2 =  half; cz2 =  half; a_from2 = PI;        a_to2 = PI * 1.5
-		var fwd_exit2 := "E"
-		match eff:
-			0:   fwd_exit2 = "E"
-			90:  fwd_exit2 = "S"
-			180: fwd_exit2 = "W"
-			270: fwd_exit2 = "N"
-		if exit_dir != fwd_exit2:
-			var tmp2 = a_from2; a_from2 = a_to2; a_to2 = tmp2
-		# Apex = Mitte der gemeinsamen Kante = vom Kachelmittelpunkt um half Richtung Partner.
 		var pr := int(data.get("ramp_partner_row", row))
 		var pc := int(data.get("ramp_partner_col", col))
-		var pdir := _dir_to_vec(_partner_dir(row, col, pr, pc))
-		var apex := Vector3(center.x + pdir.x * half, 0.05, center.z + pdir.z * half)
-		var d_max: float = half * sqrt(2.0)
+		# Runder Halbkreis über beide Kacheln, OHNE dass der Eingang raussteht: Die Außen-Anschluss-
+		# punkte (Kachelkanten-Mitte zur Strecke) bleiben FIX, nur der Scheitel (Apex) wölbt sich um
+		# WALL_BULGE tiefer in die gebankte Fahrbahn. Pro Kachel ein Kreisbogen Außenpunkt→Apex; die
+		# Tangente am Apex steht senkrecht zur Öffnung → beide Hälften treffen sich glatt zum runden U.
+		# WALL_BULGE=0 ⇒ exakt der alte Halbkreis (Radius = halbe Kachel).
+		var conns := _get_connections(data)
+		var partner_d := _partner_dir(row, col, pr, pc)
+		var outer_d := ""
+		for dd_dir in ["N", "E", "S", "W"]:
+			if conns.get(dd_dir, false) and dd_dir != partner_d:
+				outer_d = dd_dir
+		var outer_vec := _dir_to_vec(outer_d)
+		var partner_vec := _dir_to_vec(partner_d)
+		var shared_mid := Vector2(center.x + partner_vec.x * half, center.z + partner_vec.z * half)
+		var p_out := Vector2(center.x + outer_vec.x * half, center.z + outer_vec.z * half)
+		var depth : float = half * WALL_BULGE
+		# Apex = Scheitelpunkt der gemeinsamen Kante, um depth ins Tile-Innere (entgegen der Öffnung) gewölbt.
+		var apex_v : Vector2 = shared_mid - Vector2(outer_vec.x, outer_vec.z) * depth
+		# Kreisbogen durch p_out und apex_v mit Apex-Tangente senkrecht zur Öffnung: Mittelpunkt liegt
+		# auf der Öffnungs-Achse durch den Apex. R aus |C−p_out| = |C−apex| = R.
+		var u : float = depth + half
+		var arc_r : float = (u * u + half * half) / (2.0 * u)
+		var arc_c2 : Vector2 = apex_v + Vector2(outer_vec.x, outer_vec.z) * arc_r
+		var ang_p : float = (p_out - arc_c2).angle()
+		var dsw2 : float = (apex_v - arc_c2).angle() - ang_p
+		while dsw2 >  PI: dsw2 -= TAU
+		while dsw2 < -PI: dsw2 += TAU
+		var apex := Vector3(apex_v.x, 0.05, apex_v.y)
+		var d_max : float = maxf((p_out - apex_v).length(), 0.001)
 		var steps2 = 12
+		var wall_pts : Array[Vector3] = []
 		for i in range(steps2 + 1):
 			var t2    = float(i) / float(steps2)
-			var angle2 = lerp(a_from2, a_to2, t2)
-			var p := Vector3(
-				center.x + cx2 + cos(angle2) * half,
-				0.05,
-				center.z + cz2 + sin(angle2) * half
-			)
+			var ang : float = ang_p + dsw2 * t2
+			var p := Vector3(arc_c2.x + cos(ang) * arc_r, 0.05, arc_c2.y + sin(ang) * arc_r)
 			var dd := Vector2(p.x - apex.x, p.z - apex.z).length()
 			var hf := clampf(1.0 - dd / d_max, 0.0, 1.0)
 			hf = smoothstep(0.0, 1.0, hf)   # gerundeter Scheitel (passend zur 3D-Fahrbahn)
 			p.y = 0.05 + WALL_PEAK_H * hf
-			wps.append(p)
+			wall_pts.append(p)
+		# Reihenfolge an die Fahrtrichtung: verlässt das Auto die Kachel nach außen → Apex zuerst
+		# (Apex→Außen); verlässt es Richtung Partner → Außen zuerst (Außen→Apex).
+		if exit_dir == outer_d:
+			wall_pts.reverse()
+		for wp in wall_pts:
+			wps.append(wp)
 
 	# Wegpunkte ohne explizite Looping-Orientierung bekommen null (= normale Bewegungs-Ausrichtung).
 	while _pending_orient.size() < wps.size():
@@ -952,3 +991,32 @@ func _dir_to_vec(dir: String) -> Vector3:
 		"E": return Vector3( 1, 0, 0)
 		"W": return Vector3(-1, 0, 0)
 	return Vector3.ZERO
+
+
+# ── Debug-Fahrlinie ───────────────────────────────────────────────────────────────
+# Zeichnet an jeden Wegpunkt eine kleine Kugel: Steilkurven-Punkte ROT (über _wp_bank erkannt),
+# alle anderen dezent blau. Jeder Aufbau löscht die alten Marker (Gruppe "wall_dbg") und zeichnet
+# neu → es bleibt immer genau EIN Satz übrig, egal wie viele Autos die Route bauen.
+func _draw_debug_path() -> void:
+	if car == null:
+		return
+	var parent := car.get_parent()
+	if parent == null:
+		return
+	for old in get_tree().get_nodes_in_group("wall_dbg"):
+		old.queue_free()
+	var n := waypoints.size()
+	for i in range(n):
+		var is_wall : bool = i < _wp_bank.size() and _wp_bank[i] > 0.001
+		var sm := SphereMesh.new()
+		sm.radius = 0.06 if is_wall else 0.03
+		sm.height = sm.radius * 2.0
+		var mi := MeshInstance3D.new()
+		mi.mesh = sm
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(1.0, 0.12, 0.12) if is_wall else Color(0.2, 0.6, 1.0)
+		mi.material_override = mat
+		mi.position = waypoints[i] + Vector3(0.0, 0.06, 0.0)
+		mi.add_to_group("wall_dbg")
+		parent.add_child(mi)
