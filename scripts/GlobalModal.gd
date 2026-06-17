@@ -1055,6 +1055,7 @@ func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_paths
 	# weiße Umrisse), dann Alpha-Kanten ausstanzen. Gleiche Quelle wie die echte 3D-Strecke.
 	MaterialUtil.apply_track_texture(model)
 	MaterialUtil.apply_alpha_scissor(model)
+	MaterialUtil.apply_unshaded(model)
 
 	# Cycling: nur das erste Teil zeigen, Rest verstecken, und einen Cycler registrieren.
 	var do_cycle := cycle and parts.size() > 1
@@ -1219,6 +1220,7 @@ func _ach_icon_for(id: String) -> String:
 		"track_2":        return Icons.MAP_2
 		"track_3":        return Icons.WORLD
 		"loop_jump":      return Icons.RECYCLE
+		"loop_jump_portal": return Icons.RECYCLE
 		"loop_triple":    return Icons.INFINITY
 		"loop_mania":     return Icons.FLAME
 		"only_special":   return Icons.CIRCLE_DASHED
@@ -2650,6 +2652,7 @@ func _load_preview_model() -> void:
 		model.add_child(mi)
 	_preview_pivot.add_child(model)
 	MaterialUtil.apply_alpha_scissor(model)
+	MaterialUtil.apply_unshaded(model)
 	_preview_model = model
 	_preview_tier  = Economy.get_car_tier()
 	_collect_meshes(model)

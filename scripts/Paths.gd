@@ -125,8 +125,10 @@ const TEX_PORTAL_BLUE := {
 const TEX_PORTAL_YELLOW := {
 	"E": "res://assets/2D-tiles/allgemein/yellowPortal1.png",
 	"S": "res://assets/2D-tiles/allgemein/yellowPortal2.png",
-	"W": "res://assets/2D-tiles/allgemein/yellowPortal3.png",
-	"N": "res://assets/2D-tiles/allgemein/yellowPortal4.png",
+	# Gelb: Artworks 3 und 4 sind gegenüber Blau vertauscht gemalt – yellowPortal4 zeigt die nach
+	# WEST offene Einfahrt, yellowPortal3 die nach NORD offene (deshalb hier W↔N getauscht).
+	"W": "res://assets/2D-tiles/allgemein/yellowPortal4.png",
+	"N": "res://assets/2D-tiles/allgemein/yellowPortal3.png",
 }
 
 # Tribünen-Artwork (2D, top-down Pixelart), richtungsgebunden je Stapel-Stufe:
@@ -201,6 +203,14 @@ const TILE2D_TEXTURES := {
 	"sand_curve_SW":       "res://assets/2D-tiles/sand/sand_curve_SW.png",
 	"sand_curve_NW":       "res://assets/2D-tiles/sand/sand_curve_NW.png",
 	"sand_curve_NO":       "res://assets/2D-tiles/sand/sand_curve_NO.png",
+	# Wasserbelag (eigener Pixelart-Satz im Unterordner "wasser"). Effekt/Preis wie die anderen
+	# Test-Beläge – nur das Artwork unterscheidet sich. Orientierungen exakt wie oben (OW/NS, OS/SW/NW/NO).
+	"water_straight_OW":   "res://assets/2D-tiles/wasser/water_straight_OW.png",
+	"water_straight_NS":   "res://assets/2D-tiles/wasser/water_straight_NS.png",
+	"water_curve_OS":      "res://assets/2D-tiles/wasser/water_curve_OS.png",
+	"water_curve_SW":      "res://assets/2D-tiles/wasser/water_curve_SW.png",
+	"water_curve_NW":      "res://assets/2D-tiles/wasser/water_curve_NW.png",
+	"water_curve_NO":      "res://assets/2D-tiles/wasser/water_curve_NO.png",
 }
 
 # Liefert den res://-Pfad der 2D-Textur für Belag (default/dirt/ice), Form (straight/curve)

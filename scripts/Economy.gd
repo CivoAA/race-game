@@ -415,6 +415,7 @@ const ACHIEVEMENTS = {
 	# Werden im Erfolge-Tab unter einer Trennlinie als „???" mit Fragezeichen-Icon gezeigt,
 	# bis sie ausgelöst werden. Event-Erfolge (kein "metric") → per unlock_achievement(id).
 	"loop_jump":      {"name": "Loopingspringer", "desc": "Spring einmal durch einen Looping.", "secret": true},
+	"loop_jump_portal": {"name": "Loopingspringer?", "desc": "Setze statt der Rampe zwei Portale auf beide Seiten eines Loopings (in einer Linie) und teleportiere dich durch den Looping.", "secret": true},
 	"loop_triple":    {"name": "Schwindelfrei",   "desc": "Fahre eine Strecke mit mindestens 3 Loopings.", "secret": true},
 	"loop_mania":     {"name": "Looping-Wahnsinn","desc": "Fahre eine Strecke mit mindestens 10 Loopings.", "secret": true},
 	"only_special":   {"name": "Im Kreis gedacht","desc": "Fahre eine Strecke ganz ohne normale Geraden/Kurven – nur Spezial-Teile.", "secret": true},
@@ -468,6 +469,7 @@ const ACHIEVEMENT_ORDER = [
 # Werden verdeckt (??? + Fragezeichen) gezeigt, bis sie freigeschaltet sind.
 const SECRET_ACHIEVEMENT_ORDER = [
 	"loop_jump",
+	"loop_jump_portal",
 	"loop_triple",
 	"loop_mania",
 	"only_special",
@@ -823,6 +825,9 @@ func _credit_laps(i: int) -> void:
 			unlock_achievement("loop_triple")
 		if loops >= 10:
 			unlock_achievement("loop_mania")
+		# „Loopingspringer?": Portal-Looping-Portal in einer Linie, das Auto teleportiert durch den Loop.
+		if _car_route_loop_teleport(car):
+			unlock_achievement("loop_jump_portal")
 		# „Im Kreis gedacht": Strecke ganz ohne normale Geraden/Kurven (nur Spezial-Teile + Start).
 		if _car_route_only_special(car):
 			unlock_achievement("only_special")
@@ -915,6 +920,16 @@ func _car_route_loop_count(car: Dictionary) -> int:
 		if bool(tile.get("is_loop", false)):
 			n += 1
 	return n
+
+
+# „Loopingspringer?": Mindestens ein befahrenes Portal hat sein Partner-Portal so platziert, dass
+# genau ein Looping zwischen beiden liegt (waagerecht ODER senkrecht) → das Auto teleportiert durch
+# den Looping. Das Flag setzt CarController beim Routenbau (loop_teleport am Portal-Tile).
+func _car_route_loop_teleport(car: Dictionary) -> bool:
+	for tile in car.get("tiles", []):
+		if bool(tile.get("loop_teleport", false)):
+			return true
+	return false
 
 
 # „Im Kreis gedacht": Route enthält mindestens ein Spezial-Teil (Loop/Portal/Rampe/Steilwand) und

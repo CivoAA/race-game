@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d16ya7cm530ca"
-path="res://.godot/imported/TrackTexture.png-a158ca1a487d676b451647d34bfbc00a.ctex"
+uid="uid://k3njq2e5q420"
+path="res://.godot/imported/water_straight_OW.png-daf7f4bded923869cf9a57f6fb00d12b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/3D-models/tracks/textures/TrackTexture.png"
-dest_files=["res://.godot/imported/TrackTexture.png-a158ca1a487d676b451647d34bfbc00a.ctex"]
+source_file="res://assets/2D-tiles/wasser/water_straight_OW.png"
+dest_files=["res://.godot/imported/water_straight_OW.png-daf7f4bded923869cf9a57f6fb00d12b.ctex"]
 
 [params]
 

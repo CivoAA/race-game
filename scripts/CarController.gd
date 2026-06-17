@@ -634,7 +634,7 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 		var rec := {
 			"base": 0.0, "kind": "plain", "fixed_mult": 1.0,
 			"bonus_points": 0.0, "bonus_mult": 1.0, "stand_mult": 1.0, "stand_count": 0,
-			"is_jump": false, "is_loop": false,
+			"is_jump": false, "is_loop": false, "loop_teleport": false,
 			"type": "", "is_start": false, "is_dirt": false,   # für geheime Erfolge (Routen-Form)
 		}
 		if typeof(d) == TYPE_DICTIONARY:
@@ -678,6 +678,9 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				# Portal: additiver Geld-Ertrag am Eingangs-Portal (Economy get_portal_earn als kind
 				# "portal"). Nur das betretene Portal steht in der Route → kein doppelter Ertrag.
 				rec["kind"] = "portal"
+				# Geheim „Loopingspringer?": liegt genau ein Looping zwischen diesem und dem Partner-
+				# Portal (waagerecht/senkrecht), teleportiert das Auto durch den Looping (statt Rampe).
+				rec["loop_teleport"] = _portal_loop_teleport(grid_state, route[k])
 			elif d.get("is_dirt", false):
 				rec["base"] = DIRT_TILE_EARN
 				rec["kind"] = "dstraight" if t == "straight" else "dcurve"
@@ -1025,6 +1028,27 @@ func _is_portal(data) -> bool:
 func _portal_open_dir_d(data) -> String:
 	var rot = int(data.get("rotation", 0)) % 360
 	return ["W", "N", "E", "S"][(rot / 90) % 4]
+
+
+# Geheim-Erfolg „Loopingspringer?": Liegt zwischen einem Portal (entry) und seinem Partner-Portal
+# GENAU EIN Looping in einer geraden Linie (waagerecht ODER senkrecht, beide Portale 2 Felder
+# auseinander, das Mittelfeld ein Loop)? Dann teleportiert das Auto „durch" den Looping statt zu fahren.
+func _portal_loop_teleport(grid_state: Array, entry: Dictionary) -> bool:
+	if not entry.has("portal_to_row"):
+		return false
+	var r0 := int(entry["row"]); var c0 := int(entry["col"])
+	var r1 := int(entry["portal_to_row"]); var c1 := int(entry["portal_to_col"])
+	var mr := -1; var mc := -1
+	if r0 == r1 and abs(c0 - c1) == 2:
+		mr = r0; mc = (c0 + c1) / 2
+	elif c0 == c1 and abs(r0 - r1) == 2:
+		mr = (r0 + r1) / 2; mc = c0
+	else:
+		return false
+	if mr < 0 or mr >= grid_state.size() or mc < 0 or mc >= grid_state[mr].size():
+		return false
+	var mid = grid_state[mr][mc]
+	return typeof(mid) == TYPE_DICTIONARY and mid.get("type", "") == "loop"
 
 
 # Das ANDERE Portal auf der Strecke (von max. 2). (-1,-1) falls keins.
