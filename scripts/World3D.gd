@@ -607,6 +607,7 @@ func _setup_ground() -> void:
 	var mat      = StandardMaterial3D.new()
 	mat.albedo_color     = GROUND_COLOR
 	mat.roughness        = 0.9
+	mat.shading_mode     = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ground.material_override = mat
 	ground.position = Vector3(_track_cx, GROUND_Y, _track_cz)
 
@@ -667,6 +668,7 @@ func _deco_mat(color: Color, rough: float = 0.95) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness    = rough
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return mat
 
 

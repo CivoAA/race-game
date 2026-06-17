@@ -55,6 +55,7 @@ func _make_straight_model(path: String) -> Node3D:
 	holder.add_child(inst)
 	MaterialUtil.apply_track_texture(inst)
 	MaterialUtil.apply_alpha_scissor(inst)
+	MaterialUtil.apply_unshaded(inst)
 
 	var aabb = _local_aabb(inst)
 	if aabb.size.z > 0.0:
@@ -65,6 +66,24 @@ func _make_straight_model(path: String) -> Node3D:
 		inst.scale = Vector3(s, s, s)
 		inst.position = Vector3(0.0, -aabb.position.y * s, 0.0)
 	return holder
+
+
+# Startet alle AnimationPlayer unter `root` in Endlosschleife (erste Animation der Liste).
+# Manche GLBs (z. B. die Portal-Tore) tragen eine Animation, haben aber weder Autoplay noch
+# Loop gesetzt → hier den Loop-Modus am Clip erzwingen und abspielen.
+func _autoplay_looped(root: Node) -> void:
+	if root == null:
+		return
+	for ap in root.find_children("*", "AnimationPlayer", true, false):
+		var player := ap as AnimationPlayer
+		var names := player.get_animation_list()
+		if names.is_empty():
+			continue
+		var anim_name: String = names[0]
+		var anim := player.get_animation(anim_name)
+		if anim != null and anim.loop_mode == Animation.LOOP_NONE:
+			anim.loop_mode = Animation.LOOP_LINEAR
+		player.play(anim_name)
 
 
 # Lädt das fertig arrangierte Tribuenen-GLB für einen Stapel. Jede Anzahl (1..4, ab 4 inkl. 5)
@@ -87,6 +106,7 @@ func _make_curve_model(path: String) -> Node3D:
 	holder.add_child(inst)
 	MaterialUtil.apply_track_texture(inst)
 	MaterialUtil.apply_alpha_scissor(inst)
+	MaterialUtil.apply_unshaded(inst)
 
 	var aabb = _local_aabb(inst)
 	if aabb.size.x > 0.0 and aabb.size.z > 0.0:
@@ -135,6 +155,7 @@ func _apply_ice_look(node: Node) -> void:
 		mat.albedo_color = Color(0.68, 0.83, 1.0)
 		mat.roughness    = 0.22
 		mat.metallic     = 0.0
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mi.material_override = mat
 	for child in node.get_children():
 		_apply_ice_look(child)
@@ -344,8 +365,16 @@ func generate(grid_state: Array) -> void:
 				portal_node.rotation_degrees.y = -d["rotation"] + PORTAL_MODEL_YAW_OFFSET
 				portal_node.add_child(_make_straight_model(Paths.MODEL_TRACK_PORTAL_RAMP))
 				var gate_path: String = Paths.MODEL_TRACK_PORTAL_ORANGE if is_exit else Paths.MODEL_TRACK_PORTAL_BLUE
-				portal_node.add_child(_make_straight_model(gate_path))
+				var gate := _make_straight_model(gate_path)
+				portal_node.add_child(gate)
+				# Portal-Rampe + Tor doppelseitig rendern: die Tor-/Wirbel-Flächen sind offen/dünn,
+				# ohne beidseitiges Material schaut man von hinten hindurch.
+				MaterialUtil.apply_double_sided(portal_node)
 				add_child(portal_node)
+				# Das Tor-GLB bringt eine eigene AnimationPlayer-Animation mit (wirbelndes Portal) –
+				# in Endlosschleife abspielen (das GLB hat kein Autoplay/Loop gesetzt). Erst NACH
+				# dem Einhängen in den Baum, damit der AnimationPlayer sicher läuft.
+				_autoplay_looped(gate)
 				continue
 
 			if d["type"] == "stand":

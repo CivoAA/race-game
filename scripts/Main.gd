@@ -1494,8 +1494,8 @@ func _tile_thumb_texture(item: Dictionary) -> Texture2D:
 	_thumb_cache[path] = tex
 	return tex
 
-# res://-Pfad des Vorschau-Artworks. Sand/Wasser nutzen das Default-Straßen-Artwork (eingefärbt via
-# _tile_thumb_tint); Steilkurve/Tribüne haben kein 2D-Artwork → "" (Fallback-Icon).
+# res://-Pfad des Vorschau-Artworks. Jeder Belag (auch Sand/Wasser) hat ein eigenes Artwork;
+# Steilkurve/Tribüne haben kein 2D-Artwork → "" (Fallback-Icon).
 func _tile_thumb_path(item: Dictionary) -> String:
 	var t := String(item.get("type", ""))
 	match String(item.get("tier", "")):
@@ -1504,7 +1504,7 @@ func _tile_thumb_path(item: Dictionary) -> String:
 		"ramp":   return Paths.TEX_RAMP_2D
 		"wall":   return Paths.TEX_WALL_2D
 		"stand":  return Paths.TEX_STAND_SINGLE.get("S", "")   # Einzel-Tribüne (Süd) als Vorschau
-	# Belag → 2D-Bauplan-Kachel (Gerade = OW, Kurve = OS). Sand/Wasser borgen sich die Default-Form.
+	# Belag → 2D-Bauplan-Kachel (Gerade = OW, Kurve = OS).
 	var is_curve := t.ends_with("curve") or t == "curve"
 	var shape := "curve" if is_curve else "straight"
 	var belag := "default"
@@ -1513,16 +1513,11 @@ func _tile_thumb_path(item: Dictionary) -> String:
 	elif t == "race_straight" or t == "race_curve":  belag = "race"
 	elif t == "glue_straight" or t == "glue_curve":  belag = "glue"
 	elif t == "sand_straight" or t == "sand_curve":  belag = "sand"
-	# water_* → belag bleibt "default" (Form), Farbe kommt aus _tile_thumb_tint (kein eigenes Artwork).
+	elif t == "water_straight" or t == "water_curve": belag = "water"
 	return Paths.tile2d_texture(belag, shape, 0)
 
-# Einfärbung des Thumbnails: Wasser bläulich (borgt die Default-Straße, kein eigenes Artwork),
-# alles andere unverändert (echtes Artwork = weiß; Sand hat jetzt eigenes Artwork → keine Tönung).
-func _tile_thumb_tint(item: Dictionary) -> Color:
-	match String(item.get("tier", "")):
-		"test":
-			if String(item.get("type", "")).begins_with("water"):
-				return Color(0.55, 0.80, 1.00)
+# Einfärbung des Thumbnails: alle Beläge haben jetzt eigenes Artwork (auch Wasser) → keine Tönung mehr.
+func _tile_thumb_tint(_item: Dictionary) -> Color:
 	return Color.WHITE
 
 # Fallback-Icon für Teile ohne 2D-Artwork (nur Steilkurve/Tribüne).
@@ -1752,6 +1747,8 @@ func _tile_texture_for(data: Dictionary) -> Texture2D:
 		belag = "sand"
 	elif t == "glue_straight" or t == "glue_curve":
 		belag = "glue"
+	elif t == "water_straight" or t == "water_curve":
+		belag = "water"
 	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve", "race_curve", "sand_curve", "water_curve", "glue_curve"] else "straight"
 	var path := Paths.tile2d_texture(belag, shape, int(data.get("rotation", 0)))
 	if path == "":

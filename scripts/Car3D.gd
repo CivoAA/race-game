@@ -55,6 +55,10 @@ func _load_model() -> void:
 		add_child(model)
 		# Alpha-Texturen (Alpha-Kanal) auf Scissor stellen → keine Transparenz-Sortierfehler.
 		MaterialUtil.apply_alpha_scissor(model)
+		# Unbeleuchtet wie der Rest des 3D-Views. Der Lack-/Muster-Shader (für Tier-0-Auto) bringt
+		# seine eigene Unshaded-Optik mit; hier werden die übrigen GLB-Materialien (Tier-Autos,
+		# nicht umgefärbte Teile) flach geschaltet.
+		MaterialUtil.apply_unshaded(model)
 		_meshes.clear()
 		_collect_meshes(model)
 		# Nur normale Autos bekommen die Werkstatt-Lackierung; das Super-Auto behält seine Textur.
@@ -169,6 +173,7 @@ func _spawn_placeholder() -> void:
 	mi.mesh  = box
 	var mat  = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.9, 0.2, 0.2)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mi.material_override = mat
 	mi.position.y = CAR_Y
 	add_child(mi)

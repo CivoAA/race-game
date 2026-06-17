@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode cull_back, unshaded;
 
 // Lackierung + Muster für FLACHE Material-Farben (Blender-Testmodell, keine Albedo-/Maskentextur).
 // Wird nur auf die Karosserie-Fläche gelegt; die Schattierung kommt aus dem Echtzeit-Licht.

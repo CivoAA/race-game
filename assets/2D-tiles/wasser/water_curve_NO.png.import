@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dfu6700r2vrac"
-path="res://.godot/imported/looping.PNG-a5977a1f9a5d7035e7b2c2323ce18bd4.ctex"
+uid="uid://lpusgn0tmkpi"
+path="res://.godot/imported/water_curve_NO.png-4aaeb4327330b7f0ac10591c850dc5de.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://temp/looping.PNG"
-dest_files=["res://.godot/imported/looping.PNG-a5977a1f9a5d7035e7b2c2323ce18bd4.ctex"]
+source_file="res://assets/2D-tiles/wasser/water_curve_NO.png"
+dest_files=["res://.godot/imported/water_curve_NO.png-4aaeb4327330b7f0ac10591c850dc5de.ctex"]
 
 [params]
 
