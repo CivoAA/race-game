@@ -103,6 +103,8 @@ const MODEL_TRACK_STANDS := [
 #   Kurven-Orientierung (zwei offene Kanten): OS=unten+rechts, SW=unten+links,
 #                                             NW=oben+links,   NO=oben+rechts
 const TEX_GRASS_2D = "res://assets/2D-tiles/grass2.png"
+# Studio-Logo (Splash-Screen vor dem Hauptmenü).
+const TEX_LOGO = "res://assets/2D-tiles/allgemein/logo.png"
 # Start-Feld-Markierung (Ziel/Start-Flagge) – liegt über grass2, ersetzt das alte grüne Overlay.
 const TEX_START_2D = "res://assets/2D-tiles/allgemein/start.png"
 # Looping-Artwork (2D): EIN Bild, standardmäßig OW gemalt – für die NS-Basislage 90° gedreht.

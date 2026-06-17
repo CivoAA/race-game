@@ -17,10 +17,12 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 config/name="RoadTycoon"
 config/description="2D Top-Down Rennbahn-Baukasten"
 config/version="0.8.6"
-run/main_scene="uid://mainmenu"
+run/main_scene="res://scenes/Splash.tscn"
 config/custom_user_dir_name="RoadTycoon"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0.086, 0.098, 0.129, 1)
 "#Fester,saubererSpeicherortfÃ¼ruser://âwirdvonSteamAuto-Cloudsynchronisiert.#Windows:%APPDATA%\\RoadTycoon\\(statt%APPDATA%\\Godot\\app_userdata\\...)config/use_custom_user_dir"=true
 
 [autoload]

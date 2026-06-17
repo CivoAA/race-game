@@ -836,9 +836,9 @@ func _refresh_view_buttons() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Im Hauptmenü ausblenden
+	# Im Hauptmenü und im Splash-Screen ausblenden (nur im eigentlichen Spiel sichtbar).
 	var scene := get_tree().current_scene
-	var in_menu := scene != null and scene.name == "MainMenu"
+	var in_menu := scene != null and (scene.name == "MainMenu" or scene.name == "Splash")
 	visible = not in_menu
 	if in_menu:
 		return

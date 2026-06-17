@@ -34,7 +34,17 @@ func _ready() -> void:
 	# Sicherheitsnetz: Falls der Loop-Flag des Streams mal nicht greift, beim Ende neu starten.
 	# (Bei aktivem Loop wird "finished" nicht ausgelöst → harmlos.)
 	_player.finished.connect(_player.play)
+
+	# Lauter Einschalt-Pop beim Spielstart vermeiden: Die Audio-Engine gibt beim allerersten
+	# Abspielen manchmal einen kurzen übersteuerten Burst aus (Treiber-/Decoder-Initialisierung,
+	# Bus-Pegel noch nicht von MainMenu gesetzt). Daher zuerst stumm abspielen, damit das
+	# Audiogerät mit Stille „aufwärmt" (ein eventueller Init-Burst wird so mit-gedämpft), kurz
+	# warten (bis MainMenu._ready die Bus-Lautstärken angewandt hat) und dann sanft einblenden.
+	_player.volume_db = -80.0
 	_player.play()
+	await get_tree().process_frame
+	var fade := create_tween()
+	fade.tween_property(_player, "volume_db", 0.0, 0.6)
 
 
 # Vom Audio-Menü aufgerufen, wenn der Toggle umgeschaltet wird.
