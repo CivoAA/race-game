@@ -79,7 +79,8 @@ const RAMP_TAKEOFF_LIFT = 0.12
 # befahrbare Bankfläche neigt sich ~20-25°, der 90°-Teil ist die NICHT befahrene Außenwand).
 # WALL_PEAK_H = Anstieg der Fahrbahn-Mittellinie zum Apex (Asset-Mitte ≈ 0.074 nativ ×1.2 ≈ 0.089).
 const WALL_PEAK_H   = 0.09
-const WALL_BANK_MAX = 0.38   # ~22° – Auto lehnt sich in die Kurve und liegt flach auf der sanften Bankfläche
+const WALL_BANK_MAX = 0.38   # AKTUELL UNGENUTZT: war das rotation.z-Banking, das ist aber (Front=−X) die
+                             # Querachse = Nick/Wheelie. Auto neigt sich nur noch seitlich über WALL_LEAN_X.
 # Scheitel-Tiefe der Steilkurve: wie weit sich der Apex (Bauch des U) über den alten Halbkreis hinaus
 # ins Tile-Innere/in die gebankte Fahrbahn wölbt (× halbe Kachel). Die AUSSEN-Anschlusspunkte bleiben
 # dabei FIX an der Kachelkante, der Eingang steht also NICHT raus – nur der Bauch wird tiefer/runder.
@@ -91,6 +92,14 @@ const WALL_BULGE = 0.4
 # SOLL-Linie auf einem Screenshot drübermalen kann. Vor Release auf false setzen.
 const DEBUG_DRAW_PATH := true
 const WALL_ROLL_SMOOTH = 25.0  # schnelleres Einrasten der Querneigung als ROLL_SMOOTH (kein Durchglitchen)
+# Zusätzliche Längsachsen-Rolle (lokale X, „rechte Tür runter") in der Steilkurve: das Auto kippt zur
+# KURVENMITTE hin (zum Punkt, um den es bei einem Vollkreis fahren würde). 0 = aus. 0.52 ≈ 30°.
+const WALL_LEAN_X = 0.52
+var _wall_lean: float = 0.0   # geglättete aktuelle Längsneigung (rad), läuft außerhalb der Wand auf 0
+# Stabile Bank-Richtung der Steilkurve (−1/0/+1): EINMAL beim Einlenken aus der Gierrate bestimmt und
+# über die ganzen zwei Kacheln gehalten. Ohne das würde das Auto zwischen den Wegpunkten (konstante
+# Fahrtrichtung → yaw_rate=0) immer wieder in die Waagerechte zurückkippen → sichtbares Zucken.
+var _wall_lean_dir: float = 0.0
 
 var _prev_yaw: float     = 0.0
 var _prev_car_y: float   = 0.0
@@ -102,6 +111,10 @@ var _pitch: float        = 0.0
 # Querneigungs-Intensität (0..1) je Wegpunkt (nur Steilwandkurven-Wegpunkte > 0).
 var _wp_bank: PackedFloat32Array = PackedFloat32Array()
 var _cur_wp: int = 0
+# Fortschritt 0..1 innerhalb des aktuellen Segments (_cur_wp → _cur_wp+1). Wird in _sample_at_time
+# gesetzt und in _update_orientation genutzt, um die Looping-Salto-Orientierung GLATT zwischen den
+# Wegpunkten zu interpolieren (sonst springt der Winkel pro Punkt und das Auto schiebt kurz durch).
+var _cur_seg_f: float = 0.0
 
 # Looping: explizite Orientierung je Wegpunkt (Vector2(pitch, yaw)) oder null = normale Bewegungs-
 # Ausrichtung. Nötig, weil im Looping die HORIZONTALE Bewegung umkehrt (oben kopfüber) → die
@@ -109,13 +122,20 @@ var _cur_wp: int = 0
 var _wp_orient: Array = []
 var _pending_orient: Array = []   # wird in _waypoints_for_tile je Kachel gefüllt (Länge = Wegpunkte)
 
-# Looping-Geometrie (muss zum Loop.glb passen): Radius, Höhe, seitlicher Ein/Ausfahrt-Versatz.
-# Das Loop-Asset ist ~0.815 hoch (×1.2 ≈ 0.98 Welt); die befahrbare Innen-Tube hat Radius ≈0.45 Welt
-# (Mitte y≈0.48, Top ≈0.93). LOOP_R darf NICHT größer sein, sonst fährt das Auto oben durch die Wand.
-const LOOP_R    = 0.44   # Kreis-Radius (Top = 0.05 + 2·R ≈ 0.93, sitzt in der Asset-Tube)
+# Looping-Geometrie (muss zu TrackGenerator3D passen): Radius, Höhe, seitlicher Ein/Ausfahrt-Versatz.
+# An das Loop.glb angepasst (nativ ~0.76 hohe Innenfahrbahn ×1.2 ≈ 0.93 Welt). Die Fahrlinie ist eine
+# vertikale Ellipse: Boden bei y=0.05, Top bei 0.05 + 2·LOOP_R. Mit 0.44 liegt der Scheitel bei ≈0.93,
+# also genau auf der Loop-Innenfläche – das Auto bleibt IM Asset (vorher 0.55 ⇒ Top 1.15 ⇒ oben raus).
+const LOOP_R    = 0.44   # vertikaler Halbradius (Höhe = 2·R ≈ 0.88, passend zur Loop-Innenfläche)
 const LOOP_FWD  = 0.45   # Vorwärts-Radius (Ellipse, damit der Looping in die Kachel passt)
-const LOOP_OFF  = 0.18   # seitlicher Versatz: rein rechts, raus links (kein Selbst-Überschneiden)
+const LOOP_OFF  = 0.12   # seitlicher Versatz: rein rechts, raus links (kein Selbst-Überschneiden); klein
+						 # halten, damit das Auto auf der schmalen, planaren Loop-Fahrbahn bleibt
 const LOOP_SEGS = 22
+# Die zwei „Maul"-Übergangspunkte (2. und vorletzter Wegpunkt) liegen am Fuß des Loops, wo die flache
+# Anfahrt in die Senkrechte übergeht. Mittig gesetzt schneidet das Auto dort durch die Loop-Struktur.
+# Darum beide entlang der Fahrtachse weiter NACH AUSSEN (zur jeweiligen Kachelkante) ziehen: der Einfahrt-
+# Punkt Richtung Eingang, der Ausfahrt-Punkt Richtung Ausgang (Welt-Meter; 0 = mittig wie zuvor).
+const LOOP_MOUTH_OUT = 0.15
 
 # Portal: Teleport-Segment (Eingangs-Portal → Ausgangs-Portal) bekommt eine feste, kurze Dauer und
 # wird beim Sampling „gesnappt" (Auto bleibt am Eingang, blinkt dann zum Ausgang) statt über die
@@ -199,7 +219,8 @@ func _sample_at_time(t: float) -> void:
 				car.visible = false
 				return
 			var f := (t_in_lap - _cum_time[i]) / st if st > 0.0 else 0.0
-			car.position = waypoints[i].lerp(waypoints[(i + 1) % n], clampf(f, 0.0, 1.0))
+			_cur_seg_f = clampf(f, 0.0, 1.0)
+			car.position = waypoints[i].lerp(waypoints[(i + 1) % n], _cur_seg_f)
 			return
 
 
@@ -268,6 +289,14 @@ func _update_orientation(prev_pos: Vector3, delta: float, t: float = 0.0) -> voi
 		var o: Vector2 = _wp_orient[_cur_wp]
 		var th: float  = o.x
 		var yaw: float = o.y
+		# Salto-Winkel GLATT zum nächsten Wegpunkt interpolieren (statt pro Punkt zu springen): sonst
+		# steht der Auto-Körper im alten Winkel, während es schon den geraden Abschnitt zum nächsten
+		# Punkt entlangfährt → eine Ecke schiebt durch die Loop-Wand. Nur, solange der Folgepunkt
+		# ebenfalls eine explizite Loop-Orientierung hat (sonst Ein-/Ausfahrt → Bewegungs-Ausrichtung).
+		var nxt = _wp_orient[(_cur_wp + 1) % _wp_orient.size()]
+		if nxt is Vector2:
+			th  = lerp(o.x, (nxt as Vector2).x, _cur_seg_f)
+			yaw = lerp_angle(o.y, (nxt as Vector2).y, _cur_seg_f)
 		# Fahrtrichtung (horizontal) + Querachse aus dem gespeicherten yaw zurückrechnen
 		# (yaw = atan2(fwd.x, fwd.z) + MODEL_ROTATION_OFFSET).
 		var fwd := Vector3(-cos(yaw), 0.0, sin(yaw))
@@ -329,7 +358,6 @@ func _update_orientation(prev_pos: Vector3, delta: float, t: float = 0.0) -> voi
 			return
 
 		car.rotation.y = new_yaw + MODEL_ROTATION_OFFSET
-		car.rotation.x = 0.0   # auf normaler Straße keine Längsachsen-Neigung (Rest aus Sprung-Basis löschen)
 
 		# ── Kurvenneigung (Roll) ──────────────────────────────────────────
 		if _yaw_init:
@@ -342,14 +370,32 @@ func _update_orientation(prev_pos: Vector3, delta: float, t: float = 0.0) -> voi
 			# pro-Wegpunkt-Höhe), in dieselbe Richtung wie die normale Kurvenneigung (sign der Gierrate).
 			var bank : float = _wp_bank[_cur_wp] if _cur_wp < _wp_bank.size() else 0.0
 			if bank > 0.001:
-				# Steilkurve: Auto rastet schnell auf die volle Bankung ein, damit es satt auf der
-				# gebankten Fahrbahn liegt und nicht hindurchglitcht.
-				roll_t = signf(-yaw_rate) * WALL_BANK_MAX * bank
-				car.rotation.z = lerp(car.rotation.z, roll_t, clampf(delta * WALL_ROLL_SMOOTH, 0.0, 1.0))
+				# Steilkurve: Auto legt sich NUR seitlich (Tür-Roll um die lokale X, siehe car.rotation.x unten)
+				# in die Kurve – KEIN Nick/Wheelie über rotation.z (das war die Querachse, siehe unten).
+				# Bank-Richtung EINMALIG am ersten Einlenk-Frame festnageln (_wall_lean_dir==0) und danach
+				# HALTEN. Die Neigung selbst ist KONSTANT (WALL_LEAN_X, NICHT mit der pro-Wegpunkt-Höhe
+				# `bank` skaliert – das ließ den Roll pro Kachel 0→Scheitel→0 pumpen = sichtbares Zucken): das
+				# Auto am ANFANG einmal in die Bank und erst am ENDE (bank→0, beim Verlassen der zwei
+				# Kacheln) wieder zurück – kein Zucken mehr „zwischen jedem Punkt".
+				if absf(yaw_rate) > 0.001 and _wall_lean_dir == 0.0:
+					_wall_lean_dir = signf(yaw_rate)
+				# KEIN rotation.z-„Banking" mehr: das ist (Modell-Front = lokale −X) die QUERACHSE = Nick/Salto,
+				# also der Wheelie-Effekt wie beim Eis. Der User will in der Steilkurve NUR die seitliche X-Neigung.
+				# rotation.z (Pitch-Achse) aktiv auf 0 halten, falls aus einer normalen Kurve noch Rest da ist.
+				car.rotation.z = lerp(car.rotation.z, 0.0, clampf(delta * WALL_ROLL_SMOOTH, 0.0, 1.0))
+				# Seitliche Neigung um die LÄNGSACHSE (lokale X) in die Kurvenmitte – die EINZIGE Drehung hier,
+				# KONSTANT (WALL_LEAN_X ~30°), einmal rein und über beide Kacheln halten.
+				_wall_lean = lerp(_wall_lean, _wall_lean_dir * WALL_LEAN_X, clampf(delta * WALL_ROLL_SMOOTH, 0.0, 1.0))
 			else:
 				car.rotation.z = lerp(car.rotation.z, roll_t, delta * ROLL_SMOOTH)
+				_wall_lean = lerp(_wall_lean, 0.0, clampf(delta * ROLL_SMOOTH, 0.0, 1.0))
+				_wall_lean_dir = 0.0   # zurücksetzen → die nächste Steilkurve bestimmt die Richtung neu
 		else:
 			car.rotation.z = lerp(car.rotation.z, 0.0, delta * ROLL_SMOOTH)
+			_wall_lean = lerp(_wall_lean, 0.0, clampf(delta * ROLL_SMOOTH, 0.0, 1.0))
+		# Längsachsen-Rolle: außerhalb der Steilkurve läuft _wall_lean auf 0 → Auto wird beim Verlassen
+		# des Tiles wieder gerade gemacht.
+		car.rotation.x = _wall_lean
 		_prev_yaw  = new_yaw
 		_yaw_init  = true
 
@@ -713,7 +759,13 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			tile_wps.append(gate_a)                              # Rampe hoch, tief zum Tor → verschwindet
 			tile_wps.append(gate_b)                              # erscheint am Ausgangs-Tor (oben, tief)
 			tile_wps.append(b_center + _dir_to_vec(ob) * half_t) # Ausgangskante (Rampe runter, raus)
-			tile_orient = [Vector2(0.0, yaw_in), Vector2(0.0, yaw_in), Vector2(0.0, yaw_out), Vector2(0.0, yaw_out)]
+			# Nase neigt sich wie bei der Rampe: beim Hochfahren Nase hoch (+), beim Runterfahren Nase
+			# runter (−). Winkel = Steigung der Rampe (Höhe / horizontaler Weg Kante→Tor). Über dieselbe
+			# Pitch-Basis wie der Looping-Salto (o.x in _update_orientation, Drehung um die Querachse).
+			var climb : float = atan2(PORTAL_RAMP_H, half_t + PORTAL_GATE_DEPTH)
+			# Eingangskante+Tor: Nase hoch (climb). Ausgangs-Tor: Nase runter (−climb, Abstieg). Ausgangs-
+			# KANTE: wieder waagerecht (0) → beim Verlassen des Tiles steht das Auto gerade.
+			tile_orient = [Vector2(climb, yaw_in), Vector2(climb, yaw_in), Vector2(-climb, yaw_out), Vector2(0.0, yaw_out)]
 			tile_tele = PackedByteArray([0, 1, 0, 0])   # Segment ab Wegpunkt[1] = Teleport (Tor→Tor)
 			tile_bank = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
 			tile_jump = PackedByteArray([0, 0, 0, 0])
@@ -841,9 +893,14 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 		var lp_in := center + rgt * LOOP_OFF        # Looping-Einstieg (rechts versetzt)
 		var lp_out := center - rgt * LOOP_OFF       # Looping-Ausstieg (links versetzt)
 		var ex : Vector3 = center + fwd * half
-		# 1. Anfahrt (eben)
-		wps.append(entry);            _pending_orient.append(null)
-		wps.append((entry + lp_in) * 0.5); _pending_orient.append(null)
+		# 1. Anfahrt (eben). Damit das Auto GERADE in den Looping einfährt (statt seitlich zum
+		# Loop-Fuß zu schwenken), liegen die letzten beiden Anfahrt-Punkte exakt auf der seitlichen
+		# Loop-Einstiegslinie (lp_in, Versatz LOOP_OFF): der vorhandene Maul-Punkt wird seitlich auf
+		# diese Linie ausgerichtet, und direkt vor dem Loop-Fuß kommt ein zusätzlicher Punkt dazu.
+		# Der seitliche Versatz passiert so früh auf der flachen Anfahrt (entry → Maul-Punkt).
+		wps.append(entry);                          _pending_orient.append(null)
+		wps.append(lp_in - fwd * (half * 0.5));     _pending_orient.append(null)  # Maul-Punkt, auf Loop-Linie
+		wps.append(lp_in - fwd * LOOP_MOUTH_OUT);   _pending_orient.append(null)  # neu: direkt vor dem Loop-Fuß
 		# 2. Looping (θ 1..LOOP_SEGS → 2π). Pitch = θ (Auto dreht sich einmal komplett).
 		for i in range(1, LOOP_SEGS + 1):
 			var th := TAU * float(i) / float(LOOP_SEGS)
@@ -851,9 +908,11 @@ func _waypoints_for_tile(center: Vector3, data: Dictionary, exit_dir: String, ro
 				+ rgt * (-2.0 * LOOP_OFF * (th / TAU))
 			wps.append(p)
 			_pending_orient.append(Vector2(th, yaw))
-		# 3. Ausfahrt (eben)
-		wps.append((lp_out + ex) * 0.5); _pending_orient.append(null)
-		wps.append(ex);                  _pending_orient.append(null)
+		# 3. Ausfahrt (eben), spiegelbildlich: erst GERADE aus dem Loop-Fuß heraus (zwei Punkte auf der
+		# lp_out-Linie), dann seitlich zur Kachelmitte zurück.
+		wps.append(lp_out + fwd * LOOP_MOUTH_OUT);  _pending_orient.append(null)  # neu: direkt hinter dem Loop-Fuß
+		wps.append(lp_out + fwd * (half * 0.5));    _pending_orient.append(null)  # Maul-Punkt, auf Loop-Linie
+		wps.append(ex);                             _pending_orient.append(null)
 
 	elif type == "curve" or type == "curve_alt" or type == "ice_curve" or type == "race_curve" or type == "sand_curve" or type == "water_curve" or type == "glue_curve":
 		var cx: float; var cz: float
