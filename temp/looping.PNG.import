@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://doldh8b1vfvfb"
-path="res://.godot/imported/looping_portal.PNG-369759cfd2cad38da2ee6510ecf1f7e6.ctex"
+uid="uid://dfu6700r2vrac"
+path="res://.godot/imported/looping.PNG-a5977a1f9a5d7035e7b2c2323ce18bd4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://temp/looping_portal.PNG"
-dest_files=["res://.godot/imported/looping_portal.PNG-369759cfd2cad38da2ee6510ecf1f7e6.ctex"]
+source_file="res://temp/looping.PNG"
+dest_files=["res://.godot/imported/looping.PNG-a5977a1f9a5d7035e7b2c2323ce18bd4.ctex"]
 
 [params]
 
