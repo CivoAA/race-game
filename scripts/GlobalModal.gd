@@ -1218,6 +1218,9 @@ func _ach_icon_for(id: String) -> String:
 		"pp_1000":        return Icons.STAR
 		"track_2":        return Icons.MAP_2
 		"track_3":        return Icons.WORLD
+		"loop_jump":      return Icons.RECYCLE
+		"loop_triple":    return Icons.INFINITY
+		"completionist":  return Icons.ROSETTE_CHECK
 	return Icons.TROPHY
 
 
@@ -1231,15 +1234,37 @@ func icon_for_achievement(id: String) -> String:
 func _build_ach_data() -> Array:
 	var out: Array = []
 	for id in Economy.ACHIEVEMENT_ORDER:
-		var d: Dictionary = Economy.ACHIEVEMENTS.get(id, {})
-		out.append({
-			"id":   id,
-			"icon": _ach_icon_for(id),
-			"name": String(d.get("name", id)),
-			"desc": String(d.get("desc", "")),
-			"done": Economy.is_achievement_unlocked(id),
-		})
+		out.append(_ach_entry(id, false))
+	# Geheime Erfolge als eigener Block dahinter (in der UI unter einer Trennlinie).
+	for id in Economy.SECRET_ACHIEVEMENT_ORDER:
+		out.append(_ach_entry(id, true))
 	return out
+
+
+# Anzeige-Eintrag für einen Erfolg. Geheime, noch NICHT freigeschaltete Erfolge werden verdeckt:
+# Name „???", Fragezeichen-Icon und verdeckte Beschreibung – erst nach dem Freischalten echt.
+func _ach_entry(id: String, secret: bool) -> Dictionary:
+	var d: Dictionary = Economy.ACHIEVEMENTS.get(id, {})
+	var done: bool = Economy.is_achievement_unlocked(id)
+	var hidden := secret and not done
+	return {
+		"id":     id,
+		"secret": secret,
+		"icon":   "?" if hidden else _ach_icon_for(id),
+		"name":   "???" if hidden else String(d.get("name", id)),
+		"desc":   tr("Geheimer Erfolg – schalte ihn frei, um ihn zu enthüllen.") if hidden else String(d.get("desc", "")),
+		"done":   done,
+	}
+
+
+# Setzt ein Erfolgs-Icon auf ein Label. PUA-Glyphen brauchen die Icon-Schrift; das verdeckte
+# „?" rendert dagegen in der normalen Schrift (die Icon-Font hat kein ASCII-Fragezeichen).
+func _apply_ach_icon(lbl: Label, glyph: String) -> void:
+	lbl.text = glyph
+	if Icons.FONT != null and glyph != "?":
+		lbl.add_theme_font_override("font", Icons.FONT)
+	else:
+		lbl.remove_theme_font_override("font")
 
 
 func _build_achievements_panel(parent: Control, cy: int, ch: int) -> void:
@@ -1356,18 +1381,67 @@ func _build_ach_grid() -> Control:
 	scroll.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 
+	# Spalte: normales Raster oben, darunter (falls vorhanden) die Trennlinie + das Geheim-Raster.
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 10)
+	scroll.add_child(col)
+
 	# HFlowContainer statt GridContainer: bricht die fix großen Kacheln automatisch um,
 	# sodass je nach Fensterbreite so viele nebeneinander passen, wie Platz haben.
 	var grid := HFlowContainer.new()
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
-	scroll.add_child(grid)
+	col.add_child(grid)
 
+	# Geheime Erfolge kommen unter einer Trennlinie in ein eigenes Raster (erst beim ersten geheimen
+	# Eintrag angelegt – ohne geheime Erfolge gibt es keine Trennlinie). Reihenfolge = _ach_data.
+	var secret_grid: HFlowContainer = null
 	for i in _ach_data.size():
-		grid.add_child(_make_ach_tile(i))
+		if bool(_ach_data[i].get("secret", false)):
+			if secret_grid == null:
+				col.add_child(_make_secret_divider())
+				secret_grid = HFlowContainer.new()
+				secret_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				secret_grid.add_theme_constant_override("h_separation", 10)
+				secret_grid.add_theme_constant_override("v_separation", 10)
+				col.add_child(secret_grid)
+			secret_grid.add_child(_make_ach_tile(i))
+		else:
+			grid.add_child(_make_ach_tile(i))
 
 	return scroll
+
+
+# Trennlinie mit Überschrift zwischen den normalen und den geheimen Erfolgen: ──── GEHEIM ────
+func _make_secret_divider() -> Control:
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+
+	var line_l := ColorRect.new()
+	line_l.color = C_LINE
+	line_l.custom_minimum_size = Vector2(0, 1)
+	line_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line_l.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	row.add_child(line_l)
+
+	var lbl := Label.new()
+	lbl.text = tr("GEHEIME ERFOLGE")
+	lbl.add_theme_font_size_override("font_size", 12)
+	lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	_emboss(lbl)
+	row.add_child(lbl)
+
+	var line_r := ColorRect.new()
+	line_r.color = C_LINE
+	line_r.custom_minimum_size = Vector2(0, 1)
+	line_r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line_r.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	row.add_child(line_r)
+
+	return row
 
 
 # Eine Kachel: Icon + kurzer Titel, klickbar → wählt den Erfolg in der Detailspalte.
@@ -1400,9 +1474,7 @@ func _make_ach_tile(idx: int) -> Button:
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	icon.add_theme_font_size_override("font_size", 30)
-	if Icons.FONT != null:
-		icon.add_theme_font_override("font", Icons.FONT)
-	icon.text = data["icon"]
+	_apply_ach_icon(icon, data["icon"])
 	icon.modulate = Color(1, 1, 1, 1.0 if done else 0.45)
 	v.add_child(icon)
 
@@ -1463,7 +1535,7 @@ func _select_achievement(idx: int) -> void:
 
 	var data: Dictionary = _ach_data[idx]
 	var done: bool = data["done"]
-	_ach_icon_lbl.text     = data["icon"]
+	_apply_ach_icon(_ach_icon_lbl, data["icon"])
 	_ach_icon_lbl.modulate = Color(1, 1, 1, 1.0 if done else 0.5)
 	_ach_title_lbl.text    = data["name"]
 	_ach_desc_lbl.text     = data["desc"]
@@ -1551,14 +1623,21 @@ func _refresh_achievements() -> void:
 		return
 	for i in _ach_data.size():
 		var id: String = String(_ach_data[i].get("id", ""))
-		var done: bool = Economy.is_achievement_unlocked(id)
-		_ach_data[i]["done"] = done
+		# Eintrag neu bauen → ein gerade freigeschalteter geheimer Erfolg wird enthüllt (??? → echt).
+		var entry := _ach_entry(id, bool(_ach_data[i].get("secret", false)))
+		_ach_data[i] = entry
+		var done: bool = entry["done"]
 		if i < _ach_tiles.size():
 			var t: Dictionary = _ach_tiles[i]
 			t["done"] = done
 			t["claimable"] = Economy.can_claim_achievement(id)
-			(t["icon"] as Label).modulate = Color(1, 1, 1, 1.0 if done else 0.45)
-			(t["name_lbl"] as Label).add_theme_color_override("font_color", C_TEXT if done else C_TEXT_DIM)
+			var icl := t["icon"] as Label
+			_apply_ach_icon(icl, entry["icon"])
+			icl.modulate = Color(1, 1, 1, 1.0 if done else 0.45)
+			var nl := t["name_lbl"] as Label
+			nl.text = entry["name"]
+			nl.add_theme_color_override("font_color", C_TEXT if done else C_TEXT_DIM)
+			(t["btn"] as Button).tooltip_text = entry["name"]
 	_update_ach_progress()
 	_select_achievement(_ach_selected if _ach_selected >= 0 else 0)
 

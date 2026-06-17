@@ -117,6 +117,8 @@ func _build_ui() -> void:
 	_endless_btn   = null
 	_debug_btn     = null
 	_nav_btns.clear()
+	_werks_pct_lbls.clear()
+	_werks_bars.clear()
 	_pause_nav_btn = null
 
 	if _ui_root != null and is_instance_valid(_ui_root):
@@ -350,6 +352,11 @@ var _nav_btns:    Array = []   # je {btn, tab}
 var _active_page: int   = -1   # gerade geöffnete Seite (-1 = Modal geschlossen)
 var _pause_nav_btn: Button = null   # „Pause-Menü"-Eintrag, nur im Mobile-Steuerungsmodus sichtbar
 var _nav_hdr_lbl:   Label  = null   # „☰ Menü"-Überschrift der Seitennav (selbst per tr() übersetzt)
+# Live-Fortschritt zur Werkstatt-Freischaltung am gesperrten Werkstatt-Nav-Eintrag (prozent + Mini-
+# Balken). Werden in _process aktualisiert, solange die Werkstatt gesperrt ist. Je Eintrag: Prozent-
+# Label und {fill, full_w} des Mini-Balkens (full_w = volle Balkenbreite bei 100 %).
+var _werks_pct_lbls: Array = []
+var _werks_bars:     Array = []
 
 
 func _build_side_menu() -> void:
@@ -658,9 +665,65 @@ func _apply_nav_lock(btn: Button, tab: int) -> void:
 		ico.text = Icons.LOCK
 		ico.modulate = Color(1, 1, 1, 0.55)
 	var lbl = btn.get_meta("txt_lbl", null)
+	# Werkstatt (Tab 2): statt „???" den Fortschritt zur Freischaltung zeigen (Schloss bleibt).
+	if tab == 2:
+		_decorate_werkstatt_lock(btn, ico, lbl)
+		return
 	if lbl != null and is_instance_valid(lbl) and lbl != ico:
 		lbl.text     = "???"   # Namen verbergen, solange der Tab gesperrt ist
 		lbl.modulate = Color(1, 1, 1, 0.6)
+
+
+# Gesperrter Werkstatt-Eintrag: zeigt den Live-Fortschritt zur Freischaltung (prestige_earned /
+# WERKSTATT_TAB_UNLOCK_EARN) als Prozent + dünnen Balken am unteren Rand des Eintrags. Funktioniert
+# für die Seitenleiste (eigenes icon_lbl + txt_lbl) wie auch die Bottom-Nav (nur ein Icon-Label).
+# Die referenzierten Nodes werden in _process gefüttert. Werkstatt-Orange wie in der Nav-Definition.
+func _decorate_werkstatt_lock(btn: Button, ico, lbl) -> void:
+	# Idempotent: _apply_nav_lock wird bei Sprachwechsel (NOTIFICATION_TRANSLATION_CHANGED) erneut auf
+	# denselben Button angewandt – Knoten/Array-Einträge dürfen sich dabei nicht verdoppeln. Der
+	# Prozent-Text (inkl. übersetztem Namen) wird ohnehin live in _process gesetzt.
+	if btn.has_meta("werks_decorated"):
+		return
+	btn.set_meta("werks_decorated", true)
+	const C_TOOL := Color(0.96, 0.55, 0.26)
+	var is_side: bool = lbl != null and is_instance_valid(lbl) and lbl != ico
+	if is_side:
+		# Seitenleiste: Name behalten, Prozent dahinter (z. B. „Werkstatt  37%"). Kleinere Schrift,
+		# damit „Werkstatt 100%" in den schmalen Text-Bereich (~100 px) passt. show_name=true.
+		lbl.add_theme_color_override("font_color", C_TOOL)
+		lbl.add_theme_font_size_override("font_size", 12)
+		_werks_pct_lbls.append({"lbl": lbl, "show_name": true})
+	else:
+		# Bottom-Nav (icon-only): kleines Prozent-Label unter das Schloss legen.
+		var pct := Label.new()
+		pct.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		pct.vertical_alignment   = VERTICAL_ALIGNMENT_BOTTOM
+		pct.add_theme_font_size_override("font_size", 9)
+		pct.add_theme_color_override("font_color", C_TOOL)
+		pct.set_anchors_preset(Control.PRESET_FULL_RECT)
+		pct.offset_bottom = -2
+		btn.add_child(pct)
+		_werks_pct_lbls.append({"lbl": pct, "show_name": false})
+
+	# Dünner Fortschrittsbalken am unteren Rand des Eintrags.
+	var track := ColorRect.new()
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.color = Color(C_TOOL.r, C_TOOL.g, C_TOOL.b, 0.18)
+	track.anchor_left = 0.0; track.anchor_right = 1.0
+	track.anchor_top  = 1.0; track.anchor_bottom = 1.0
+	track.offset_left = 8;   track.offset_right = -8
+	track.offset_top  = -4;  track.offset_bottom = -1
+	btn.add_child(track)
+	var fill := ColorRect.new()
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fill.color = C_TOOL
+	fill.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	fill.offset_left = 0; fill.offset_top = 0; fill.offset_bottom = 0
+	fill.offset_right = 0
+	track.add_child(fill)
+	# full_w erst nach dem Layout bekannt → in _process aus der Track-Breite gelesen.
+	_werks_bars.append({"track": track, "fill": fill})
 
 
 ## Erzeugt einen kleinen Aktions-Button und fügt ihn zu _ui_root hinzu.
@@ -849,6 +912,7 @@ func _process(_delta: float) -> void:
 		_prestige_lbl.text = "%s %s" % [Icons.STAR, Economy.format_currency(Economy.get_prestige_points())]
 	if _trophy_lbl != null:
 		_trophy_lbl.text = "%s %s" % [Icons.TROPHY, Economy.format_currency(Economy.get_ach_currency())]
+	_update_werkstatt_progress()
 	_refresh_timer()
 	for i in TRACK_COUNT:
 		if i < _run_dot_sbs.size():
@@ -864,6 +928,28 @@ func _process(_delta: float) -> void:
 	if synced != _active_page:
 		_active_page = synced
 		_refresh_nav_highlight()
+
+
+# Live-Fortschritt zur Werkstatt-Freischaltung am gesperrten Nav-Eintrag (Prozent + Mini-Balken).
+# Sobald die Werkstatt frei ist, baut tab_unlock_changed die Nav ohnehin neu (Schloss verschwindet).
+func _update_werkstatt_progress() -> void:
+	if _werks_pct_lbls.is_empty() and _werks_bars.is_empty():
+		return
+	var target: float = Economy.WERKSTATT_TAB_UNLOCK_EARN
+	var progress: float = clampf(float(Economy.get_prestige_earned()) / target, 0.0, 1.0)
+	var pct_txt := "%d%%" % int(floor(progress * 100.0))
+	# Orange erneut setzen: _refresh_nav_highlight färbt txt_lbl sonst auf Dim/Akzent zurück.
+	const C_TOOL := Color(0.96, 0.55, 0.26)
+	for e in _werks_pct_lbls:
+		var l: Label = e["lbl"]
+		if is_instance_valid(l):
+			l.text = (tr("Werkstatt") + " " + pct_txt) if e["show_name"] else pct_txt
+			l.add_theme_color_override("font_color", C_TOOL)
+	for b in _werks_bars:
+		var track: ColorRect = b["track"]
+		var fill: ColorRect  = b["fill"]
+		if is_instance_valid(track) and is_instance_valid(fill):
+			fill.offset_right = track.size.x * progress
 
 
 # ── Callbacks ──────────────────────────────────────────────────────────────────

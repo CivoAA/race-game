@@ -411,6 +411,19 @@ const ACHIEVEMENTS = {
 	"lap_1t":         {"name": "*Billionenrunde", "desc": "Verdiene 1.000.000.000.000 mit EINEM Auto in einer Runde.", "metric": "lap_earn",       "target": 1000000000000.0},
 	"money_1q":       {"name": "*Billiardär",     "desc": "Besitze 1.000.000.000.000.000 Währung.",                    "metric": "currency",       "target": 1000000000000000.0},
 	"prestige_25":    {"name": "*Unsterblich",    "desc": "Führe 25 Prestiges durch.",                                 "metric": "prestige_count", "target": 25},
+	# ── Geheime Erfolge ("secret": true) ─────────────────────────────────────
+	# Werden im Erfolge-Tab unter einer Trennlinie als „???" mit Fragezeichen-Icon gezeigt,
+	# bis sie ausgelöst werden. Event-Erfolge (kein "metric") → per unlock_achievement(id).
+	"loop_jump":      {"name": "Loopingspringer", "desc": "Spring einmal durch einen Looping.", "secret": true},
+	"loop_triple":    {"name": "Schwindelfrei",   "desc": "Fahre eine Strecke mit mindestens 3 Loopings.", "secret": true},
+	"loop_mania":     {"name": "Looping-Wahnsinn","desc": "Fahre eine Strecke mit mindestens 10 Loopings.", "secret": true},
+	"only_special":   {"name": "Im Kreis gedacht","desc": "Fahre eine Strecke ganz ohne normale Geraden/Kurven – nur Spezial-Teile.", "secret": true},
+	"stand_empire":   {"name": "Tribünen-Imperium","desc": "Habe gleichzeitig 5 voll gestapelte Tribünen (×5) auf einer Strecke.", "secret": true},
+	"thrifty":        {"name": "Sparfuchs",       "desc": "Erreiche dein erstes Prestige, ohne je eine Kosmetik gekauft zu haben.", "secret": true},
+	"loner":          {"name": "Eigenbrötler",    "desc": "Schalte Strecke 3 frei, ohne je dein Auto in der Werkstatt aufzuwerten.", "secret": true},
+	"marathon":       {"name": "Dauerläufer",     "desc": "Lass ein einzelnes Rennen 3 Stunden ununterbrochen laufen.", "secret": true},
+	"master_builder": {"name": "Großbaumeister",  "desc": "Platziere insgesamt 1.000 Streckenteile.", "secret": true},
+	"completionist":  {"name": "Komplettist",     "desc": "Sammle alle regulären Erfolge ein.", "secret": true},
 }
 # Anzeige-Reihenfolge im Erfolge-Tab (links → rechts, oben → unten). Grob nach der WAHRSCHEINLICHEN
 # Freischalt-Progression sortiert (früh → spät), bewusst über Geld-/Runden-/Tile-/Prestige-/Strecken-
@@ -451,6 +464,24 @@ const ACHIEVEMENT_ORDER = [
 	"all_paints",      # alle Lackfarben (am teuersten → ganz spät)
 ]
 
+# Anzeige-Reihenfolge der GEHEIMEN Erfolge (eigener Block unter einer Trennlinie im Erfolge-Tab).
+# Werden verdeckt (??? + Fragezeichen) gezeigt, bis sie freigeschaltet sind.
+const SECRET_ACHIEVEMENT_ORDER = [
+	"loop_jump",
+	"loop_triple",
+	"loop_mania",
+	"only_special",
+	"stand_empire",
+	"thrifty",
+	"loner",
+	"marathon",
+	"master_builder",
+	"completionist",
+]
+
+# „Dauerläufer": ein einzelnes Rennen muss so viele Sekunden ununterbrochen laufen (3 Stunden).
+const MARATHON_SECONDS := 3.0 * 60.0 * 60.0
+
 # Trophäen: eigene Erfolgs-Währung. Jeder EINGESAMMELTE Erfolg bringt ACH_REWARD Trophäen.
 # Nur in der Garage angezeigt (slot-gebunden, kein Spieleffekt – reine Sammel-Währung).
 const ACH_REWARD = 100
@@ -488,6 +519,9 @@ var test_blender_car: bool = false
 # Anzahl gekaufter Super-Autos („Auto 2"). LEGACY: nicht mehr per Shop kaufbar (durch car_tier ersetzt),
 # Feld bleibt nur für die Save-Migration erhalten.
 var super_car_count: int   = 0
+
+# Zähler für geheime Erfolge (profil-gebunden, überlebt Prestige – nur reset_slot löscht ihn).
+var total_tiles_placed: int = 0      # insgesamt platzierte Streckenteile (für „Großbaumeister")
 
 # Prestige-Zustand (überlebt den Prestige-Reset; nur „Neues Spiel"/reset_slot löscht ihn).
 var prestige_points: int        = 0   # verfügbare ⭐
@@ -730,6 +764,10 @@ func _process(delta: float) -> void:
 			continue
 		# Fahrzeit läuft weiter – egal ob 2D- oder 3D-Ansicht offen ist.
 		_tracks[i]["run_elapsed"] = float(_tracks[i]["run_elapsed"]) + delta
+		# Geheimer Erfolg „Dauerläufer": ein Rennen läuft ununterbrochen lang genug (run_elapsed wird
+		# bei Neustart/Reset auf 0 gesetzt → zählt wirklich nur durchgehende Läufe). unlock ist idempotent.
+		if float(_tracks[i]["run_elapsed"]) >= MARATHON_SECONDS:
+			unlock_achievement("marathon")
 		# Geld kommt in Runden-Häppchen: immer wenn ein Auto (rechnerisch) die Startlinie
 		# überquert. Das gilt im Hintergrund (2D) genauso wie sichtbar in der 3D-Ansicht.
 		_credit_laps(i)
@@ -777,6 +815,17 @@ func _credit_laps(i: int) -> void:
 		car["credited_laps"] = car_laps
 		# Erfolge „verdiene X mit EINEM Auto in einer Runde" – am Pro-Auto-Rundenertrag.
 		_check_metric_achievements("lap_earn", float(car_reward))
+		# Geheime Erfolge rund um Loopings: 1 = durchgefahren, 3+ = „Schwindelfrei", 10+ = „Looping-Wahnsinn".
+		var loops := _car_route_loop_count(car)
+		if loops >= 1:
+			unlock_achievement("loop_jump")
+		if loops >= 3:
+			unlock_achievement("loop_triple")
+		if loops >= 10:
+			unlock_achievement("loop_mania")
+		# „Im Kreis gedacht": Strecke ganz ohne normale Geraden/Kurven (nur Spezial-Teile + Start).
+		if _car_route_only_special(car):
+			unlock_achievement("only_special")
 	if gain <= 0:
 		return
 	_currency += gain
@@ -859,6 +908,30 @@ func _laps_total(i: int) -> int:
 # aber ggf. in Pro-Auto-Overrides (Super-Auto): tile_bonus_add = zusätzlicher +Ertrag JE Feld (oben
 # drauf auf den globalen Tile-Bonus, Schritt 1); end_mult_extra = zusätzlicher ×Faktor ganz am Ende
 # (oben drauf auf EndMult × Prestige). Normale Autos haben 0 bzw. 1 → identisch zu vorher.
+# Anzahl Loopings in der streckenfixen Route dieses Autos (für die Loop-Geheim-Erfolge).
+func _car_route_loop_count(car: Dictionary) -> int:
+	var n := 0
+	for tile in car.get("tiles", []):
+		if bool(tile.get("is_loop", false)):
+			n += 1
+	return n
+
+
+# „Im Kreis gedacht": Route enthält mindestens ein Spezial-Teil (Loop/Portal/Rampe/Steilwand) und
+# KEIN normales Fahr-Teil (Gerade/Kurve/Dreck). Das Startfeld ist unvermeidbar und darum erlaubt.
+func _car_route_only_special(car: Dictionary) -> bool:
+	const SPECIAL := ["loop", "portal", "ramp_start", "ramp_end", "wall_start", "wall_end"]
+	var has_special := false
+	for tile in car.get("tiles", []):
+		if bool(tile.get("is_loop", false)) or String(tile.get("type", "")) in SPECIAL:
+			has_special = true
+		elif bool(tile.get("is_start", false)):
+			continue   # Startfeld zählt nicht als „normales" Teil
+		else:
+			return false   # jedes andere befahrene Feld disqualifiziert
+	return has_special
+
+
 func _lap_reward_for_car(car: Dictionary) -> int:
 	if float(car.get("lap_time", 0.0)) <= 0.0:
 		return 0
@@ -1809,6 +1882,9 @@ func buy_prestige_node(id: String) -> bool:
 		emit_signal("upgrade_purchased", "car_count")
 	elif id == "track":
 		_check_metric_achievements("unlocked_tracks", float(get_unlocked_tracks()))   # Strecke 2/3-Erfolge
+		# Geheimer Erfolg „Eigenbrötler": Strecke 3 frei, ohne je ein Super-Auto benutzt zu haben.
+		if get_unlocked_tracks() >= 3 and not ever_used_supercar:
+			unlock_achievement("loner")
 	return true
 
 
@@ -1858,6 +1934,23 @@ func prestige_pending_points() -> int:
 	return int(float(flat + extra) * get_car_point_mult())
 
 
+# Füllgrad der unteren Prestige-Leiste [0,1). VOR dem ersten fälligen Punkt: Geld/K (Fortschritt zum
+# 1. Punkt, wie bisher). DANACH – nur mit gekauftem „scaling"-Knoten – der Fortschritt zwischen den
+# sqrt-Stufen der Verdienst-Skalierung: jede volle Stufe = +1 Extra-Punkt (Leiste „beginnt von vorn").
+# OHNE den Knoten bleiben die Punkte ab K konstant → die Leiste bleibt voll (kein weiterer Fortschritt).
+# Passt zu prestige_pending_points(): dessen Sprünge liegen genau an den hier verwendeten Stufengrenzen.
+func prestige_progress() -> float:
+	var ratio := float(_currency) / PRESTIGE_K
+	if ratio < 1.0:
+		return clampf(ratio, 0.0, 1.0)
+	if get_prestige_node_level("scaling") < 1:
+		return 1.0
+	var lo: float = floor(sqrt(ratio))       # aktuelle sqrt-Stufe (extra = lo − 1)
+	var c_lo: float = lo * lo                 # Geld/K am Beginn dieser Stufe
+	var c_hi: float = (lo + 1.0) * (lo + 1.0) # Geld/K für den nächsten Extra-Punkt
+	return clampf((ratio - c_lo) / (c_hi - c_lo), 0.0, 1.0)
+
+
 func can_prestige() -> bool:
 	return prestige_pending_points() >= 1
 
@@ -1869,8 +1962,13 @@ func do_prestige() -> int:
 	var gained := prestige_pending_points()
 	if gained < 1:
 		return 0
+	var was_first_prestige := prestige_count == 0
 	prestige_points += gained
 	prestige_count  += get_car_prestige_step()   # schaltet positionsbasiert den/die nächsten Knoten frei (×2 je Auto-Stufe)
+	# Geheimer Erfolg „Sparfuchs": erstes Prestige, ohne je eine Kosmetik gekauft zu haben
+	# (first_cosmetic wird beim ersten Kosmetik-Kauf freigeschaltet → guter Indikator).
+	if was_first_prestige and not is_achievement_unlocked("first_cosmetic"):
+		unlock_achievement("thrifty")
 	# Erfolge: „X Prestiges durchgeführt" (count) und „Besitze X ⭐" (Punkte aus diesem Prestige).
 	_check_metric_achievements("prestige_count", float(prestige_count))
 	_check_metric_achievements("prestige_points", float(prestige_points))
@@ -1891,6 +1989,11 @@ func do_prestige() -> int:
 
 func is_achievement_unlocked(id: String) -> bool:
 	return bool(unlocked_achievements.get(id, false))
+
+
+# Geheimer Erfolg? (in der UI verdeckt als „???" mit Fragezeichen, bis freigeschaltet)
+func is_achievement_secret(id: String) -> bool:
+	return bool(ACHIEVEMENTS.get(id, {}).get("secret", false))
 
 
 # Wurde dieser erreichte Erfolg bereits eingesammelt (Trophäen gutgeschrieben)?
@@ -1922,6 +2025,17 @@ func claim_achievement(id: String) -> bool:
 	ach_currency += get_achievement_reward(id)   # Trophäen-Belohnung (datengetrieben je Erfolg)
 	save_game()
 	achievement_claimed.emit(id)
+	# Geheimer Meta-Erfolg „Komplettist": sobald ALLE regulären Erfolge eingesammelt sind.
+	if _all_regular_achievements_claimed():
+		unlock_achievement("completionist")
+	return true
+
+
+# Sind alle regulären (nicht-geheimen) Erfolge bereits eingesammelt? (Bedingung für „Komplettist")
+func _all_regular_achievements_claimed() -> bool:
+	for id in ACHIEVEMENT_ORDER:
+		if not is_achievement_claimed(id):
+			return false
 	return true
 
 
@@ -2209,6 +2323,9 @@ func load_game_from_slot(slot: int) -> void:
 	_check_metric_achievements("prestige_points", float(prestige_points))
 	_check_metric_achievements("prestige_count", float(prestige_count))
 	_check_metric_achievements("unlocked_tracks", float(get_unlocked_tracks()))
+	# Geheimen Meta-Erfolg „Komplettist" rückwirkend prüfen (Alt-Saves, die schon alles eingesammelt haben).
+	if _all_regular_achievements_claimed():
+		unlock_achievement("completionist")
 	slot_changed.emit(slot)
 
 

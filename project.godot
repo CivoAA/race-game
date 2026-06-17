@@ -20,9 +20,9 @@ config/version="0.9.0"
 run/main_scene="res://scenes/Splash.tscn"
 config/custom_user_dir_name="RoadTycoon"
 config/features=PackedStringArray("4.6", "GL Compatibility")
-config/icon="res://icon.svg"
-boot_splash/show_image=false
 boot_splash/bg_color=Color(0.086, 0.098, 0.129, 1)
+boot_splash/show_image=false
+config/icon="res://icon.svg"
 "#Fester,saubererSpeicherortfÃ¼ruser://âwirdvonSteamAuto-Cloudsynchronisiert.#Windows:%APPDATA%\\RoadTycoon\\(statt%APPDATA%\\Godot\\app_userdata\\...)config/use_custom_user_dir"=true
 
 [autoload]

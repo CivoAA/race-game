@@ -18,6 +18,7 @@ const C_STAR := Color(0.74, 0.48, 0.97)   # Prestige-Lila (Sternfarbe, gespiegel
 var _track_sb: StyleBoxFlat  = null
 var _fill_mat: ShaderMaterial = null
 var _hover_lbl: Label        = null   # erscheint beim Hovern in Lila UNTER der Bar
+var _count_lbl: Label        = null   # „⭐ N" RECHTS neben der Bar: fällige Prestige-Punkte (immer sichtbar)
 
 
 func _ready() -> void:
@@ -68,6 +69,23 @@ func _ready() -> void:
 	mouse_entered.connect(func(): _hover_lbl.visible = true)
 	mouse_exited.connect(func():  _hover_lbl.visible = false)
 
+	# „⭐ N"-Anzeige RECHTS neben der Bar: die Prestige-Punkte, die ein Prestige JETZT brächte
+	# (Economy.prestige_pending_points). Jedes volle Füllen der Leiste erhöht diese Zahl um eins
+	# (Verdienst-Skalierung). Eigene Anker rechts → unabhängig von der dynamischen Bar-Breite.
+	# Der ⭐-Glyph rendert inline über den Tabler-Fallback-Font (siehe Icons).
+	_count_lbl = Label.new()
+	_count_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_count_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_count_lbl.add_theme_font_size_override("font_size", 12)
+	_count_lbl.add_theme_color_override("font_color", C_STAR)
+	_count_lbl.add_theme_constant_override("outline_size", 3)
+	_count_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_count_lbl.anchor_left   = 1.0; _count_lbl.offset_left   = 6
+	_count_lbl.anchor_right  = 1.0; _count_lbl.offset_right  = 70
+	_count_lbl.anchor_top    = 0.0; _count_lbl.offset_top    = 0
+	_count_lbl.anchor_bottom = 1.0; _count_lbl.offset_bottom = 0
+	add_child(_count_lbl)
+
 	_apply()
 
 
@@ -94,10 +112,24 @@ func _apply() -> void:
 	if _track_sb != null:
 		_track_sb.set_corner_radius_all(int(round(h * 0.5)))
 
-	var target: float = Economy.PRESTIGE_K
-	var progress: float = clampf(float(Economy.get_currency()) / target, 0.0, 1.0)
+	var progress: float = Economy.prestige_progress()
+	var pending: int = Economy.prestige_pending_points()
+	# Track-Hintergrund: solange noch KEIN Punkt fällig ist (erste Leiste), dezentes Dunkel. Ab dem
+	# ersten vollen Durchlauf (pending ≥ 1) läuft die Leiste „von vorn" – der leere Teil zeigt dann
+	# das Prestige-Lila in abgedunkelt + leicht transparent, damit sichtbar ist, dass eine NEUE
+	# Leiste über der bereits gefüllten läuft.
+	if _track_sb != null:
+		if pending >= 1:
+			var t := C_STAR.darkened(0.55)
+			t.a = 0.42
+			_track_sb.bg_color = t
+		else:
+			_track_sb.bg_color = Color(0.0, 0.0, 0.0, 0.32)
 	if _hover_lbl != null:
 		_hover_lbl.text = "Prestige Fortschritt %d%%" % int(round(progress * 100.0))
+	if _count_lbl != null:
+		# Ab dem ersten fälligen Punkt sichtbar (⭐ + Anzahl), davor leer.
+		_count_lbl.text = "%s %s" % [Icons.STAR, Economy.format_currency(pending)] if pending >= 1 else ""
 	_fill_mat.set_shader_parameter("progress", progress)
 	_fill_mat.set_shader_parameter("size_px", Vector2(w, h))
 	_fill_mat.set_shader_parameter("radius_px", h * 0.5)   # volle Pillen-Rundung an den Enden

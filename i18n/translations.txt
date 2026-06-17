@@ -68,7 +68,8 @@ key,en,es,fr
 "MITWIRKENDE","CONTRIBUTORS","COLABORADORES","CONTRIBUTEURS"
 "TESTER","TESTERS","PROBADORES","TESTEURS"
 "Audio: Tessemi","Audio: Tessemi","Audio: Tessemi","Audio : Tessemi"
-"Visuals: RaccoonDog","Visuals: RaccoonDog","Gráficos: RaccoonDog","Visuels : RaccoonDog"
+"2D Pixelart: RaccoonDog","2D Pixelart: RaccoonDog","Pixel art 2D: RaccoonDog","Pixel art 2D : RaccoonDog"
+"3D Models: Tessemi","3D Models: Tessemi","Modelos 3D: Tessemi","Modèles 3D : Tessemi"
 
 # ── Fehler melden (Bug-Report) ────────────────────────────────────────────────
 "Fehler melden","Report a bug","Reportar un error","Signaler un bug"
@@ -480,6 +481,10 @@ key,en,es,fr
 # ── Erfolge: Einsammeln ───────────────────────────────────────────────────────
 "Eingesammelt","Collected","Recogido","Récupéré"
 "Einsammeln   +%d %s","Collect   +%d %s","Recoger   +%d %s","Récupérer   +%d %s"
+
+# ── Erfolge: Geheime Erfolge ──────────────────────────────────────────────────
+"GEHEIME ERFOLGE","SECRET ACHIEVEMENTS","LOGROS SECRETOS","SUCCÈS SECRETS"
+"Geheimer Erfolg – schalte ihn frei, um ihn zu enthüllen.","Secret achievement – unlock it to reveal it.","Logro secreto: desbloquéalo para revelarlo.","Succès secret – débloque-le pour le révéler."
 
 # ── Prestige-Tab ──────────────────────────────────────────────────────────────
 "%d Prestiges durchgeführt","%d prestiges performed","%d prestigios realizados","%d prestiges effectués"

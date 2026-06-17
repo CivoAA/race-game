@@ -1489,9 +1489,23 @@ func _build_credits_modal() -> Control:
 	panel.add_theme_stylebox_override("panel", _panel_style())
 	center.add_child(panel)
 
+	# Äußerer Container: scrollbarer Inhalt oben, fixer „Zurück"-Button unten.
+	var outer_vbox := VBoxContainer.new()
+	outer_vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(outer_vbox)
+
+	# Scroll-Bereich: Höhe an die Fenstergröße gekoppelt → bei vielen Namen wird gescrollt,
+	# ohne dass das Panel über den Bildschirm hinauswächst.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(0, mini(RUI.px(460), int(RUI.vh() - RUI.px(150))))
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer_vbox.add_child(scroll)
+
 	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
+	scroll.add_child(vbox)
 
 	# Dev Team
 	_credits_heading(vbox, "DEV TEAM")
@@ -1512,12 +1526,19 @@ func _build_credits_modal() -> Control:
 	audio_lbl.add_theme_color_override("font_color", C_TEXT)
 	vbox.add_child(audio_lbl)
 
-	var visuals_lbl := Label.new()
-	visuals_lbl.text = "Visuals: RaccoonDog"
-	visuals_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	visuals_lbl.add_theme_font_size_override("font_size", 17)
-	visuals_lbl.add_theme_color_override("font_color", C_TEXT)
-	vbox.add_child(visuals_lbl)
+	var pixel_lbl := Label.new()
+	pixel_lbl.text = "2D Pixelart: RaccoonDog"
+	pixel_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pixel_lbl.add_theme_font_size_override("font_size", 17)
+	pixel_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(pixel_lbl)
+
+	var models_lbl := Label.new()
+	models_lbl.text = "3D Models: Tessemi"
+	models_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	models_lbl.add_theme_font_size_override("font_size", 17)
+	models_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(models_lbl)
 
 	_credits_big_div(vbox)
 
@@ -1525,10 +1546,12 @@ func _build_credits_modal() -> Control:
 	_credits_heading(vbox, "TESTER")
 	_credits_thin_div(vbox)
 	_add_spacer(vbox, 4)
-	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi"])
+	_credits_names_rows(vbox, ["DaCat", "Marlonikus", "Tessemi", "RaccoonDog",
+		"Louis", "DGROM", "Bubbles", "Papa_Civo"])
 
-	_add_spacer(vbox, 14)
-	_add_btn(vbox, "←", "Zurück", C_ACCENT_MU, _reopen_settings_panel)
+	# „Zurück" bleibt außerhalb des Scrollbereichs immer sichtbar.
+	_add_spacer(outer_vbox, 14)
+	_add_btn(outer_vbox, "←", "Zurück", C_ACCENT_MU, _reopen_settings_panel)
 
 	return center
 

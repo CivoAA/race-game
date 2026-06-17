@@ -776,12 +776,19 @@ func _build_credits_modal() -> Control:
 	audio_lbl.add_theme_color_override("font_color", C_TEXT)
 	vbox.add_child(audio_lbl)
 
-	var visuals_lbl := Label.new()
-	visuals_lbl.text = "Visuals: RaccoonDog"
-	visuals_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	visuals_lbl.add_theme_font_size_override("font_size", 17)
-	visuals_lbl.add_theme_color_override("font_color", C_TEXT)
-	vbox.add_child(visuals_lbl)
+	var pixel_lbl := Label.new()
+	pixel_lbl.text = "2D Pixelart: RaccoonDog"
+	pixel_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pixel_lbl.add_theme_font_size_override("font_size", 17)
+	pixel_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(pixel_lbl)
+
+	var models_lbl := Label.new()
+	models_lbl.text = "3D Models: Tessemi"
+	models_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	models_lbl.add_theme_font_size_override("font_size", 17)
+	models_lbl.add_theme_color_override("font_color", C_TEXT)
+	vbox.add_child(models_lbl)
 
 	_credits_big_div(vbox)
 
