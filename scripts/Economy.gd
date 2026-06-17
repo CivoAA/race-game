@@ -557,13 +557,14 @@ const ICE_PER_LEVEL_BOOST   = 0.5
 const ICE_BASE_RANGE        = 3
 
 # ── Steilwandkurve (Wall-Ride) ──────────────────────────────────────────────────
-# Zwei vertikal gestapelte Kacheln = eine 180°-Haarnadel an einer Steilwand. Beim Rausfahren
-# bekommen die nächsten Folge-Felder einen absoluten Tempo-Bonus (wie die Eisgerade), Basis
-# +2 Tempo-Stufen, je Upgrade-Stufe +0.5; Reichweite 3 Folge-Felder, +1 je 5 Upgrade-Stufen.
+# Zwei vertikal gestapelte Kacheln = eine 180°-Haarnadel an einer Steilwand. Der absolute Tempo-Bonus
+# (wie die Eisgerade) greift sofort beim Auffahren und wirkt über die Kurve HINAUS: Basis +2 Tempo-
+# Stufen, je Upgrade-Stufe +0.5. Reichweite zählt ab dem Einfahrt-Feld (j=0); die Kurve selbst belegt
+# j=0 (wall_start) + j=1 (wall_end), Reichweite 4 ⇒ 3 Felder AUSSERHALB der Kurve, +1 je 5 Upgrade-Stufen.
 # Das Geld (Grundertrag am Einfahrt-Feld) läuft über das wallbonus-Upgrade (base/per_level).
 const WALL_BASE_BOOST_LEVELS = 2.0
 const WALL_PER_LEVEL_BOOST   = 0.5
-const WALL_BASE_RANGE        = 3
+const WALL_BASE_RANGE        = 4
 
 
 func get_tile_unlock_cost(key: String) -> int:
@@ -1653,7 +1654,8 @@ func get_wall_speed_bonus(level: int = -1) -> float:
 	return get_wall_boost_levels(level) * float(UPGRADES["speed"]["per_level"]) * SPEED_SCALE
 
 
-# Reichweite der Steilwandkurve: 3 Folge-Felder, +1 je 5 Upgrade-Stufen (5→4, 10→5, 15→6).
+# Reichweite der Steilwandkurve ab dem Einfahrt-Feld (j=0). Basis 4 ⇒ Kurve (j=0/1) + 3 Felder
+# außerhalb; +1 je 5 Upgrade-Stufen (5→5, 10→6, 15→7).
 func get_wall_range(level: int = -1) -> int:
 	if level < 0:
 		level = get_upgrade_level("wallbonus")

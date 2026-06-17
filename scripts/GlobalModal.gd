@@ -50,6 +50,9 @@ var _shop_cats:   Array[Control] = []
 
 # Streckenteile-Tab: rotierende 3D-Vorschauen + Karten-Raster (für Neuaufbau nach Freischalten)
 var _tile_preview_pivots: Array         = []   # Node3D-Pivots, drehen sich wenn der Tab sichtbar ist
+# Vorschauen, die zyklisch durch mehrere Modelle wechseln (z. B. Tribüne durch alle Stapel-Stufen).
+# Je Eintrag: {cam, model, pivot, parts:[Node3D...], idx:int, accum:float}.
+var _tile_cyclers:        Array         = []
 var _tiles_grid:          GridContainer = null
 # true = das Karten-Raster muss neu gebaut werden (z. B. nach Speicherstand-Wechsel),
 # weil dieser Autoload Szenenwechsel überlebt und Freischaltungen pro Slot gelten.
@@ -248,7 +251,7 @@ func _do_rebuild() -> void:
 	_garage_trophy_lbl      = null;  _test_car_btn        = null
 	_garage_tab_btns.clear(); _garage_active_tab = 0
 	_statistik_vbox         = null;  _stat_value_lbls.clear()
-	_tile_preview_pivots.clear();    _tiles_grid = null
+	_tile_preview_pivots.clear();    _tile_cyclers.clear();   _tiles_grid = null
 	_tile_buttons.clear();  _tile_upgrade_buttons.clear()
 	_tile_upgrade_cards.clear();     _upgrade_buttons.clear()
 	_ach_data.clear();      _ach_tiles.clear();       _ach_selected = -1
@@ -335,6 +338,7 @@ func _process(delta: float) -> void:
 		for p in _tile_preview_pivots:
 			if is_instance_valid(p):
 				p.rotate_y(delta * 0.6)
+		_advance_tile_cyclers(delta)
 
 	# Kauf-Buttons (Streckenteile + Upgrades) live nachfärben, sobald sich der Geldstand
 	# ändert. Läuft nur, solange das Upgrade-Center offen ist (oben steht `if not visible:
@@ -644,10 +648,12 @@ func _tile_entries() -> Array:
 		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+1000 Ertrag · ×1.2", "upgrade": "racestraightbonus", "field_earn_base": 1000},
 		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+1000 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 1000},
 		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
-		{"name": "Steilwandkurve","key": "wall",       "model": "",                                 "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
-		{"name": "Looping",      "key": "loop",        "model": "",                                 "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
-		{"name": "Portal",       "key": "portal",      "model": "",                                 "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
-		{"name": "Tribüne",      "key": "stand",       "model": "",                                 "desc": "×2.5 Nachbarfeld · stapelbar", "upgrade": "standbonus", "field_earn_base": 0},
+		{"name": "Steilwandkurve","key": "wall",       "model": Paths.MODEL_TRACK_WALL,             "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
+		{"name": "Looping",      "key": "loop",        "model": Paths.MODEL_TRACK_LOOP,             "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
+		# Portal = zwei GLBs auf EINER Kachel (Rampe + blaues Tor) → als Modell-Liste in der Vorschau.
+		{"name": "Portal",       "key": "portal",      "model": Paths.MODEL_TRACK_PORTAL_RAMP,      "models": [Paths.MODEL_TRACK_PORTAL_RAMP, Paths.MODEL_TRACK_PORTAL_BLUE], "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
+		# Tribüne: im Spiel stapelbar (Stand1..4) → die Vorschau wechselt zyklisch durch alle Stufen.
+		{"name": "Tribüne",      "key": "stand",       "model": Paths.stand_model(1), "models": Paths.MODEL_TRACK_STANDS, "cycle": true, "desc": "×2.5 Nachbarfeld · stapelbar", "upgrade": "standbonus", "field_earn_base": 0},
 		# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren, vorerst ohne
 		# Ökonomie-Effekt. Freischaltkosten 1 (Economy.TILE_UNLOCK_COST), kein Upgrade.
 		{"name": "Wasser-Gerade", "key": "water_straight","model": Paths.MODEL_TRACK_STRAIGHT_WATER, "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
@@ -701,6 +707,7 @@ func _populate_tiles_grid() -> void:
 	if _tiles_grid == null:
 		return
 	_tile_preview_pivots.clear()
+	_tile_cyclers.clear()
 	_tile_buttons.clear()
 	_tile_upgrade_buttons.clear()
 	_tile_upgrade_cards.clear()
@@ -726,9 +733,13 @@ func _attach_tile_preview(card: Panel, entry: Dictionary) -> void:
 	var coming: bool   = entry.get("coming", false)
 	var model:  String = entry.get("model", "")
 	var film:   bool   = coming or model == "" or entry.get("film", false)
-	var show_model = model if model != "" else Paths.MODEL_TRACK_STRAIGHT_DEFAULT
+	# Manche Tiles (Portal) bestehen aus mehreren GLBs auf einer Kachel → "models"-Liste bevorzugen,
+	# sonst das einzelne Modell (Fallback: Default-Strecke unter Film, wenn keins gesetzt ist).
+	var show_models: Array = entry.get("models", [])
+	if show_models.is_empty():
+		show_models = [model] if model != "" else [Paths.MODEL_TRACK_STRAIGHT_DEFAULT]
 
-	_build_tile_preview(card, CARD_PREV_POS, CARD_PREV_SZ, show_model)
+	_build_tile_preview(card, CARD_PREV_POS, CARD_PREV_SZ, show_models, entry.get("cycle", false))
 
 	if film:
 		var veil := ColorRect.new()
@@ -982,7 +993,7 @@ func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
 
 # Baut eine kleine 3D-Vorschau (eigene SubViewport-Welt) auf und merkt sich den
 # rotierenden Pivot. Kamera rahmt das Modell automatisch über sein AABB.
-func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_path: String) -> void:
+func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_paths: Array, cycle: bool = false) -> void:
 	var svc := SubViewportContainer.new()
 	svc.position     = pos
 	svc.size         = sz
@@ -1023,33 +1034,85 @@ func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_path:
 	world.add_child(pivot)
 	_tile_preview_pivots.append(pivot)
 
-	var model: Node3D = null
-	if model_path != "" and ResourceLoader.exists(model_path):
-		model = (load(model_path) as PackedScene).instantiate()
-	else:
-		model = Node3D.new()
+	# Alle Modell-Teile in EINEN Container hängen (manche Tiles wie Portal bestehen aus mehreren
+	# GLBs auf einer Kachel), damit Zentrierung/Kamera-Rahmung das Gesamtbild umfasst. Beim Cycling
+	# (z. B. Tribüne) wird hingegen immer nur EIN Teil eingeblendet und reihum durchgeschaltet.
+	var model := Node3D.new()
+	pivot.add_child(model)
+	var parts: Array = []
+	for mp in model_paths:
+		if typeof(mp) == TYPE_STRING and mp != "" and ResourceLoader.exists(mp):
+			var part := (load(mp) as PackedScene).instantiate() as Node3D
+			model.add_child(part)
+			parts.append(part)
+	if parts.is_empty():
 		var mi := MeshInstance3D.new()
 		var box := BoxMesh.new()
 		box.size = Vector3(1.0, 0.2, 3.0)
 		mi.mesh  = box
 		model.add_child(mi)
-	pivot.add_child(model)
+	# Track-GLBs kommen ohne Material → erst die gemeinsame Atlas-Textur auflegen (sonst nur
+	# weiße Umrisse), dann Alpha-Kanten ausstanzen. Gleiche Quelle wie die echte 3D-Strecke.
+	MaterialUtil.apply_track_texture(model)
 	MaterialUtil.apply_alpha_scissor(model)
 
+	# Cycling: nur das erste Teil zeigen, Rest verstecken, und einen Cycler registrieren.
+	var do_cycle := cycle and parts.size() > 1
+	var frame_target: Node3D = model
+	if do_cycle:
+		for i in parts.size():
+			(parts[i] as Node3D).visible = (i == 0)
+		frame_target = parts[0]
+		_tile_cyclers.append({"cam": cam, "model": model, "pivot": pivot, "parts": parts, "idx": 0, "accum": 0.0})
+
 	# Kamera leicht von schräg oben auf das gerahmte Modell ausrichten.
-	var aabb := _calc_aabb(pivot)
+	_frame_tile_preview(cam, model, pivot, frame_target)
+
+
+# Rahmt die Kamera so, dass `target` (Teil unter `model`/`pivot`) mittig sitzt und voll im Bild ist.
+# Misst die AABB im Pivot-Raum (drehunabhängig), zentriert das Teil über model.position und setzt
+# Kamera-Distanz aus dem Radius – wiederverwendbar für die initiale Rahmung und jeden Cycle-Wechsel.
+func _frame_tile_preview(cam: Camera3D, model: Node3D, pivot: Node3D, target: Node3D) -> void:
+	model.position = Vector3.ZERO
+	var aabb := _aabb_in_space(target, pivot)
 	if aabb.size == Vector3.ZERO:
 		cam.position = Vector3(2.0, 1.6, 3.2)
 		cam.look_at(Vector3.ZERO, Vector3.UP)
 		return
 	var center := aabb.position + aabb.size * 0.5
-	model.position -= center
+	model.position = -center
 	var radius := aabb.size.length() * 0.5
 	var dist := radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.15
 	# Deutlich höher positionieren, damit man die Strecke stärker von schräg oben sieht
 	# (~28° statt ~14° über der Horizontalen) – die Form der Kachel ist so besser erkennbar.
 	cam.position = Vector3(dist * 0.3, dist * 0.5, dist * 0.9)
 	cam.look_at(Vector3.ZERO, Vector3.UP)
+
+
+# Sekunden, die jede Stufe einer durchwechselnden Vorschau (Tribüne) sichtbar bleibt.
+const TILE_CYCLE_INTERVAL = 1.4
+
+
+# Schaltet registrierte Cycler reihum auf das nächste Modell weiter und rahmt es neu.
+func _advance_tile_cyclers(delta: float) -> void:
+	for cyc in _tile_cyclers:
+		if not is_instance_valid(cyc["model"]):
+			continue
+		var parts: Array = cyc["parts"]
+		if parts.size() < 2:
+			continue
+		cyc["accum"] += delta
+		if cyc["accum"] < TILE_CYCLE_INTERVAL:
+			continue
+		cyc["accum"] = 0.0
+		var cur = parts[cyc["idx"]]
+		if is_instance_valid(cur):
+			cur.visible = false
+		cyc["idx"] = (int(cyc["idx"]) + 1) % parts.size()
+		var nxt = parts[cyc["idx"]]
+		if is_instance_valid(nxt):
+			nxt.visible = true
+			_frame_tile_preview(cyc["cam"], cyc["model"], cyc["pivot"], nxt)
 
 
 func _build_cat_placeholder(parent: Control, x: int, h: int, w: int,
@@ -2479,10 +2542,17 @@ func _collect_meshes(node: Node) -> void:
 
 # Kombiniertes AABB aller VisualInstance3D unterhalb von root (im root-lokalen Raum).
 func _calc_aabb(root: Node3D) -> AABB:
+	return _aabb_in_space(root, root)
+
+
+# Kombinierte AABB aller VisualInstance3D unter `node`, ausgedrückt im lokalen Raum von `space`.
+# Mit space == node erhält man die lokale AABB; mit einem gemeinsamen Pivot bleibt das Ergebnis
+# drehunabhängig (Pivot-Rotation wird herausgerechnet) – wichtig fürs Re-Rahmen beim Cycling.
+func _aabb_in_space(node: Node3D, space: Node3D) -> AABB:
 	var result := AABB()
 	var has := false
-	var inv := root.global_transform.affine_inverse()
-	var stack: Array = [root]
+	var inv := space.global_transform.affine_inverse()
+	var stack: Array = [node]
 	while not stack.is_empty():
 		var n = stack.pop_back()
 		if n is VisualInstance3D:

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://t4fqtfachjm7"
-path="res://.godot/imported/bankedTurn.png-761d703618884422b7713c2c1594538c.ctex"
+uid="uid://doldh8b1vfvfb"
+path="res://.godot/imported/looping_portal.PNG-369759cfd2cad38da2ee6510ecf1f7e6.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/2D-tiles/allgemein/bankedTurn.png"
-dest_files=["res://.godot/imported/bankedTurn.png-761d703618884422b7713c2c1594538c.ctex"]
+source_file="res://temp/looping_portal.PNG"
+dest_files=["res://.godot/imported/looping_portal.PNG-369759cfd2cad38da2ee6510ecf1f7e6.ctex"]
 
 [params]
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b3h6wf4qai7qk"
-path="res://.godot/imported/portal2.png-82bcd2b8cf3571e4bac5c9c01796168b.ctex"
+uid="uid://c1t02q4unccm4"
+path="res://.godot/imported/singleGrandstand2.png-be6da5602e9653d7ba0b291846fa51d0.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/2D-tiles/allgemein/portal2.png"
-dest_files=["res://.godot/imported/portal2.png-82bcd2b8cf3571e4bac5c9c01796168b.ctex"]
+source_file="res://assets/2D-tiles/allgemein/singleGrandstand2.png"
+dest_files=["res://.godot/imported/singleGrandstand2.png-be6da5602e9653d7ba0b291846fa51d0.ctex"]
 
 [params]
 

@@ -1500,10 +1500,10 @@ func _tile_thumb_path(item: Dictionary) -> String:
 	var t := String(item.get("type", ""))
 	match String(item.get("tier", "")):
 		"loop":   return Paths.TEX_LOOP_2D
-		"portal": return Paths.TEX_PORTAL1_2D
+		"portal": return Paths.portal_texture("E", false)   # blaues Portal (Basis-Vorschau)
 		"ramp":   return Paths.TEX_RAMP_2D
 		"wall":   return Paths.TEX_WALL_2D
-		"stand":  return ""   # kein 2D-Artwork → Fallback-Icon
+		"stand":  return Paths.TEX_STAND_SINGLE.get("S", "")   # Einzel-Tribüne (Süd) als Vorschau
 	# Belag → 2D-Bauplan-Kachel (Gerade = OW, Kurve = OS). Sand/Wasser borgen sich die Default-Form.
 	var is_curve := t.ends_with("curve") or t == "curve"
 	var shape := "curve" if is_curve else "straight"
@@ -1512,14 +1512,14 @@ func _tile_thumb_path(item: Dictionary) -> String:
 	elif t == "ice" or t == "ice_curve":             belag = "ice"
 	elif t == "race_straight" or t == "race_curve":  belag = "race"
 	elif t == "glue_straight" or t == "glue_curve":  belag = "glue"
-	# sand_*/water_* → belag bleibt "default" (Form), Farbe kommt aus _tile_thumb_tint.
+	elif t == "sand_straight" or t == "sand_curve":  belag = "sand"
+	# water_* → belag bleibt "default" (Form), Farbe kommt aus _tile_thumb_tint (kein eigenes Artwork).
 	return Paths.tile2d_texture(belag, shape, 0)
 
-# Einfärbung des Thumbnails: Sand sandfarben, Wasser bläulich (beide borgen die Default-Straße),
-# alles andere unverändert (echtes Artwork = weiß).
+# Einfärbung des Thumbnails: Wasser bläulich (borgt die Default-Straße, kein eigenes Artwork),
+# alles andere unverändert (echtes Artwork = weiß; Sand hat jetzt eigenes Artwork → keine Tönung).
 func _tile_thumb_tint(item: Dictionary) -> Color:
 	match String(item.get("tier", "")):
-		"sand": return Color(1.00, 0.84, 0.52)
 		"test":
 			if String(item.get("type", "")).begins_with("water"):
 				return Color(0.55, 0.80, 1.00)
@@ -1534,7 +1534,7 @@ func _tile_fallback_glyph(item: Dictionary) -> String:
 
 # Anzeige-Reihenfolge der Kategorien in der Bau-Liste (unabhängig von der SHOP_ITEMS-Reihenfolge).
 # Innerhalb einer Kategorie bleibt die SHOP_ITEMS-Reihenfolge erhalten.
-const SECTION_ORDER := ["ERDE", "ASPHALT", "RENNSTRECKE", "EIS", "SAND", "KLEBER", "WASSER", "SPEZIAL"]
+const SECTION_ORDER := ["ERDE", "SAND", "ASPHALT", "EIS", "RENNSTRECKE", "KLEBER", "WASSER", "SPEZIAL"]
 
 # Kategorie-Überschrift für ein Shop-Slot (gleiche Kategorie → keine neue Überschrift).
 # Default-Belag (Gerade/Kurve) und Rennbelag teilen den Tier "default", bekommen aber GETRENNTE
@@ -1748,6 +1748,8 @@ func _tile_texture_for(data: Dictionary) -> Texture2D:
 		belag = "ice"
 	elif t == "race_straight" or t == "race_curve":
 		belag = "race"
+	elif t == "sand_straight" or t == "sand_curve":
+		belag = "sand"
 	elif t == "glue_straight" or t == "glue_curve":
 		belag = "glue"
 	var shape := "curve" if t in ["curve", "curve_alt", "ice_curve", "race_curve", "sand_curve", "water_curve", "glue_curve"] else "straight"
@@ -1801,8 +1803,8 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 		grid[row][col] = data
 		return
 
-	# Portal-Tile: Artwork-Paar (portal1/portal2), per Drehung in die Weltlage gerichtet.
-	# Start blau; _refresh_portal_images() färbt den Ausgang nach Strecken-Validierung orange.
+	# Portal-Tile: richtungsgebundenes Artwork (offene Einfahr-Seite aus der Rotation).
+	# Start blau; _refresh_portal_images() färbt den Ausgang nach Strecken-Validierung gelb.
 	if data["type"] == "portal":
 		var node = _create_portal_node(data)
 		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
@@ -1988,6 +1990,20 @@ func _create_ramp_node(data: Dictionary) -> Node2D:
 		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # Pixelart: keine Weichzeichnung
 		spr.scale          = Vector2(TILE_SIZE / 32.0, TILE_SIZE / 32.0)
 		node.add_child(spr)
+		# Das mittlere Drittel (32..64) ist der Schatten, den die Rampe auf das Sprungfeld wirft.
+		# Das Sprungfeld behält sein eigenes Strecken-Tile, daher zeichnen wir den Schatten nur
+		# einmal – vom ramp_start aus – als Overlay eine Kachel Richtung Ausfahrt. Höherer z_index,
+		# damit der Schatten über einer dort platzierten Strecke liegen bleibt (unter Markern/Badges).
+		if is_start:
+			var shadow = Sprite2D.new()
+			shadow.texture        = ramp_tex
+			shadow.region_enabled = true
+			shadow.region_rect    = Rect2(32, 0, 32, 32)
+			shadow.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			shadow.scale          = Vector2(TILE_SIZE / 32.0, TILE_SIZE / 32.0)
+			shadow.position       = Vector2(TILE_SIZE, 0.0)
+			shadow.z_index        = 2
+			node.add_child(shadow)
 		return node
 
 	var road_col  = Color(0.25, 0.25, 0.28)
@@ -2109,14 +2125,16 @@ func _count_portals() -> int:
 	return n
 
 
-# Portal-Tile-Node. rot=0 Basislage: offene Seite = West (OW). Das Artwork ist OW gemalt →
-# keine Extra-Drehung, die Node-Rotation richtet es in die Weltlage. Farbe nach Routen-Rolle:
-# Ausgang = portal2 (orange), Eingang ODER (noch) unbestimmt = portal1 (blau). Die endgültige
+# Portal-Tile-Node. Richtungsgebundenes Artwork: die offene Einfahr-Seite ergibt sich aus der
+# Rotation (_portal_open_dir_m). Die Bilder sind absolut/welt-orientiert gemalt → die externe
+# Node-Drehung (data.rotation) wird im Sprite gegen-rotiert (-rot), das Bild bleibt weltrichtig.
+# Farbe nach Routen-Rolle: Ausgang = gelb, Eingang ODER (noch) unbestimmt = blau. Die endgültige
 # Färbung setzt _refresh_portal_images() nach jeder Strecken-Änderung (_invalidate_track).
 func _create_portal_node(data: Dictionary, is_exit: bool = false) -> Node2D:
 	var node = Node2D.new()
-	var tex_path = Paths.TEX_PORTAL2_2D if is_exit else Paths.TEX_PORTAL1_2D
-	var spr = _make_tile_sprite(tex_path)
+	var rot = int(data.get("rotation", 0))
+	var open_dir = _portal_open_dir_m(rot)
+	var spr = _make_tile_sprite(Paths.portal_texture(open_dir, is_exit), -float(rot))
 	spr.name = "PortalSprite"
 	node.add_child(spr)
 	return node
@@ -2170,7 +2188,9 @@ func _refresh_portal_images() -> void:
 			if spr == null:
 				continue
 			var is_exit = Vector2i(r, c) == exit_cell
-			var tex = load(Paths.TEX_PORTAL2_2D if is_exit else Paths.TEX_PORTAL1_2D) as Texture2D
+			# Richtung bleibt gleich (Rotation), nur die Farbe (blau/gelb) wechselt je Rolle.
+			var open_dir = _portal_open_dir_m(int(d.get("rotation", 0)))
+			var tex = load(Paths.portal_texture(open_dir, is_exit)) as Texture2D
 			spr.texture = tex
 			if tex != null:
 				var sz = tex.get_size()
@@ -2208,9 +2228,50 @@ func _dir2d(dir: String) -> Vector2:
 	return Vector2.ZERO
 
 
-# Tribünen-Tile-Node (programmatisch, Top-Down). rot=0 Basislage: Boost-Pfeile zu den geboosteten
-# Nachbarfeldern (Stapel 1=S, 2=S+N, 3=S+N+E, 4=alle). Node-Rotation dreht alles in die Weltlage.
+# Wählt das richtungsgebundene Tribünen-Artwork je Stapel-Stufe + Rotation und liefert
+# [tex_path, tint]. tint ist nur beim 4er-Platzhalter ungleich Weiß (blau eingefärbt). Die
+# geboosteten Richtungen liefert _stand_dirs(rot, stack) (Basis S,N,E,W, CW mitgedreht).
+func _stand_texture_for(rotation: int, stack: int) -> Array:
+	var dirs = _stand_dirs(rotation, stack)
+	if stack <= 1:
+		# Eine Boost-Richtung = Blickrichtung → singleGrandstand (S=1, E=2, W=3, N=4).
+		return [Paths.TEX_STAND_SINGLE.get(dirs[0], ""), Color.WHITE]
+	if stack == 2:
+		# Zwei gegenüberliegende Richtungen → NS- oder OW-Variante.
+		var tex_ns_ow = Paths.TEX_STAND_DOUBLE_NS if ("N" in dirs or "S" in dirs) else Paths.TEX_STAND_DOUBLE_OW
+		return [tex_ns_ow, Color.WHITE]
+	if stack == 3:
+		# Drei Richtungen; das Asset nennt die NICHT geboostete (4.) Richtung = _rotate_dir_cw("W").
+		var missing = _rotate_dir_cw("W", rotation)
+		return [Paths.TEX_STAND_TRIPLE.get(missing, ""), Color.WHITE]
+	# Stapel 4/5: echtes 4er-Artwork falls vorhanden, sonst blauer Platzhalter (tipleGrandstandN).
+	if Paths.TEX_STAND_QUAD != "":
+		return [Paths.TEX_STAND_QUAD, Color.WHITE]
+	return [Paths.TEX_STAND_QUAD_PLACEHOLDER, Paths.STAND_QUAD_PLACEHOLDER_TINT]
+
+
+# Tribünen-Tile-Node. Richtungsgebundenes Pixelart je Stapel-Stufe (siehe Paths.TEX_STAND_*).
+# Das Artwork ist absolut/welt-orientiert gemalt → die externe Node-Drehung (data.rotation) wird
+# im Sprite gegen-rotiert (-rot). Beim Verschieben/Drehen wird der Node neu gebaut, sodass immer
+# das passende Asset (Richtung + Stapel-Stufe) erscheint. Fehlt ein Artwork → prozeduraler Fallback.
 func _create_stand_node(data: Dictionary) -> Node2D:
+	var node  = Node2D.new()
+	var rot   = int(data.get("rotation", 0))
+	var stack = int(data.get("stack", 1))
+	var info  = _stand_texture_for(rot, stack)
+	var tex_path = String(info[0])
+	if tex_path != "" and load(tex_path) != null:
+		var spr = _make_tile_sprite(tex_path, -float(rot))
+		spr.modulate = info[1]
+		node.add_child(spr)
+		return node
+	return _create_stand_node_legacy(data)
+
+
+# Prozedurale Fallback-Tribüne (Top-Down): graue Box + braune Sitzstufe + Boost-Pfeile je
+# Stapel-Stufe. Nur als Reserve, falls ein Pixelart-Asset fehlt. rot=0 Basislage: Pfeile zu den
+# geboosteten Nachbarfeldern (Stapel 1=S, 2=S+N, 3=S+N+E, 4=alle); Node-Rotation dreht in die Weltlage.
+func _create_stand_node_legacy(data: Dictionary) -> Node2D:
 	var node    = Node2D.new()
 	var half    = TILE_SIZE / 2.0
 	var stack   = int(data.get("stack", 1))
@@ -2577,6 +2638,7 @@ func _begin_grid_drag() -> void:
 		"rotation":  int(d.get("rotation", 0)),
 		"direction": int(d.get("direction", 1)),
 		"is_dirt":   d.get("is_dirt", false),
+		"stack":     int(d.get("stack", 1)),   # Tribünen-Stapel → Drag-Vorschau zeigt richtige Stufe
 	}
 	_drag_ghost  = _make_ghost(_drag_data)
 	grid_node.add_child(_drag_ghost)
@@ -3144,6 +3206,7 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		"series":        data.get("series", ""),
 		"combine_level": data.get("combine_level", 0),
 		"is_dirt":       data.get("is_dirt", false),
+		"stack":         data.get("stack", 1),   # Tribünen-Stapel mitnehmen → richtiges Asset/Bonus
 	}
 	data["node"].queue_free()
 	grid[old_row][old_col] = null
@@ -3485,6 +3548,19 @@ func _rotate_active(degrees: int) -> void:
 		_update_grid_highlight()
 		_invalidate_track()
 		tile_selector.set_status("Tribüne")
+		return
+	# Portal: Node NEU aufbauen, damit das richtungsgebundene Artwork (offene Einfahr-Seite)
+	# zur neuen Rotation passt; _invalidate_track färbt anschließend Ein-/Ausgang (blau/gelb).
+	if data.get("type", "") == "portal":
+		var nd = data.duplicate()
+		nd.erase("node")
+		nd["rotation"] = (int(data["rotation"]) + degrees) % 360
+		_free_tile_node(row, col)
+		_spawn_tile(row, col, nd)
+		selected_grid_row = row; selected_grid_col = col
+		_update_grid_highlight()
+		_invalidate_track()
+		tile_selector.set_status("Portal")
 		return
 	# Artwork-Tiles (Gerade/Kurve/Eis/Eiskurve/Dreck): Node NEU aufbauen, damit beim Drehen das
 	# passende, vorab gedrehte Bild GEWÄHLT (ersetzt) statt der Node mitgedreht wird – die Pixelart-
