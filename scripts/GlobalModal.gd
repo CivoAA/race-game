@@ -42,6 +42,7 @@ var _active_shop_cat:  int = 0
 
 var _modal_tab_btns:    Array[Button] = []
 var _shop_sidebar_btns: Array[Button] = []   # Pillen des Shop-Umschalters oben (Streckenteile/Upgrades)
+var _buy_mode_btn:      OptionButton  = null   # Kaufmenge-Dropdown („Einzeln/Max") rechts in der Shop-Nav
 var _modal_money_lbl:   Label         = null   # Geldstand oben rechts in der Tab-Leiste
 
 # Inhaltsbereiche (je ein Control, visible-Switching)
@@ -557,6 +558,9 @@ func _attach_preview_to(container: Control) -> void:
 	container.add_child(_preview_svc)
 	_preview_svc.position = Vector2(_preview_x(), PREVIEW_Y)
 	_preview_svc.size     = Vector2(PREVIEW_W, PREVIEW_H)
+	# In der Garage ggf. nach links rücken (Muster-Tab: Platz für die Muster-Farbauswahl rechts).
+	if container == _garage_container:
+		_layout_garage_preview()
 
 
 # ── Shop ──────────────────────────────────────────────────────────────────────
@@ -595,6 +599,35 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 		tabs.add_child(btn)
 		_shop_sidebar_btns.append(btn)
 
+	# Kaufmenge-Umschalter („Einzeln" / „Max") rechtsbündig in der Nav-Leiste – gilt für BEIDE
+	# Shop-Kategorien (Streckenteile-Upgrades + allgemeine Upgrades), da er in der gemeinsamen
+	# Leiste sitzt. „Max" kauft beim Klick auf einen Upgrade-Knopf so viele Stufen wie mit dem
+	# aktuellen Geld möglich (siehe Economy.buy_upgrade_max / max_affordable_info).
+	var mode_lbl := Label.new()
+	mode_lbl.anchor_left  = 1.0; mode_lbl.offset_left  = -300
+	mode_lbl.anchor_right = 1.0; mode_lbl.offset_right = -150
+	mode_lbl.offset_top   = 0;   mode_lbl.offset_bottom = SHOP_NAV_H
+	mode_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	mode_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mode_lbl.add_theme_font_size_override("font_size", 13)
+	mode_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
+	mode_lbl.text = tr("Kaufmenge")
+	container.add_child(mode_lbl)
+
+	var mode_opt := OptionButton.new()
+	mode_opt.anchor_left  = 1.0; mode_opt.offset_left  = -142
+	mode_opt.anchor_right = 1.0; mode_opt.offset_right = -12
+	mode_opt.offset_top   = 7;   mode_opt.offset_bottom = SHOP_NAV_H - 7
+	mode_opt.focus_mode = Control.FOCUS_NONE
+	mode_opt.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	mode_opt.add_theme_font_size_override("font_size", 13)
+	mode_opt.add_item(tr("Einzeln"), 0)
+	mode_opt.add_item(tr("Max"), 1)
+	mode_opt.select(1 if Economy.buy_max_mode else 0)
+	mode_opt.item_selected.connect(_on_buy_mode_selected)
+	container.add_child(mode_opt)
+	_buy_mode_btn = mode_opt
+
 	# Untere Trennlinie der Nav-Leiste
 	var sline := ColorRect.new()
 	sline.position = Vector2(0, SHOP_NAV_H)
@@ -624,6 +657,52 @@ func _show_shop_cat(idx: int) -> void:
 		cat.visible = false
 	if idx < _shop_cats.size():
 		_shop_cats[idx].visible = true
+
+
+# Kaufmenge-Dropdown umgestellt (0 = Einzeln, 1 = Max). Beide Kategorien neu beschriften, damit
+# die Kauf-Knöpfe sofort die Einzelstufe bzw. die „+N · Gesamtkosten"-Vorschau zeigen.
+func _on_buy_mode_selected(idx: int) -> void:
+	Economy.buy_max_mode = (idx == 1)
+	_refresh_affordability()
+	if _active_shop_cat == 1:
+		_rebuild_shop_upgrades()
+
+
+# Beschriftung eines Kauf-Knopfs je nach Kaufmenge-Modus. „Max" zeigt, wie viele Stufen mit dem
+# aktuellen Geld auf einmal gekauft würden (+N) und deren Gesamtkosten; sind 0/1 Stufen leistbar,
+# fällt die Anzeige auf den Einzelkauf zurück. `with_stufe` → Einzelmodus nennt zusätzlich die
+# Zielstufe (Streckenteil-Karten), sonst nur den Preis (allgemeine Upgrade-Karten).
+func _buy_label(id: String, with_stufe: bool) -> String:
+	if Economy.buy_max_mode:
+		var info := Economy.max_affordable_info(id)
+		if int(info["count"]) >= 2:
+			return Icons.ARROW_UP + (tr("  +%d Stufen  ·  %s %s") % [int(info["count"]), Economy.format_currency(int(info["cost"])), Icons.COIN])
+	if with_stufe:
+		return Icons.ARROW_UP + (tr(" Stufe %d  ·  %s %s") % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN])
+	return Icons.ARROW_UP + "  %s %s" % [Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
+
+
+# Setzt Text + passende Schriftgröße eines Kauf-Knopfs. clip_text ist die harte Grenze: lange
+# „Max"-Beschriftungen (große Stufenzahlen/Beträge) lassen den Knopf NIE über die Kartenbreite
+# hinaus wachsen oder verschieben. Passt der Text nicht, wird die Schrift stufenweise verkleinert
+# (bis min. 9) statt den Knopf zu vergrößern. Im Einzelmodus bleibt die Basis-Schriftgröße.
+func _set_buy_btn_label(btn: Button, id: String, with_stufe: bool, base_size: int) -> void:
+	var txt := _buy_label(id, with_stufe)
+	btn.clip_text = true
+	btn.text = txt
+	var avail := btn.size.x - 14.0
+	var font := btn.get_theme_font("font")
+	var fs := base_size
+	while fs > 9:
+		var w := 0.0
+		if font != null:
+			w = font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		else:
+			w = float(txt.length()) * (float(fs) * 0.55)
+		if w <= avail:
+			break
+		fs -= 1
+	btn.add_theme_font_size_override("font_size", fs)
 
 
 # ── Streckenteile-Katalog ───────────────────────────────────────────────────────
@@ -926,6 +1005,9 @@ func _refresh_tile_buttons() -> void:
 		if Economy.is_maxed(uid):
 			continue
 		_style_upgrade_btn(ub, Economy.can_buy(uid))
+		# Im Max-Modus hängt die „+N · Gesamtkosten"-Anzeige am Geldstand → live mitziehen.
+		if Economy.buy_max_mode:
+			_set_buy_btn_label(ub, uid, true, 12)
 
 
 func _on_tile_unlock(key: String) -> void:
@@ -948,7 +1030,7 @@ func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
-	btn.text = Icons.ARROW_UP + (tr(" Stufe %d  ·  %s %s") % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN])
+	_set_buy_btn_label(btn, id, true, 12)
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_style_upgrade_btn(btn, Economy.can_buy(id))
 	btn.pressed.connect(_on_buy_tile_upgrade.bind(id))
@@ -956,7 +1038,12 @@ func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
 
 
 func _on_buy_tile_upgrade(id: String) -> void:
-	if Economy.buy_upgrade(id):
+	var ok := false
+	if Economy.buy_max_mode:
+		ok = Economy.buy_upgrade_max(id) > 0
+	else:
+		ok = Economy.buy_upgrade(id)
+	if ok:
 		# Nur die betroffene Karte (Text + Button) aktualisieren, NICHT das ganze Raster
 		# neu bauen – sonst springt die rotierende 3D-Vorschau bei jedem Kauf zurück.
 		_refresh_tile_upgrade_card(id)
@@ -987,7 +1074,7 @@ func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
-	btn.text = Icons.ARROW_UP + (tr(" Stufe %d  ·  %s %s") % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN])
+	_set_buy_btn_label(btn, id, true, 12)
 	_style_upgrade_btn(btn, Economy.can_buy(id))
 
 
@@ -1841,6 +1928,8 @@ var _garage_options_box: Control       = null
 var _garage_summary_lbl: Label         = null
 var _garage_trophy_lbl:  Label         = null   # Trophäen-Stand (Erfolgs-Währung), nur hier sichtbar
 var _test_car_btn:       Button        = null   # Reiner Test: schaltet das Blender-Testmodell an/aus
+var _garage_frame:       Panel         = null   # Rahmen hinter der Vorschau (für Repositionierung beim Muster-Tab)
+var _pattern_color_box:  Control       = null   # Farbauswahl für die Muster-Farbe (nur im Muster-Tab)
 
 # Container beider Tabs (für das Umhängen der gemeinsamen Vorschau) + die Vorschau selbst.
 var _werkstatt_container: Control = null
@@ -1853,6 +1942,12 @@ const PREVIEW_H = 252
 # _preview_x() ist laufzeitabhängig (_vw() ändert sich mit Viewport) – wird per _preview_x() berechnet.
 const PREVIEW_Y = 158.0
 func _preview_x() -> float: return (_vw() - PREVIEW_W) / 2.0
+
+# Muster-Farbauswahl rechts neben der Vorschau: Breite der Swatch-Spalte + Abstand zur Vorschau.
+# Im Muster-Tab rückt die Vorschau nach links und die Spalte sitzt rechts daneben; ist zu wenig
+# Platz (Portrait), liegt die Auswahl als Streifen UNTER der Vorschau (siehe _layout_garage_preview).
+const PCOL_W         = 150.0
+const PREV_PICK_GAP  = 24.0
 
 # 3D-Vorschau
 var _preview_pivot:  Node3D    = null
@@ -1974,8 +2069,14 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	_garage_options_box.size     = Vector2(_vw(), 92)
 	container.add_child(_garage_options_box)
 
-	_build_preview_frame(container)
+	_garage_frame = _build_preview_frame(container)
 	_garage_summary_lbl = _make_preview_summary(container)
+
+	# Farbauswahl für die Muster-Farbe (nur im Muster-Tab sichtbar). Lage/Größe setzt
+	# _layout_garage_preview() je nach Platz (rechts neben der Vorschau bzw. darunter).
+	_pattern_color_box = Control.new()
+	_pattern_color_box.visible = false
+	container.add_child(_pattern_color_box)
 
 	# Trophäen-Stand steht jetzt dauerhaft in der oberen Leiste (🏆-Badge) → hier keine eigene
 	# Anzeige mehr. _garage_trophy_lbl bleibt null; _refresh_garage_trophies() ist dann ein No-Op.
@@ -1995,8 +2096,9 @@ func _build_garage_panel(parent: Control, cy: int, ch: int) -> void:
 	_rebuild_garage_options()
 
 
-# Bordierter Vorschau-Rahmen (Hintergrund hinter dem 3D-Viewport).
-func _build_preview_frame(container: Control) -> void:
+# Bordierter Vorschau-Rahmen (Hintergrund hinter dem 3D-Viewport). Gibt den Rahmen zurück, damit
+# die Garage ihn beim Muster-Tab nach links verschieben kann.
+func _build_preview_frame(container: Control) -> Panel:
 	var frame := Panel.new()
 	frame.position = Vector2(_preview_x() - 3, PREVIEW_Y - 3)
 	frame.size     = Vector2(PREVIEW_W + 6, PREVIEW_H + 6)
@@ -2007,6 +2109,7 @@ func _build_preview_frame(container: Control) -> void:
 	fsb.set_corner_radius_all(10)
 	frame.add_theme_stylebox_override("panel", fsb)
 	container.add_child(frame)
+	return frame
 
 
 # Zusammenfassungs-Label unter dem Vorschau-Rahmen.
@@ -2134,8 +2237,128 @@ func _rebuild_garage_options() -> void:
 		_garage_options_box.add_child(card)
 
 	_update_garage_summary()
+	# Vorschau ggf. nach links rücken + Muster-Farbauswahl rechts daneben (nur Muster-Tab) füllen.
+	_layout_garage_preview()
+	_rebuild_pattern_colors()
 	# Sammel-Erfolge prüfen (auch nachträglich, falls schon alles besessen wird).
 	_check_cosmetic_collection_achievements()
+
+
+# Positioniert Vorschau-Rahmen, Zusammenfassung, 3D-Viewport und Muster-Farbauswahl. Im Muster-Tab
+# rückt die Vorschau nach links und die Farbspalte sitzt rechts daneben; ist dafür zu wenig Platz
+# (Portrait), liegt die Farbauswahl als Streifen unter der Zusammenfassung. In allen anderen Fällen
+# bleibt die Vorschau mittig und die Farbauswahl ist ausgeblendet.
+func _layout_garage_preview() -> void:
+	var is_pattern: bool = String(_garage_tabs()[_garage_active_tab].id) == "pattern"
+	var room: bool = _vw() >= PREVIEW_W + PREV_PICK_GAP + PCOL_W + 32.0
+	var side: bool = is_pattern and room
+	var px := _preview_x()
+	if side:
+		px = (_vw() - (PREVIEW_W + PREV_PICK_GAP + PCOL_W)) / 2.0
+	if _garage_frame != null:
+		_garage_frame.position = Vector2(px - 3, PREVIEW_Y - 3)
+	if _garage_summary_lbl != null:
+		_garage_summary_lbl.position = Vector2(px, PREVIEW_Y + PREVIEW_H + 6)
+	if _preview_svc != null and is_instance_valid(_preview_svc) and _preview_svc.get_parent() == _garage_container:
+		_preview_svc.position = Vector2(px, PREVIEW_Y)
+	if _pattern_color_box != null:
+		_pattern_color_box.visible = is_pattern
+		if side:
+			_pattern_color_box.position = Vector2(px + PREVIEW_W + PREV_PICK_GAP, PREVIEW_Y)
+			_pattern_color_box.size     = Vector2(PCOL_W, PREVIEW_H)
+		else:
+			_pattern_color_box.position = Vector2(_preview_x(), PREVIEW_Y + PREVIEW_H + 30)
+			_pattern_color_box.size     = Vector2(PREVIEW_W, 96)
+
+
+# Verfügbare Muster-Farben: Schwarz & Weiß immer gratis (Kontrast-Basis, damit ein Muster nie
+# unsichtbar ist), danach ALLE über die Lackierung freigeschalteten Farben – ohne sie erneut
+# kaufen zu müssen. Schwarz/Weiß werden nicht doppelt aufgeführt.
+func _pattern_color_options() -> Array:
+	var black := Color(0.06, 0.06, 0.08)
+	var white := Color(0.92, 0.93, 0.96)
+	var out: Array = [
+		{"name": tr("Schwarz"), "color": black},
+		{"name": tr("Weiß"),    "color": white},
+	]
+	for o in _ws_options("paint"):
+		if not o.has("color"):
+			continue
+		var col: Color = o.color
+		if col.is_equal_approx(black) or col.is_equal_approx(white):
+			continue
+		if Economy.is_paint_unlocked(col):
+			out.append({"name": tr(String(o.name)), "color": col})
+	return out
+
+
+# Füllt die Muster-Farbauswahl (nur im Muster-Tab). Titel + scrollbares Swatch-Raster; die aktuell
+# gewählte Muster-Farbe ist mit Akzentrahmen markiert. Klick → set_car_pattern_color + Live-Update.
+func _rebuild_pattern_colors() -> void:
+	if _pattern_color_box == null:
+		return
+	for c in _pattern_color_box.get_children():
+		c.queue_free()
+	if _garage_tabs()[_garage_active_tab].id != "pattern":
+		return
+	var box_w := _pattern_color_box.size.x
+	var box_h := _pattern_color_box.size.y
+
+	var title := Label.new()
+	title.position = Vector2(0, 0)
+	title.size     = Vector2(box_w, 18)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 12)
+	title.add_theme_color_override("font_color", C_TEXT_DIM)
+	title.text = tr("Muster-Farbe")
+	_pattern_color_box.add_child(title)
+
+	const SW  = 30
+	const GAP = 8
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(0, 22)
+	scroll.size     = Vector2(box_w, maxf(0.0, box_h - 22.0))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_pattern_color_box.add_child(scroll)
+
+	var center := CenterContainer.new()
+	center.custom_minimum_size = Vector2(box_w, 0)
+	scroll.add_child(center)
+
+	var grid := GridContainer.new()
+	grid.columns = maxi(1, int((box_w + GAP) / (float(SW) + GAP)))
+	grid.add_theme_constant_override("h_separation", GAP)
+	grid.add_theme_constant_override("v_separation", GAP)
+	center.add_child(grid)
+
+	var sel_col := Economy.get_car_pattern_color()
+	for entry in _pattern_color_options():
+		var col: Color = entry.color
+		grid.add_child(_make_pattern_color_swatch(col, String(entry.name), col.is_equal_approx(sel_col)))
+
+
+func _make_pattern_color_swatch(col: Color, nm: String, selected: bool) -> Control:
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(30, 30)
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.tooltip_text = nm
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.set_border_width_all(3 if selected else 1)
+	sb.border_color = C_ACCENT if selected else C_LINE
+	sb.set_corner_radius_all(6)
+	card.add_theme_stylebox_override("panel", sb)
+	card.gui_input.connect(func(e: InputEvent):
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			_on_pattern_color_selected(col)
+	)
+	return card
+
+
+func _on_pattern_color_selected(col: Color) -> void:
+	Economy.set_car_pattern_color(col)
+	_rebuild_garage_options()
+	_apply_ws_config()
 
 
 func _make_ws_option(cat: String, opt: Dictionary, idx: int, selected: bool, w: float, h: float, show_label: bool) -> Panel:
@@ -2961,7 +3184,7 @@ func _make_upgrade_card(id: String) -> Panel:
 		buy_btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		buy_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	else:
-		buy_btn.text = Icons.ARROW_UP + "  %s %s" % [Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
+		_set_buy_btn_label(buy_btn, id, false, 13)
 		_style_upgrade_btn(buy_btn, Economy.can_buy(id))
 		_upgrade_buttons.append({"btn": buy_btn, "id": id})
 	buy_btn.pressed.connect(_on_buy_upgrade.bind(id))
@@ -2975,7 +3198,12 @@ func _make_upgrade_card(id: String) -> Panel:
 
 
 func _on_buy_upgrade(id: String) -> void:
-	if Economy.buy_upgrade(id):
+	var ok := false
+	if Economy.buy_max_mode:
+		ok = Economy.buy_upgrade_max(id) > 0
+	else:
+		ok = Economy.buy_upgrade(id)
+	if ok:
 		# Upgrades leben jetzt nur noch im Shop-Tab (Kategorie-Index 1)
 		if _active_modal_tab == 0 and _active_shop_cat == 1:
 			_rebuild_shop_upgrades()
@@ -3166,6 +3394,9 @@ func _refresh_upgrade_buttons() -> void:
 		if Economy.is_maxed(id):
 			continue
 		_style_upgrade_btn(btn, Economy.can_buy(id))
+		# Im Max-Modus hängt die „+N · Gesamtkosten"-Anzeige am Geldstand → live mitziehen.
+		if Economy.buy_max_mode:
+			_set_buy_btn_label(btn, id, false, 13)
 
 
 func _rebuild_shop_upgrades() -> void:

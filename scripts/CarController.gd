@@ -80,7 +80,7 @@ const RAMP_TAKEOFF_LIFT = 0.12
 # WALL_PEAK_H = Anstieg der Fahrbahn-Mittellinie zum Apex (Asset-Mitte ≈ 0.074 nativ ×1.2 ≈ 0.089).
 const WALL_PEAK_H   = 0.09
 const WALL_BANK_MAX = 0.38   # AKTUELL UNGENUTZT: war das rotation.z-Banking, das ist aber (Front=−X) die
-                             # Querachse = Nick/Wheelie. Auto neigt sich nur noch seitlich über WALL_LEAN_X.
+							 # Querachse = Nick/Wheelie. Auto neigt sich nur noch seitlich über WALL_LEAN_X.
 # Scheitel-Tiefe der Steilkurve: wie weit sich der Apex (Bauch des U) über den alten Halbkreis hinaus
 # ins Tile-Innere/in die gebankte Fahrbahn wölbt (× halbe Kachel). Die AUSSEN-Anschlusspunkte bleiben
 # dabei FIX an der Kachelkante, der Eingang steht also NICHT raus – nur der Bauch wird tiefer/runder.

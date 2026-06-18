@@ -545,6 +545,10 @@ var endless_mode: bool = false   # Kein Timer, Geld wird live gutgeschrieben
 # Globale Einstellung (slot-unabhängig, in user://settings.cfg): blendet die Cheat-Buttons
 # (Endlos-Modus ∞ und +1B ⭐) in der oberen Leiste ein/aus.
 var cheat_mode: bool = false
+# Shop-Kaufmenge-Modus (Umschalter „Einzeln/Max" im Shop). false = einzeln (1 Stufe je Klick),
+# true = Max (so viele Stufen wie mit dem aktuellen Geld möglich, in einem Klick). Reine UI-/
+# Session-Einstellung – nicht gespeichert, gilt für Upgrades UND Streckenteil-Upgrades.
+var buy_max_mode: bool = false
 
 signal run_ended(track_idx: int, earned: int)
 # Eine (oder mehrere) Runde(n) wurden gutgeschrieben (Auto über die Startlinie) – Betrag = Summe.
@@ -1380,21 +1384,45 @@ func _endmult_value(level: int) -> float:
 
 
 func get_upgrade_cost(id: String) -> int:
+	return _upgrade_cost_at(id, get_upgrade_level(id))
+
+
+# Kosten, um ein Upgrade von Stufe `level` auf `level+1` zu bringen. get_upgrade_cost nutzt die
+# aktuelle Stufe; für die „Max"-Vorschau (max_affordable_info) brauchen wir die Kosten beliebiger
+# Stufen, daher hier mit explizitem Level.
+func _upgrade_cost_at(id: String, level: int) -> int:
 	if id == "speed":
-		return _speed_cost(get_upgrade_level(id))
+		return _speed_cost(level)
 	if id == "tilebonus":
-		return _tilebonus_cost(get_upgrade_level(id))
+		return _tilebonus_cost(level)
 	# Verdreifachte Tile-Upgrades: Kosten der NÄCHSTEN Stufe aus _tile_series (geom. mit growth^(1/3),
 	# Summe = alte Gesamtkosten; liegt an jeder 3×-Grenze exakt auf dem alten Preis).
 	if _is_tripled_tile(id):
-		var lvl := get_upgrade_level(id)
 		var cost: PackedInt64Array = _tile_series(id)["cost"]
-		return 0 if lvl >= cost.size() else int(cost[lvl])
+		return 0 if level >= cost.size() else int(cost[level])
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0
-	var level = get_upgrade_level(id)
 	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), level)))
+
+
+# „Max"-Kaufmenge (Shop-Umschalter „Einzeln/Max"): wie viele Stufen mit dem aktuellen Geld auf
+# einmal gekauft werden könnten (bis max_level) und was sie zusammen kosten. Reine Vorschau –
+# kauft nichts. Iterativ, da die Kosten je Stufe steigen. → {"count": int, "cost": int}
+func max_affordable_info(id: String) -> Dictionary:
+	var lvl   := get_upgrade_level(id)
+	var mx    := get_max_level(id)
+	var money := _currency
+	var count := 0
+	var total := 0
+	while lvl + count < mx:
+		var c := _upgrade_cost_at(id, lvl + count)
+		if money < c:
+			break
+		money -= c
+		total += c
+		count += 1
+	return {"count": count, "cost": total}
 
 
 # Tile-Bonus-Kosten der NÄCHSTEN Stufe. Wie beim Tempo: die ersten TILEBONUS_EARLY_LEVELS Stufen
@@ -1452,6 +1480,23 @@ func buy_upgrade(id: String) -> bool:
 		_apply_speed_to_active_runs()
 	emit_signal("upgrade_purchased", id)
 	return true
+
+
+# „Max"-Kauf (Shop-Umschalter): kauft so viele Stufen wie mit dem aktuellen Geld möglich (bis
+# max_level) und gibt die Anzahl gekaufter Stufen zurück. Kosten/Effekt werden je Stufe einzeln
+# verrechnet (Kosten steigen mit der Stufe), daher iterativ. save_game + Signal nur EINMAL am Ende.
+func buy_upgrade_max(id: String) -> int:
+	var bought := 0
+	while can_buy(id):
+		_currency -= get_upgrade_cost(id)
+		upgrade_levels[id] = get_upgrade_level(id) + 1
+		bought += 1
+	if bought > 0:
+		save_game()
+		if id == "speed":
+			_apply_speed_to_active_runs()
+		emit_signal("upgrade_purchased", id)
+	return bought
 
 
 # ── Anzeige-Helfer (für das Upgrade-Menü) ──────────────────────────────────────
@@ -2171,6 +2216,15 @@ func set_car_pattern(idx: int) -> void:
 	car_paint_changed.emit()
 
 
+# Muster-Farbe (Farbe der Streifen/Punkte etc. über der Lackmaske). Wählbar aus den freigeschalteten
+# Lackfarben (siehe Garage), damit ein Muster auch auf gleichfarbigem Lack sichtbar bleibt – z. B.
+# weißes Muster auf schwarzem Auto. Nutzt denselben Live-Update-Signalweg wie set_car_pattern.
+func set_car_pattern_color(col: Color) -> void:
+	car_pattern_color = col
+	save_game()
+	car_paint_changed.emit()
+
+
 # ── Kosmetik-Freischaltung (mit Trophäen) ─────────────────────────────────────────
 # Lackfarben werden über ihren Hex-Wert identifiziert (UI-unabhängig, stabil bei Umsortierung).
 
@@ -2263,6 +2317,7 @@ func save_game_to_slot(slot: int) -> void:
 		"car_paint_on":    car_paint_on,
 		"car_paint_color": car_paint_color,
 		"car_pattern":     car_pattern,
+		"car_pattern_color": car_pattern_color,
 		"unlocked_paints":   unlocked_paints,
 		"unlocked_patterns": unlocked_patterns,
 		"car_tier":        car_tier,
@@ -2324,6 +2379,8 @@ func load_game_from_slot(slot: int) -> void:
 				var cpc        = data.get("car_paint_color", car_paint_color)
 				car_paint_color = cpc if typeof(cpc) == TYPE_COLOR else car_paint_color
 				car_pattern    = int(data.get("car_pattern", 0))
+				var cptc       = data.get("car_pattern_color", car_pattern_color)
+				car_pattern_color = cptc if typeof(cptc) == TYPE_COLOR else car_pattern_color
 				var up         = data.get("unlocked_paints", {})
 				unlocked_paints = up.duplicate() if typeof(up) == TYPE_DICTIONARY else {}
 				var upat       = data.get("unlocked_patterns", {})

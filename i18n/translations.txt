@@ -441,6 +441,7 @@ key,en,es,fr
 "AN","ON","ACTIVADO","ACTIVÉ"
 "AUS","OFF","DESACTIVADO","DÉSACTIVÉ"
 "Lackierung: %s  ·  Muster: %s","Paint: %s  ·  Pattern: %s","Pintura: %s  ·  Patrón: %s","Peinture : %s  ·  Motif : %s"
+"Muster-Farbe","Pattern color","Color del patrón","Couleur du motif"
 "KAUFEN?","BUY?","¿COMPRAR?","ACHETER ?"
 "Kaufen","Buy","Comprar","Acheter"
 "%s – kaufen für %d Trophäen","%s – buy for %d trophies","%s – comprar por %d copas","%s – acheter pour %d trophées"
@@ -494,6 +495,10 @@ key,en,es,fr
 "Gesperrt","Locked","Bloqueado","Verrouillé"
 " Stufe %d  ·  %s %s"," Level %d  ·  %s %s"," Nivel %d  ·  %s %s"," Niveau %d  ·  %s %s"
 "Stufe %d / %d","Level %d / %d","Nivel %d / %d","Niveau %d / %d"
+"  +%d Stufen  ·  %s %s","  +%d levels  ·  %s %s","  +%d niveles  ·  %s %s","  +%d niveaux  ·  %s %s"
+"Kaufmenge","Buy amount","Cantidad","Quantité"
+"Einzeln","Single","Individual","Unitaire"
+"Max","Max","Máx","Max"
 "%d Geraden\n%d Kurven","%d straights\n%d curves","%d rectas\n%d curvas","%d lignes droites\n%d virages"
 "Geraden %d → %d\nKurven %d → %d","Straights %d → %d\nCurves %d → %d","Rectas %d → %d\nCurvas %d → %d","Lignes droites %d → %d\nVirages %d → %d"
 
