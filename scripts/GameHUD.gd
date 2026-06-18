@@ -674,8 +674,8 @@ func _apply_nav_lock(btn: Button, tab: int) -> void:
 		lbl.modulate = Color(1, 1, 1, 0.6)
 
 
-# Gesperrter Werkstatt-Eintrag: zeigt den Live-Fortschritt zur Freischaltung (prestige_earned /
-# WERKSTATT_TAB_UNLOCK_EARN) als Prozent + dünnen Balken am unteren Rand des Eintrags. Funktioniert
+# Gesperrter Werkstatt-Eintrag: zeigt den Live-Fortschritt zur Freischaltung (prestige_points /
+# WERKSTATT_TAB_UNLOCK_POINTS = 1 Mio. ⭐) als Prozent + dünnen Balken am unteren Rand des Eintrags. Funktioniert
 # für die Seitenleiste (eigenes icon_lbl + txt_lbl) wie auch die Bottom-Nav (nur ein Icon-Label).
 # Die referenzierten Nodes werden in _process gefüttert. Werkstatt-Orange wie in der Nav-Definition.
 func _decorate_werkstatt_lock(btn: Button, ico, lbl) -> void:
@@ -935,8 +935,8 @@ func _process(_delta: float) -> void:
 func _update_werkstatt_progress() -> void:
 	if _werks_pct_lbls.is_empty() and _werks_bars.is_empty():
 		return
-	var target: float = Economy.WERKSTATT_TAB_UNLOCK_EARN
-	var progress: float = clampf(float(Economy.get_prestige_earned()) / target, 0.0, 1.0)
+	var target: float = float(Economy.WERKSTATT_TAB_UNLOCK_POINTS)
+	var progress: float = clampf(float(Economy.get_prestige_points()) / target, 0.0, 1.0)
 	var pct_txt := "%d%%" % int(floor(progress * 100.0))
 	# Orange erneut setzen: _refresh_nav_highlight färbt txt_lbl sonst auf Dim/Akzent zurück.
 	const C_TOOL := Color(0.96, 0.55, 0.26)
@@ -1127,7 +1127,7 @@ func _refresh_timer() -> void:
 	_timer_lbl.visible = show
 	if not show:
 		return
-	if Economy.endless_mode:
+	if Economy.is_endless_run():
 		_timer_lbl.text = "%s  %s" % [Icons.CLOCK, Icons.INFINITY]
 	else:
 		_timer_lbl.text = "%s  %.1f s" % [Icons.CLOCK, Economy.get_run_time_left(_active_tab)]

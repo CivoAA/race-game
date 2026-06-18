@@ -449,7 +449,9 @@ func _start_cars(grid_state: Array) -> void:
 	#            = 1 Basis + je SUPER_CAR_COST_CARS normale Autos eines mehr. Normale Autos fahren nicht.
 	var tier: int        = Economy.get_car_tier()
 	var supers: int      = Economy.get_tier_car_count() if tier >= 1 else 0
-	var normal_cnt: int  = 0 if tier >= 1 else total
+	# Tier 0: nur ACTIVE_CAR_CAP (= 4) Autos fahren gleichzeitig, auch wenn man mehr besitzt. Die
+	# überzähligen besessenen Autos lohnen erst über die Werkstatt-Stufe (Tier-Auto-Ökonomie).
+	var normal_cnt: int  = 0 if tier >= 1 else mini(total, Economy.ACTIVE_CAR_CAP)
 	var spawn_cnt: int   = normal_cnt + supers
 	if spawn_cnt < 1:
 		spawn_cnt = 1
