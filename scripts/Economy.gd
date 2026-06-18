@@ -2116,23 +2116,29 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 	return str(level)
 
 
-# Punkte, die ein Prestige JETZT einbringt: ohne „Break Prestige" genau 1; danach floor(√(Geld/K)).
-# Final × Auto-Stufen-Bonus × 2^„points_mult". Gate: GELD AUF DEM KONTO ≥ K (2 Mio.).
+# Punkte, die ein Prestige JETZT einbringt: ohne „Break Prestige" genau 1; danach VERDOPPELT sich
+# der Punkte-Grundwert bei jeder erreichten Geld-Schwelle (×4 Geld → ×2 Punkte): 2 Mio.→1, 8 Mio.→2,
+# 32 Mio.→4, 128 Mio.→8 … (= 2^floor(log4(Geld/K))). Final × Auto-Stufen-Bonus × 2^„points_mult".
+# Gate: GELD AUF DEM KONTO ≥ K (2 Mio.).
 func prestige_pending_points() -> int:
 	if float(_currency) < PRESTIGE_K:
 		return 0
 	var pts := 1
 	if get_prestige_node_level("earning") >= 1:
-		pts = maxi(1, int(floor(sqrt(float(_currency) / PRESTIGE_K))))
+		# Punkte verdoppeln sich pro Vervierfachung des Geldes (eine einmalige Freischaltung).
+		var ratio := float(_currency) / PRESTIGE_K
+		var threshold := 4.0
+		while ratio >= threshold:
+			pts *= 2
+			threshold *= 4.0
 	# „Punkte je Auto": jedes fahrende Auto bringt +Stufe Punkte (additiv vor den Multiplikatoren).
 	pts += get_active_car_count() * get_prestige_node_level("car_points")
 	return int(float(pts) * get_car_point_mult() * pow(2.0, float(get_prestige_node_level("points_mult"))))
 
 
 # Füllgrad der unteren Prestige-Leiste [0,1). VOR dem ersten fälligen Punkt (Geld < K): Geld/K.
-# DANACH: Fortschritt zwischen dem aktuellen und dem nächsten ganzen Punkt. Da Punkte = floor(f) mit
-# f = factor·√(Geld/K), ist der Nachkomma-Anteil von f genau dieser Fortschritt. Passt zu
-# prestige_pending_points(): dessen Sprünge liegen an den ganzzahligen f-Grenzen.
+# DANACH: Fortschritt bis zur nächsten Verdopplung. Punkte = 2^floor(log4(Geld/K)) springen an den
+# ganzzahligen log4-Grenzen → der Nachkomma-Anteil von log4(Geld/K) ist genau dieser Fortschritt.
 func prestige_progress() -> float:
 	var ratio := float(_currency) / PRESTIGE_K
 	if ratio < 1.0:
@@ -2140,8 +2146,8 @@ func prestige_progress() -> float:
 	# Ohne „Break Prestige" bleibt es bei 1 Punkt → Leiste voll (kein weiterer Fortschritt).
 	if get_prestige_node_level("earning") < 1:
 		return 1.0
-	# Danach: Fortschritt zwischen aktuellem und nächstem ganzen Punkt (Punkte = floor(√(Geld/K))).
-	var f := sqrt(ratio)
+	# Danach: Fortschritt bis zur nächsten Verdopplung (×4 Geld = +1 ganze log4-Stufe).
+	var f := log(ratio) / log(4.0)
 	return clampf(f - floor(f), 0.0, 1.0)
 
 
