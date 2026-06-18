@@ -2,7 +2,7 @@ extends CanvasLayer
 class_name CurrencyHud
 
 var _label: Label = null
-var _last_shown: int = -2147483648
+var _last_shown: float = -1.0
 var _flash_tween: Tween = null
 var _gain_tween: Tween = null
 

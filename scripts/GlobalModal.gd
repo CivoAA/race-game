@@ -65,7 +65,7 @@ var _tile_upgrade_buttons: Array        = []   # je {btn, id} – Upgrade-Button
 # Kauf, OHNE die rotierende 3D-Vorschau neu zu bauen (sonst springt die Drehung zurück).
 var _tile_upgrade_cards:  Array         = []
 var _upgrade_buttons:     Array         = []   # je {btn, id}
-var _last_currency_seen:  int           = -1
+var _last_currency_seen:  float         = -1.0
 
 # ── Upgrade-Hinweise (Tooltips) ──────────────────────────────────────────────────
 # Hover über dem Upgrade-„Kästchen" (Name + Stufe, NICHT der Kauf-Button) blendet nach
@@ -1777,7 +1777,7 @@ func _refresh_statistik() -> void:
 		c.queue_free()
 	_stat_value_lbls.clear()
 
-	var run_total := 0
+	var run_total := 0.0
 	for i in Economy.TRACK_COUNT:
 		run_total += Economy.get_run_earned(i)
 
@@ -1811,7 +1811,7 @@ func _refresh_statistik() -> void:
 			["Laufende Runden-Erträge",   Economy.format_currency(run_total), "run_total"],
 		],
 		[
-			["Prestige-Punkte",           str(Economy.get_prestige_points()), "prestige_pts"],
+			["Prestige-Punkte",           Economy.format_currency(Economy.get_prestige_points()), "prestige_pts"],
 			["Verdient seit Prestige",    Economy.format_currency(Economy.get_prestige_earned()), "prestige_earned"],
 		],
 	]))
@@ -1879,11 +1879,11 @@ func _tick_statistik() -> void:
 	_set_stat("playtime", Economy.format_playtime(Economy.get_total_playtime()))
 	_set_stat("guthaben", Economy.format_currency(Economy.get_currency()))
 	if _stat_value_lbls.has("run_total"):
-		var run_total := 0
+		var run_total := 0.0
 		for i in Economy.TRACK_COUNT:
 			run_total += Economy.get_run_earned(i)
 		_set_stat("run_total", Economy.format_currency(run_total))
-	_set_stat("prestige_pts", str(Economy.get_prestige_points()))
+	_set_stat("prestige_pts", Economy.format_currency(Economy.get_prestige_points()))
 	_set_stat("prestige_earned", Economy.format_currency(Economy.get_prestige_earned()))
 	_set_stat("speed_bonus", "×%d" % int(Economy.get_prestige_mult()))
 
@@ -3534,8 +3534,8 @@ func _refresh_prestige_action() -> void:
 	_prestige_fill_mat.set_shader_parameter("progress", progress)
 	_prestige_fill_mat.set_shader_parameter("mode", 0 if Display.performance_mode else 5)
 
-	if pending >= 1:
-		_prestige_btn_lbl.text = "%s  PRESTIGE  →  +%d %s" % [Icons.RECYCLE, pending, Icons.STAR]
+	if pending >= 1.0:
+		_prestige_btn_lbl.text = "%s  PRESTIGE  →  +%s %s" % [Icons.RECYCLE, Economy.format_currency(pending), Icons.STAR]
 		_prestige_btn.disabled = false
 		# Volle, leuchtende Prestige-Gold-Füllung.
 		_prestige_fill_mat.set_shader_parameter("base_color", Color(C_STAR.r, C_STAR.g, C_STAR.b, 0.90))
@@ -3745,7 +3745,7 @@ func _on_buy_prestige_node(id: String) -> void:
 func _on_prestige_pressed() -> void:
 	if not Economy.can_prestige():
 		return
-	_prestige_confirm_lbl.text = tr("Du erhältst %d %s.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben.") % [Economy.prestige_pending_points(), Icons.STAR]
+	_prestige_confirm_lbl.text = tr("Du erhältst %s %s.\n\nGeld, Upgrades, freigeschaltete Teile und ALLE\nStrecken werden zurückgesetzt. Prestige-Boni bleiben.") % [Economy.format_currency(Economy.prestige_pending_points()), Icons.STAR]
 	_prestige_confirm.visible = true
 
 

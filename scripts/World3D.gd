@@ -149,7 +149,7 @@ func _process(_delta: float) -> void:
 		_end_run()
 
 
-func _on_economy_run_ended(track_idx: int, _earned: int) -> void:
+func _on_economy_run_ended(track_idx: int, _earned: float) -> void:
 	if track_idx == _active_track_idx and _run_active:
 		_end_run()
 
@@ -185,7 +185,7 @@ func _setup_finish_sfx() -> void:
 
 # Economy schreibt eine Runde gut (= Auto über die Startlinie). Nur für die gerade gezeigte
 # Strecke und nur, wenn der Ziel-Sound in den Einstellungen aktiv ist, den Jingle abspielen.
-func _on_lap_credited_sfx(track_idx: int, _amount: int) -> void:
+func _on_lap_credited_sfx(track_idx: int, _amount: float) -> void:
 	if track_idx != _active_track_idx or not Display.finish_sound:
 		return
 	if _finish_sfx == null:

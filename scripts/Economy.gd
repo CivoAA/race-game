@@ -557,7 +557,7 @@ const ACH_REWARD = 100
 # Kosten je freischaltbarer Kosmetik (Lackfarbe / Muster), bezahlt mit Trophäen (ach_currency).
 const COSMETIC_COST = 250
 
-var _currency:     int        = START_CURRENCY
+var _currency:     float      = START_CURRENCY   # float, damit Geld weit über int64 (9,2e18) hinaus bis ~1e308 wächst, ohne zu „flippen"
 var upgrade_levels: Dictionary = {}
 var track:          Array      = []   # gespeicherte Strecke des aktiven Tracks (Rückwärtskompatibilität)
 var unlocked_tiles: Dictionary = {}   # freigeschaltete Shop-Tiles: key → true
@@ -593,8 +593,8 @@ var super_car_count: int   = 0
 var total_tiles_placed: int = 0      # insgesamt platzierte Streckenteile (für „Großbaumeister")
 
 # Prestige-Zustand (überlebt den Prestige-Reset; nur „Neues Spiel"/reset_slot löscht ihn).
-var prestige_points: int        = 0   # verfügbare ⭐
-var prestige_earned: int        = 0   # seit dem letzten Prestige verdientes Geld (Basis für Punkte)
+var prestige_points: float      = 0.0   # verfügbare ⭐ (float wie _currency → kein int64-Flip bei sehr hohen Punkten)
+var prestige_earned: float      = 0.0   # seit dem letzten Prestige verdientes Geld (float wie _currency, kein Überlauf)
 var prestige_nodes:  Dictionary = {}  # Tech-Baum-Knoten: id → Stufe
 var prestige_count:  int        = 0   # Anzahl ausgeführter Prestiges → gated Baum-Freischaltung
 # TEMP: dauerhafte Tab-Freischaltung (Prestige/Werkstatt), sobald die Verdienst-Schwelle einmal
@@ -617,9 +617,9 @@ var cheat_mode: bool = false
 # Session-Einstellung – nicht gespeichert, gilt für Upgrades UND Streckenteil-Upgrades.
 var buy_max_mode: bool = false
 
-signal run_ended(track_idx: int, earned: int)
+signal run_ended(track_idx: int, earned: float)
 # Eine (oder mehrere) Runde(n) wurden gutgeschrieben (Auto über die Startlinie) – Betrag = Summe.
-signal lap_credited(track_idx: int, amount: int)
+signal lap_credited(track_idx: int, amount: float)
 # Ein Shop-Tile wurde freigeschaltet (im Streckenteile-Shop) – Bau-Leiste aktualisiert sich daraufhin.
 signal tile_unlocked(key: String)
 # Ein anderer Speicherstand wurde geladen/zurückgesetzt – Slot-abhängige UI (z. B. der
@@ -832,11 +832,11 @@ func _init_tracks() -> void:
 			"run_duration":    0.0,   # Gesamt-Fahrzeit dieses Runs (für Restzeit→Position)
 			"run_elapsed":     0.0,   # monoton steigende Fahrzeit (Basis für Runden & Position)
 			"run_cars":        [],    # je Auto {lap_time, reward, start_delay} – aus 3D gesetzt
-			"run_earned":      0,     # bisher in diesem Run gutgeschriebener Gesamtbetrag
-			"run_credited":    0,     # davon bereits der Währung gutgeschrieben
+			"run_earned":      0.0,   # bisher in diesem Run gutgeschriebener Gesamtbetrag (float, kein Überlauf)
+			"run_credited":    0.0,   # davon bereits der Währung gutgeschrieben
 			"run_credited_laps": 0,   # Anzahl bereits gutgeschriebener Runden (über alle Autos)
 			"pending_summary": false,
-			"last_earned":     0,
+			"last_earned":     0.0,
 		})
 
 
@@ -861,7 +861,7 @@ func _process(delta: float) -> void:
 			_tracks[i]["run_timer"]       = 0.0
 			_tracks[i]["run_active"]      = false
 			_credit_laps(i)               # letzte fällige Runde(n) noch gutschreiben
-			var earned: int = int(_tracks[i]["run_credited"])
+			var earned: float = float(_tracks[i]["run_credited"])
 			_tracks[i]["pending_summary"] = true
 			_tracks[i]["last_earned"]     = earned
 			save_game()
@@ -884,7 +884,7 @@ func _credit_laps(i: int) -> void:
 	# Runden in "credited_laps" (monoton). run_cars wird bei 2D↔3D-Wechsel/Respawn neu gesetzt; dort
 	# snappt set_run_cars die Zähler → keine Doppelzählung, kein rückwirkendes Geld.
 	var elapsed := float(_tracks[i]["run_elapsed"])
-	var gain := 0
+	var gain := 0.0
 	for car in cars:
 		var lt := float(car.get("lap_time", 0.0))
 		if lt <= 0.0:
@@ -894,7 +894,7 @@ func _credit_laps(i: int) -> void:
 		if new_laps <= 0:
 			continue
 		var car_reward := _lap_reward_for_car(car)
-		gain += new_laps * car_reward
+		gain += float(new_laps) * float(car_reward)
 		car["credited_laps"] = car_laps
 		# Erfolge „verdiene X mit EINEM Auto in einer Runde" – am Pro-Auto-Rundenertrag.
 		_check_metric_achievements("lap_earn", float(car_reward))
@@ -912,14 +912,14 @@ func _credit_laps(i: int) -> void:
 		# „Im Kreis gedacht": Strecke ganz ohne normale Geraden/Kurven (nur Spezial-Teile + Start).
 		if _car_route_only_special(car):
 			unlock_achievement("only_special")
-	if gain <= 0:
+	if gain <= 0.0:
 		return
 	_currency += gain
 	prestige_earned += gain   # Basis für die nächste Prestige-Punkte-Ausschüttung
 	_check_metric_achievements("currency", float(_currency))   # „Besitze X Währung"-Erfolge
 	_check_tab_unlocks()      # TEMP: Prestige-/Werkstatt-Tab freischalten, sobald Schwelle erreicht
-	_tracks[i]["run_credited"] = int(_tracks[i]["run_credited"]) + gain
-	_tracks[i]["run_earned"]   = int(_tracks[i]["run_credited"])
+	_tracks[i]["run_credited"] = float(_tracks[i]["run_credited"]) + gain
+	_tracks[i]["run_earned"]   = float(_tracks[i]["run_credited"])
 	emit_signal("lap_credited", i, gain)
 
 
@@ -1137,8 +1137,8 @@ func start_run(track_idx: int) -> void:
 	_tracks[track_idx]["run_duration"] = get_drive_time()
 	_tracks[track_idx]["run_elapsed"]  = 0.0
 	_tracks[track_idx]["run_cars"]     = []
-	_tracks[track_idx]["run_earned"]   = 0
-	_tracks[track_idx]["run_credited"] = 0
+	_tracks[track_idx]["run_earned"]   = 0.0
+	_tracks[track_idx]["run_credited"] = 0.0
 	_tracks[track_idx]["run_credited_laps"] = 0
 	unlock_achievement("first_race")   # Erfolg: erstes Rennen gestartet
 
@@ -1173,10 +1173,10 @@ func stop_run(track_idx: int) -> void:
 	_tracks[track_idx]["run_active"] = false
 
 
-func get_run_earned(track_idx: int) -> int:
+func get_run_earned(track_idx: int) -> float:
 	if track_idx < 0 or track_idx >= _tracks.size():
-		return 0
-	return int(_tracks[track_idx]["run_earned"])
+		return 0.0
+	return float(_tracks[track_idx]["run_earned"])
 
 
 func has_pending_summary(track_idx: int) -> bool:
@@ -1185,10 +1185,10 @@ func has_pending_summary(track_idx: int) -> bool:
 	return bool(_tracks[track_idx].get("pending_summary", false))
 
 
-func get_last_earned(track_idx: int) -> int:
+func get_last_earned(track_idx: int) -> float:
 	if track_idx < 0 or track_idx >= _tracks.size():
-		return 0
-	return int(_tracks[track_idx].get("last_earned", 0))
+		return 0.0
+	return float(_tracks[track_idx].get("last_earned", 0))
 
 
 func clear_pending_summary(track_idx: int) -> void:
@@ -1220,7 +1220,7 @@ func get_slot_info(slot: int) -> Dictionary:
 	if typeof(data) != TYPE_DICTIONARY:
 		return {}
 	return {
-		"currency":  int(data.get("currency", 0)),
+		"currency":  float(data.get("currency", 0)),
 		"timestamp": String(data.get("timestamp", "")),
 		"name":      String(data.get("name", "")),
 	}
@@ -1236,11 +1236,11 @@ func get_active_slot() -> int:
 
 # ── Währung ─────────────────────────────────────────────────────────────────────
 
-func get_currency() -> int:
+func get_currency() -> float:
 	return _currency
 
 
-func spend(amount: int) -> bool:
+func spend(amount: float) -> bool:
 	if _currency < amount:
 		return false
 	_currency -= amount
@@ -1248,13 +1248,13 @@ func spend(amount: int) -> bool:
 	return true
 
 
-func add(amount: int) -> void:
+func add(amount: float) -> void:
 	_currency += amount
 	_check_metric_achievements("currency", float(_currency))   # „Besitze X Währung"-Erfolge
 	save_game()
 
 
-func add_silent(amount: int) -> void:
+func add_silent(amount: float) -> void:
 	_currency += amount  # Kein sofortiges Speichern (z.B. per Runde)
 
 
@@ -1839,8 +1839,8 @@ func ascend_car() -> bool:
 	upgrade_levels  = {}
 	track           = []
 	unlocked_tiles  = {}
-	prestige_earned = 0
-	prestige_points = 0
+	prestige_earned = 0.0
+	prestige_points = 0.0
 	prestige_nodes  = {}   # Node-LEVEL zurück auf 0 (neu kaufen)
 	prestige_count  = 0    # Zähler zurück → Baum wieder gated, aber jedes Prestige holt jetzt mehr Knoten auf einmal
 	super_car_count = 0
@@ -1956,7 +1956,7 @@ func get_stand_mult(stack: int = 1, level: int = -1) -> float:
 
 # ── Prestige ────────────────────────────────────────────────────────────────────
 
-func get_prestige_points() -> int:
+func get_prestige_points() -> float:
 	return prestige_points
 
 
@@ -1968,7 +1968,7 @@ func add_prestige_points(n: int) -> void:
 	prestige_changed.emit()
 
 
-func get_prestige_earned() -> int:
+func get_prestige_earned() -> float:
 	return prestige_earned
 
 
@@ -2116,29 +2116,42 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 	return str(level)
 
 
-# Punkte, die ein Prestige JETZT einbringt: ohne „Break Prestige" genau 1; danach VERDOPPELT sich
-# der Punkte-Grundwert bei jeder erreichten Geld-Schwelle (×4 Geld → ×2 Punkte): 2 Mio.→1, 8 Mio.→2,
-# 32 Mio.→4, 128 Mio.→8 … (= 2^floor(log4(Geld/K))). Final × Auto-Stufen-Bonus × 2^„points_mult".
-# Gate: GELD AUF DEM KONTO ≥ K (2 Mio.).
-func prestige_pending_points() -> int:
+# Punkte-Grundwert je „Stufe" mit „Break Prestige": die ersten vier Stufen sind fix [1,2,3,5], ab da
+# wächst es je Stufe um ×1,5 (ausgehend vom letzten festen Wert 5). Eine Stufe = Geld ×10.
+const PRESTIGE_POINT_STEPS := [1, 2, 3, 5]
+const PRESTIGE_STAGE_GROWTH := 10.0   # Geld-Faktor je Punkte-Stufe (2 Mio.→St.0, 20 Mio.→1, 200 Mio.→2 …)
+
+func _prestige_points_for_stage(stage: int) -> float:
+	if stage < PRESTIGE_POINT_STEPS.size():
+		return float(PRESTIGE_POINT_STEPS[stage])
+	# Ab Stufe 4 vom letzten festen Wert (5) je Stufe ×1,5 weiter (float → bis ~1e308 ohne Überlauf).
+	return floor(5.0 * pow(1.5, float(stage - 3)))
+
+
+# Punkte, die ein Prestige JETZT einbringt: ohne „Break Prestige" genau 1; danach folgt der
+# Grundwert der Stufenkurve [1,2,3,5]→×1,5, wobei jede Stufe ×10 Geld kostet (2 Mio.→1, 20 Mio.→2,
+# 200 Mio.→3, 2 Mrd.→5 …). Final × Auto-Stufen-Bonus × 2^„points_mult". Gate: GELD ≥ K (2 Mio.).
+func prestige_pending_points() -> float:
 	if float(_currency) < PRESTIGE_K:
-		return 0
-	var pts := 1
+		return 0.0
+	var pts := 1.0
 	if get_prestige_node_level("earning") >= 1:
-		# Punkte verdoppeln sich pro Vervierfachung des Geldes (eine einmalige Freischaltung).
+		# Stufe = wie oft das Geld die ×10-Schwelle ab K überschritten hat (einmalige Freischaltung).
 		var ratio := float(_currency) / PRESTIGE_K
-		var threshold := 4.0
+		var stage := 0
+		var threshold := PRESTIGE_STAGE_GROWTH
 		while ratio >= threshold:
-			pts *= 2
-			threshold *= 4.0
+			stage += 1
+			threshold *= PRESTIGE_STAGE_GROWTH
+		pts = _prestige_points_for_stage(stage)
 	# „Punkte je Auto": jedes fahrende Auto bringt +Stufe Punkte (additiv vor den Multiplikatoren).
-	pts += get_active_car_count() * get_prestige_node_level("car_points")
-	return int(float(pts) * get_car_point_mult() * pow(2.0, float(get_prestige_node_level("points_mult"))))
+	pts += float(get_active_car_count() * get_prestige_node_level("car_points"))
+	return floor(pts * get_car_point_mult() * pow(2.0, float(get_prestige_node_level("points_mult"))))
 
 
 # Füllgrad der unteren Prestige-Leiste [0,1). VOR dem ersten fälligen Punkt (Geld < K): Geld/K.
-# DANACH: Fortschritt bis zur nächsten Verdopplung. Punkte = 2^floor(log4(Geld/K)) springen an den
-# ganzzahligen log4-Grenzen → der Nachkomma-Anteil von log4(Geld/K) ist genau dieser Fortschritt.
+# DANACH: Fortschritt bis zur nächsten Punkte-Stufe. Die Stufen liegen an ×10-Grenzen → der
+# Nachkomma-Anteil von log10(Geld/K) ist genau dieser Fortschritt.
 func prestige_progress() -> float:
 	var ratio := float(_currency) / PRESTIGE_K
 	if ratio < 1.0:
@@ -2146,22 +2159,22 @@ func prestige_progress() -> float:
 	# Ohne „Break Prestige" bleibt es bei 1 Punkt → Leiste voll (kein weiterer Fortschritt).
 	if get_prestige_node_level("earning") < 1:
 		return 1.0
-	# Danach: Fortschritt bis zur nächsten Verdopplung (×4 Geld = +1 ganze log4-Stufe).
-	var f := log(ratio) / log(4.0)
+	# Danach: Fortschritt bis zur nächsten Stufe (×10 Geld = +1 ganze log10-Stufe).
+	var f := log(ratio) / log(PRESTIGE_STAGE_GROWTH)
 	return clampf(f - floor(f), 0.0, 1.0)
 
 
 func can_prestige() -> bool:
-	return prestige_pending_points() >= 1
+	return prestige_pending_points() >= 1.0
 
 
 # Führt das Prestige aus: schreibt die fälligen Punkte gut und setzt ALLES außer dem
 # Prestige-Block zurück (Geld, Upgrades, freigeschaltete Tiles, alle Strecken-Layouts).
 # Gibt die erhaltenen Punkte zurück (0 = nicht möglich).
-func do_prestige() -> int:
+func do_prestige() -> float:
 	var gained := prestige_pending_points()
-	if gained < 1:
-		return 0
+	if gained < 1.0:
+		return 0.0
 	var was_first_prestige := prestige_count == 0
 	prestige_points += gained
 	prestige_count  += get_car_prestige_step()   # schaltet positionsbasiert den/die nächsten Knoten frei (×2 je Auto-Stufe)
@@ -2478,7 +2491,7 @@ func load_game_from_slot(slot: int) -> void:
 			f.close()
 			var data = str_to_var(txt)
 			if typeof(data) == TYPE_DICTIONARY:
-				_currency      = int(data.get("currency", START_CURRENCY))
+				_currency      = float(data.get("currency", START_CURRENCY))
 				var ups        = data.get("upgrades", {})
 				upgrade_levels = ups.duplicate() if typeof(ups) == TYPE_DICTIONARY else {}
 				var tr         = data.get("track", [])
@@ -2496,8 +2509,8 @@ func load_game_from_slot(slot: int) -> void:
 				else:
 					claimed_achievements = unlocked_achievements.duplicate()
 				ach_currency   = int(data.get("ach_currency", 0))
-				prestige_points = int(data.get("prestige_points", 0))
-				prestige_earned = int(data.get("prestige_earned", 0))
+				prestige_points = float(data.get("prestige_points", 0))
+				prestige_earned = float(data.get("prestige_earned", 0))
 				var pn         = data.get("prestige_nodes", {})
 				prestige_nodes = pn.duplicate() if typeof(pn) == TYPE_DICTIONARY else {}
 				_migrate_prestige_nodes()   # Alt-Knoten umbenennen / entfernte Knoten erstatten
@@ -2595,8 +2608,8 @@ func _reset_state_to_defaults() -> void:
 	unlocked_achievements = {}   # Erfolge sind PROFIL-gebunden → bei Slot-Wechsel/Reset leeren
 	claimed_achievements  = {}
 	ach_currency    = 0
-	prestige_points = 0
-	prestige_earned = 0
+	prestige_points = 0.0
+	prestige_earned = 0.0
 	prestige_nodes  = {}
 	prestige_count  = 0
 	prestige_tab_unlocked  = false

@@ -113,7 +113,7 @@ func _apply() -> void:
 		_track_sb.set_corner_radius_all(int(round(h * 0.5)))
 
 	var progress: float = Economy.prestige_progress()
-	var pending: int = Economy.prestige_pending_points()
+	var pending: float = Economy.prestige_pending_points()
 	# Track-Hintergrund: solange noch KEIN Punkt fällig ist (erste Leiste), dezentes Dunkel. Ab dem
 	# ersten vollen Durchlauf (pending ≥ 1) läuft die Leiste „von vorn" – der leere Teil zeigt dann
 	# das Prestige-Lila in abgedunkelt + leicht transparent, damit sichtbar ist, dass eine NEUE
