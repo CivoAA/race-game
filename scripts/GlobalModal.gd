@@ -536,7 +536,7 @@ func _tab_lock_hint(idx: int) -> String:
 	if idx == PRESTIGE_TAB:
 		return "Verdiene 100K (seit dem letzten Prestige), um diesen Bereich dauerhaft freizuschalten."
 	if idx == WERKSTATT_TAB:
-		return "Verdiene 100B (seit dem letzten Prestige), um diesen Bereich dauerhaft freizuschalten."
+		return "Sammle 1.000.000 Prestige-Punkte (⭐), um diesen Bereich dauerhaft freizuschalten."
 	return ""
 
 
@@ -902,7 +902,8 @@ func _make_tile_card(entry: Dictionary) -> Panel:
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	elif not Economy.can_unlock_tile(key):
-		# Tribüne: erst im Prestige-Baum (End-Knoten „Tribüne") freischalten.
+		# Premium-Tiles (Rampe/Steilwand/Looping/Portal/Tribüne): erst den zugehörigen Prestige-Baum-
+		# Knoten kaufen, dann hier für Geld freischalten.
 		btn.text     = Icons.LOCK + " Prestige-Baum nötig"
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
@@ -1013,7 +1014,7 @@ func _refresh_tile_buttons() -> void:
 func _on_tile_unlock(key: String) -> void:
 	if Economy.is_tile_unlocked(key):
 		return
-	# Tribüne: erst im Prestige-Baum (End-Knoten „Tribüne", 15 ⭐) freischalten, dann hier für Geld.
+	# Premium-Tiles: erst den Prestige-Baum-Gate-Knoten kaufen, dann hier für Geld freischalten.
 	if not Economy.can_unlock_tile(key):
 		return
 	var cost := Economy.get_tile_unlock_cost(key)
@@ -3509,8 +3510,8 @@ func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 func _rebuild_prestige() -> void:
 	_refresh_prestige_action()
 	_populate_prestige_tree()
-	# Tribünen-Knoten kann die Shop-Freischaltung gerade erlaubt haben → Tile-Karten neu bewerten,
-	# damit „🔒 Prestige-Baum nötig" sofort zu „🔒 N 💰" wird (ohne erneutes Prestige).
+	# Ein Tile-Gate-Knoten (Rampe/Steilwand/Looping/Portal/Tribüne) kann die Shop-Freischaltung gerade
+	# erlaubt haben → Tile-Karten neu bewerten, damit „🔒 Prestige-Baum nötig" sofort zu „🔒 N 💰" wird.
 	if _tiles_grid != null and is_instance_valid(_tiles_grid):
 		_populate_tiles_grid()
 
@@ -3579,16 +3580,23 @@ func _populate_prestige_tree() -> void:
 # weil die Glyphen aus dem Icons-Autoload kommen.
 func _prestige_node_icon(id: String) -> String:
 	match id:
-		"income":       return Icons.X
-		"points2":      return Icons.STAR
-		"grid":         return Icons.LAYOUT_GRID
-		"car":          return Icons.CAR
-		"points3":      return Icons.SPARKLES
-		"keep_unlocks": return Icons.KEY
-		"track":        return Icons.FLAG_3
-		"free_roads":   return Icons.ROAD
-		"stand_unlock": return Icons.STADIUM
-		"scaling":      return Icons.TRENDING_UP
+		"income":          return Icons.X
+		"car_start":       return Icons.CAR
+		"track":           return Icons.FLAG_3
+		"earning":         return Icons.TRENDING_UP
+		"car_points":      return Icons.STEERING_WHEEL
+		"drive_time_inf":  return Icons.CLOCK
+		"tilebonus_start": return Icons.COIN
+		"keep_unlocks":    return Icons.KEY
+		"points_mult":     return Icons.STAR
+		"wall_unlock":     return Icons.MOUNTAIN
+		"speed_start":     return Icons.GAUGE
+		"loop_unlock":     return Icons.INFINITY
+		"ramp_unlock":     return Icons.ROCKET
+		"grid":            return Icons.LAYOUT_GRID
+		"endmult_start":   return Icons.SPARKLES
+		"portal_unlock":   return Icons.CIRCLE_DASHED
+		"stand_unlock":    return Icons.STADIUM
 	return Icons.STAR
 
 
@@ -3650,23 +3658,12 @@ func _make_prestige_card(id: String) -> Panel:
 	eff_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	eff_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	eff_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.58))
-	if id == "free_roads":
-		# „Gratis-Straßen" wäre in einer Zeile zu lang → je Straßentyp eine eigene Zeile.
-		var per: Dictionary = Economy.FREE_ROADS_PER_LEVEL
-		eff_lbl.add_theme_font_size_override("font_size", 12)
-		if maxed:
-			eff_lbl.text = tr("%d Geraden\n%d Kurven") % [per["straight"] * level, per["curve"] * level]
-		else:
-			eff_lbl.text = tr("Geraden %d → %d\nKurven %d → %d") % [
-				per["straight"] * level, per["straight"] * (level + 1),
-				per["curve"] * level,    per["curve"] * (level + 1)]
+	eff_lbl.add_theme_font_size_override("font_size", 14)
+	if maxed:
+		eff_lbl.text = Economy.prestige_node_effect_text(id, level)
 	else:
-		eff_lbl.add_theme_font_size_override("font_size", 14)
-		if maxed:
-			eff_lbl.text = Economy.prestige_node_effect_text(id, level)
-		else:
-			eff_lbl.text = "%s → %s" % [Economy.prestige_node_effect_text(id, level),
-				Economy.prestige_node_effect_text(id, level + 1)]
+		eff_lbl.text = "%s → %s" % [Economy.prestige_node_effect_text(id, level),
+			Economy.prestige_node_effect_text(id, level + 1)]
 	card.add_child(eff_lbl)
 
 	# Beschreibung

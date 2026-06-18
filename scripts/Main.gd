@@ -264,8 +264,8 @@ func _ready() -> void:
 	# Tile-Upgrade gekauft → Ertragswert in der Bau-Leiste sofort aktualisieren;
 	# Bonusfeld-Kauf zeigt das neue Feld sofort auf dem Grid (nicht erst nach einer Runde).
 	Economy.upgrade_purchased.connect(_on_upgrade_purchased)
-	# Prestige-Kauf (z. B. „Gratis-Straßen" / „Unlocks behalten") → Bau-Leiste neu auffrischen,
-	# damit Preise/Gratis-Kontingent und Freischalt-Status sofort stimmen.
+	# Prestige-Kauf (z. B. „Unlocks behalten" / Tile-Gate-Knoten / Head-Start) → Bau-Leiste neu
+	# auffrischen, damit Preise und Freischalt-Status sofort stimmen.
 	Economy.prestige_changed.connect(_on_prestige_changed)
 
 	# Das Lauf-Ende-Popup erscheint nur in der 3D-Ansicht (World3D), nie im 2D-Bauplan.
@@ -1268,9 +1268,6 @@ func _count_paid_tiles(type: String) -> int:
 
 
 # Aktueller Preis eines Shop-Items (Dreck = 0, Default/Rampe = idle-skalierend).
-# Der Prestige-Knoten „Gratis-Straßen" versetzt den Preis um sein Gratis-Kontingent: solange weniger
-# Tiles dieses Typs liegen als das Kontingent, ist das nächste gratis; danach startet der Preis beim
-# ersten Preis (base_price·growth^0), nicht so, als hätte man die Gratis-Tiles bereits bezahlt.
 # Preis-Pool-Typ: Eisgerade und Eiskurve teilen sich EINEN Pool (Kauf des einen verteuert auch das
 # andere). Alle übrigen Typen haben ihren eigenen Pool. So zählt/preist Eis gemeinsam (von der Geraden).
 func _price_pool_type(t: String) -> String:
@@ -1283,11 +1280,7 @@ func _tile_price(item: Dictionary) -> int:
 	if item["tier"] == "dirt":
 		return 0
 	var ptype := _price_pool_type(String(item["type"]))
-	var n = _count_paid_tiles(ptype)
-	var free = Economy.get_free_tile_quota(ptype)
-	if n < free:
-		return 0
-	var eff: int = n - free                       # bezahlte Tiles dieses Typs (nach Gratis-Kontingent)
+	var eff: int = _count_paid_tiles(ptype)       # bezahlte Tiles dieses Typs (Idle-Skalierung)
 	var base := float(item["base_price"])
 	var g    := float(item["growth"])
 	# Sand-, Default-, Eis- und Renn-Belag: die ersten EARLY_TILE_COUNT bezahlten Tiles skalieren deutlich
@@ -1366,12 +1359,9 @@ func _tile_refund_for(data) -> int:
 		return int(round(total))
 	var ptype := _price_pool_type(String(item["type"]))   # Eis: gemeinsamer Pool (Gerade + Kurve)
 	var n = _count_paid_tiles(ptype)   # inkl. dieses Tile (Rampe: zählt ramp_start)
-	# Gratis-Kontingent (free_roads) berücksichtigen: war dieses Tile noch im Gratis-Bereich
-	# (n <= free), wurde nichts bezahlt → keine Rückerstattung. Sonst marginaler Preis versetzt.
-	var free = Economy.get_free_tile_quota(ptype)
-	if n <= free:
+	if n <= 0:
 		return 0
-	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - free - 1)))
+	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - 1)))
 
 
 func _update_currency_label() -> void:
@@ -1582,12 +1572,6 @@ func _tile_price_short(item: Dictionary, locked: bool) -> Dictionary:
 		return {"text": Icons.LOCK + " Shop", "color": Color(0.80, 0.64, 0.46), "afford": true}
 	if item["tier"] == "dirt":
 		return {"text": "frei", "color": Color(0.64, 0.84, 0.52), "afford": true}
-	if item["tier"] == "default":
-		# Gratis-Straßen-Kontingent: solange übrig, gratis platzierbar.
-		var free = Economy.get_free_tile_quota(item["type"])
-		var placed = _count_paid_tiles(item["type"])
-		if placed < free:
-			return {"text": "frei (%d)" % (free - placed), "color": Color(0.64, 0.84, 0.52), "afford": true}
 	# Bezahltes Tile: Preis rot, wenn das Geld (noch) nicht reicht.
 	var price = _tile_price(item)
 	var afford: bool = Economy.get_currency() >= price
@@ -1637,7 +1621,7 @@ func _on_tile_unlocked(_key: String) -> void:
 	_update_trash_visibility()
 
 
-# Prestige-Knoten gekauft („Gratis-Straßen" ändert Preise, „Unlocks behalten" den Freischalt-Status).
+# Prestige-Knoten gekauft (Tile-Gate/„Unlocks behalten" ändern den Freischalt-Status, Head-Start die Preise).
 func _on_prestige_changed() -> void:
 	_update_build_ui()
 	_update_trash_visibility()
