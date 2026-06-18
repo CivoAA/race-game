@@ -3660,7 +3660,9 @@ func _make_prestige_card(id: String) -> Panel:
 	eff_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	eff_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.58))
 	eff_lbl.add_theme_font_size_override("font_size", 14)
-	if maxed:
+	# Einmalige Freischaltungen (max 1 Stufe) zeigen NUR ihren Zustand – „gesperrt" bzw. nach dem
+	# Kauf „freigeschaltet", kein „von → zu". Gestufte Knoten weiter mit „aktuell → nächste".
+	if maxed or Economy.get_prestige_node_max(id) <= 1:
 		eff_lbl.text = Economy.prestige_node_effect_text(id, level)
 	else:
 		eff_lbl.text = "%s → %s" % [Economy.prestige_node_effect_text(id, level),
