@@ -145,7 +145,7 @@ func _build_ui() -> void:
 		_build_side_menu()
 
 
-func _on_lap_credited(_track_idx: int, amount: int) -> void:
+func _on_lap_credited(_track_idx: int, amount: float) -> void:
 	gain_currency(amount)
 
 
@@ -1169,8 +1169,8 @@ func flash_currency() -> void:
 	tw.tween_property(_currency_lbl, "modulate", Color(1, 1, 1), 0.30)
 
 
-func gain_currency(amount: int) -> void:
-	if amount <= 0 or _currency_lbl == null:
+func gain_currency(amount: float) -> void:
+	if amount <= 0.0 or _currency_lbl == null:
 		return
 	_currency_lbl.pivot_offset = _currency_lbl.size / 2.0
 	var tw := create_tween()

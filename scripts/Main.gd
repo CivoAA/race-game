@@ -171,7 +171,7 @@ var _hover_idx:      int   = -1       # aktuell gehoverte Karte (gegen Flackern 
 var _nomoney_popup:  Panel = null     # rotes „Zu wenig Geld"-Popup beim Platzierversuch
 var _nomoney_lbl:    Label = null
 var _nomoney_tween:  Tween = null
-var _last_build_currency: int = -1    # für Live-Refresh der „zu teuer"-Markierung bei Geldänderung
+var _last_build_currency: float = -1.0   # für Live-Refresh der „zu teuer"-Markierung bei Geldänderung
 var _trash_panel:   Panel       = null   # Papierkorb (nur Slow-Modus)
 var _rotate_btn:    Button      = null   # Drehen-Knopf (Touch/Handy, beide Modi)
 var _hammer_btn:    Button      = null   # Baumenü-Umschalter (persistent, unten links)
@@ -1690,10 +1690,10 @@ func _no_money_feedback(price: int) -> void:
 
 
 # Zeigt das rote „Zu wenig Geld – dir fehlen X 💰"-Popup kurz am Mauszeiger und blendet es aus.
-func _show_no_money_popup(missing: int) -> void:
+func _show_no_money_popup(missing: float) -> void:
 	if _nomoney_popup == null:
 		return
-	_nomoney_lbl.text = "Zu wenig Geld\n– dir fehlen %s %s" % [Economy.format_currency(max(missing, 0)), Icons.COIN]
+	_nomoney_lbl.text = "Zu wenig Geld\n– dir fehlen %s %s" % [Economy.format_currency(maxf(missing, 0.0)), Icons.COIN]
 	var vp := get_viewport().get_visible_rect().size
 	var mp := get_viewport().get_mouse_position()
 	var w := _nomoney_popup.size.x
@@ -4288,7 +4288,7 @@ func _ac_in_bounds(cell: Vector2i) -> bool:
 	return cell.x >= 0 and cell.x < GRID_ROWS and cell.y >= 0 and cell.y < GRID_COLS
 
 
-func _on_run_ended_background(track_idx: int, _earned: int) -> void:
+func _on_run_ended_background(track_idx: int, _earned: float) -> void:
 	# Kein Popup im 2D-Bauplan – das Lauf-Ende-Popup zeigt nur die 3D-Ansicht.
 	# Hier nur die Bau-Leiste aktualisieren, damit ein neuer Lauf gestartet werden kann.
 	if track_idx == _current_track_idx:
