@@ -98,13 +98,22 @@ func _on_layout_changed(_layout) -> void:
 
 func _on_viewport_resized() -> void:
 	# Nur reagieren wenn kein Layout-Wechsel stattfand (der wird von RUI.layout_changed abgedeckt).
-	# Dennoch neu bauen damit bar/sidebar die korrekte Breite/Position bekommen.
+	# Dennoch neu bauen damit bar/sidebar die korrekte Breite/Position bekommen. ABER: size_changed
+	# feuert auf manchen Plattformen auch spurious mit UNVERÄNDERTER Größe – dann nicht neu bauen,
+	# sonst wird die gerade geklickte Nav-Leiste mitten im Klick ersetzt (Doppel-Auslösung).
+	var sz := DisplayServer.window_get_size()
+	if sz == _last_window_size:
+		return
+	_last_window_size = sz
 	_build_ui()
 
 
 ## Baut alle dynamischen Bar- und Nav-Nodes neu.
 ## Löscht dazu den alten _ui_root vollständig.
 func _build_ui() -> void:
+	# Aktuelle Fenstergröße merken → ein direkt folgendes (spurious) size_changed mit gleicher
+	# Größe baut nicht erneut (siehe _on_viewport_resized).
+	_last_window_size = DisplayServer.window_get_size()
 	# Referenzen zurücksetzen (werden in _build_bar / _build_side_menu / _build_bottom_nav neu gesetzt)
 	_tab_btns.clear()
 	_run_dots.clear()
@@ -350,6 +359,14 @@ func _nav_pages() -> Array:
 
 var _nav_btns:    Array = []   # je {btn, tab}
 var _active_page: int   = -1   # gerade geöffnete Seite (-1 = Modal geschlossen)
+# Doppel-Auslösungs-Schutz für die Nav: zuletzt umgeschalteter Eintrag + Zeitpunkt. Verhindert,
+# dass ein doppelt zugestelltes pressed-Event (z. B. wenn die Leiste durch einen Viewport-Resize
+# mitten im Klick neu gebaut wird) eine Seite sofort wieder schließt ("ploppt kurz auf").
+var _nav_last_tab: int  = -999
+var _nav_last_ms:  int  = 0
+# Letzte (physische) Fenstergröße – nur bei echter Änderung die UI neu bauen (size_changed feuert
+# auch spurious mit gleicher Größe, was sonst unnötige Rebuilds + den Doppel-Klick-Effekt auslöst).
+var _last_window_size: Vector2i = Vector2i.ZERO
 var _pause_nav_btn: Button = null   # „Pause-Menü"-Eintrag, nur im Mobile-Steuerungsmodus sichtbar
 var _nav_hdr_lbl:   Label  = null   # „☰ Menü"-Überschrift der Seitennav (selbst per tr() übersetzt)
 # Live-Fortschritt zur Werkstatt-Freischaltung am gesperrten Werkstatt-Nav-Eintrag (prozent + Mini-
@@ -610,6 +627,17 @@ func _nav_sb(bg: Color, active: bool) -> StyleBoxFlat:
 
 
 func _on_nav_page(tab: int) -> void:
+	# Doppel-Auslösung desselben Klicks abfangen: kommt das pressed-Event für DENSELBEN Eintrag
+	# innerhalb von 200 ms zweimal an (z. B. weil ein Viewport-Resize die Leiste mitten im Klick
+	# neu baut und das Event erneut zugestellt wird), würde der zweite Aufruf die gerade geöffnete
+	# Seite sofort wieder schließen. Daher hier verwerfen. Wechsel zu einem ANDEREN Eintrag bleibt
+	# unbeeinflusst (anderer tab-Wert), schnelles Navigieren funktioniert weiter.
+	var now := Time.get_ticks_msec()
+	if tab == _nav_last_tab and now - _nav_last_ms < 200:
+		return
+	_nav_last_tab = tab
+	_nav_last_ms  = now
+
 	var prev := _active_page
 	# Erst alles Offene schließen (Upgrade-Center ODER Einstellungen). _active_page wird
 	# danach selbst gesetzt – die Schließen-Callbacks dürfen das Ergebnis nicht überschreiben.

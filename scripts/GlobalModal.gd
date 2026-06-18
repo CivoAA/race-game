@@ -334,8 +334,9 @@ func _process(delta: float) -> void:
 	# Vorschau-Auto langsam drehen, solange die Werkstatt sichtbar ist
 	if (_active_modal_tab == WERKSTATT_TAB or _active_modal_tab == GARAGE_TAB) and _preview_pivot != null:
 		_preview_pivot.rotate_y(delta * 0.6)
-	# Streckenteil-Vorschauen drehen, solange der Streckenteile-Tab sichtbar ist
-	elif _active_modal_tab == 0 and _active_shop_cat == 0:
+	# Streckenteil-Vorschauen drehen, solange der Streckenteile-Tab sichtbar ist. Im Performance-Modus
+	# bleiben sie statisch stehen (keine Drehung, kein Durchwechseln der Modelle), spart Last.
+	elif _active_modal_tab == 0 and _active_shop_cat == 0 and not Display.performance_mode:
 		for p in _tile_preview_pivots:
 			if is_instance_valid(p):
 				p.rotate_y(delta * 0.6)
