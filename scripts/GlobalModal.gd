@@ -42,7 +42,7 @@ var _active_shop_cat:  int = 0
 
 var _modal_tab_btns:    Array[Button] = []
 var _shop_sidebar_btns: Array[Button] = []   # Pillen des Shop-Umschalters oben (Streckenteile/Upgrades)
-var _buy_mode_btn:      OptionButton  = null   # Kaufmenge-Dropdown („Einzeln/Max") rechts in der Shop-Nav
+var _buy_mode_btn:      Button        = null   # Kaufmenge-Knopf (1/5/10/25/Max durchschaltbar) rechts in der Shop-Nav
 var _modal_money_lbl:   Label         = null   # Geldstand oben rechts in der Tab-Leiste
 
 # Inhaltsbereiche (je ein Control, visible-Switching)
@@ -600,10 +600,10 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 		tabs.add_child(btn)
 		_shop_sidebar_btns.append(btn)
 
-	# Kaufmenge-Umschalter („Einzeln" / „Max") rechtsbündig in der Nav-Leiste – gilt für BEIDE
-	# Shop-Kategorien (Streckenteile-Upgrades + allgemeine Upgrades), da er in der gemeinsamen
-	# Leiste sitzt. „Max" kauft beim Klick auf einen Upgrade-Knopf so viele Stufen wie mit dem
-	# aktuellen Geld möglich (siehe Economy.buy_upgrade_max / max_affordable_info).
+	# Kaufmengen-Knopf (durchschaltbar 1 → 5 → 10 → 25 → Max) rechtsbündig in der Nav-Leiste – gilt
+	# für BEIDE Shop-Kategorien (Streckenteile-Upgrades + allgemeine Upgrades), da er in der
+	# gemeinsamen Leiste sitzt. Feste Mengen kaufen genau so viele Stufen je Klick (Preis = Summe);
+	# „Max" kauft so viele Stufen wie mit dem aktuellen Geld möglich (siehe Economy.buy_upgrade_qty).
 	var mode_lbl := Label.new()
 	mode_lbl.anchor_left  = 1.0; mode_lbl.offset_left  = -300
 	mode_lbl.anchor_right = 1.0; mode_lbl.offset_right = -150
@@ -615,19 +615,17 @@ func _build_shop_panel(parent: Control, cy: int, ch: int) -> void:
 	mode_lbl.text = tr("Kaufmenge")
 	container.add_child(mode_lbl)
 
-	var mode_opt := OptionButton.new()
-	mode_opt.anchor_left  = 1.0; mode_opt.offset_left  = -142
-	mode_opt.anchor_right = 1.0; mode_opt.offset_right = -12
-	mode_opt.offset_top   = 7;   mode_opt.offset_bottom = SHOP_NAV_H - 7
-	mode_opt.focus_mode = Control.FOCUS_NONE
-	mode_opt.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	mode_opt.add_theme_font_size_override("font_size", 13)
-	mode_opt.add_item(tr("Einzeln"), 0)
-	mode_opt.add_item(tr("Max"), 1)
-	mode_opt.select(1 if Economy.buy_max_mode else 0)
-	mode_opt.item_selected.connect(_on_buy_mode_selected)
-	container.add_child(mode_opt)
-	_buy_mode_btn = mode_opt
+	var mode_btn := Button.new()
+	mode_btn.anchor_left  = 1.0; mode_btn.offset_left  = -142
+	mode_btn.anchor_right = 1.0; mode_btn.offset_right = -12
+	mode_btn.offset_top   = 7;   mode_btn.offset_bottom = SHOP_NAV_H - 7
+	mode_btn.focus_mode = Control.FOCUS_NONE
+	mode_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	mode_btn.add_theme_font_size_override("font_size", 13)
+	mode_btn.text = _buy_mode_text()
+	mode_btn.pressed.connect(_on_buy_mode_pressed)
+	container.add_child(mode_btn)
+	_buy_mode_btn = mode_btn
 
 	# Untere Trennlinie der Nav-Leiste
 	var sline := ColorRect.new()
@@ -660,13 +658,35 @@ func _show_shop_cat(idx: int) -> void:
 		_shop_cats[idx].visible = true
 
 
-# Kaufmenge-Dropdown umgestellt (0 = Einzeln, 1 = Max). Beide Kategorien neu beschriften, damit
-# die Kauf-Knöpfe sofort die Einzelstufe bzw. die „+N · Gesamtkosten"-Vorschau zeigen.
-func _on_buy_mode_selected(idx: int) -> void:
-	Economy.buy_max_mode = (idx == 1)
+# Knopf-Beschriftung der aktuellen Kaufmenge ("×1" … "×25" bzw. "Max").
+func _buy_mode_text() -> String:
+	var q := Economy.get_buy_qty()
+	return tr("Max") if q < 0 else "×%d" % q
+
+
+# Kaufmengen-Knopf gedrückt: eine Stufe weiterschalten (1 → 5 → 10 → 25 → Max → 1 …) und alle
+# Kauf-Knöpfe neu beschriften (Einzelstufe bzw. „+N · Gesamtkosten"-Vorschau).
+func _on_buy_mode_pressed() -> void:
+	Economy.cycle_buy_qty()
+	if is_instance_valid(_buy_mode_btn):
+		_buy_mode_btn.text = _buy_mode_text()
+	_refresh_all_buy_labels()
 	_refresh_affordability()
-	if _active_shop_cat == 1:
-		_rebuild_shop_upgrades()
+
+
+# Beschriftet alle Kauf-Knöpfe (Streckenteil-Upgrades Kat 0 + allgemeine Upgrades Kat 1) gemäß der
+# aktuellen Kaufmenge neu, ohne die 3D-Vorschauen neu aufzubauen.
+func _refresh_all_buy_labels() -> void:
+	for e in _tile_upgrade_cards:
+		var b = e["btn"]
+		if is_instance_valid(b) and not Economy.is_maxed(e["id"]):
+			_refresh_tile_upgrade_btn(b, e["id"])
+	for e in _upgrade_buttons:
+		var ub = e["btn"]
+		if e["id"] == "super_car" or not is_instance_valid(ub) or Economy.is_maxed(e["id"]):
+			continue
+		_set_buy_btn_label(ub, e["id"], false, 13)
+		_style_upgrade_btn(ub, Economy.can_buy_qty(e["id"]))
 
 
 # Beschriftung eines Kauf-Knopfs je nach Kaufmenge-Modus. „Max" zeigt, wie viele Stufen mit dem
@@ -674,10 +694,10 @@ func _on_buy_mode_selected(idx: int) -> void:
 # fällt die Anzeige auf den Einzelkauf zurück. `with_stufe` → Einzelmodus nennt zusätzlich die
 # Zielstufe (Streckenteil-Karten), sonst nur den Preis (allgemeine Upgrade-Karten).
 func _buy_label(id: String, with_stufe: bool) -> String:
-	if Economy.buy_max_mode:
-		var info := Economy.max_affordable_info(id)
-		if int(info["count"]) >= 2:
-			return Icons.ARROW_UP + (tr("  +%d Stufen  ·  %s %s") % [int(info["count"]), Economy.format_currency(int(info["cost"])), Icons.COIN])
+	# Mehrfachkauf (feste Menge ≥2 ODER Max mit ≥2 leistbaren Stufen): „+N · Gesamtkosten".
+	var info := Economy.buy_qty_info(id)
+	if int(info["count"]) >= 2:
+		return Icons.ARROW_UP + (tr("  +%d Stufen  ·  %s %s") % [int(info["count"]), Economy.format_currency(int(info["cost"])), Icons.COIN])
 	if with_stufe:
 		return Icons.ARROW_UP + (tr(" Stufe %d  ·  %s %s") % [Economy.get_upgrade_level(id) + 1, Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN])
 	return Icons.ARROW_UP + "  %s %s" % [Economy.format_currency(Economy.get_upgrade_cost(id)), Icons.COIN]
@@ -1006,9 +1026,9 @@ func _refresh_tile_buttons() -> void:
 		var uid: String = e["id"]
 		if Economy.is_maxed(uid):
 			continue
-		_style_upgrade_btn(ub, Economy.can_buy(uid))
+		_style_upgrade_btn(ub, Economy.can_buy_qty(uid))
 		# Im Max-Modus hängt die „+N · Gesamtkosten"-Anzeige am Geldstand → live mitziehen.
-		if Economy.buy_max_mode:
+		if Economy.is_buy_max():
 			_set_buy_btn_label(ub, uid, true, 12)
 
 
@@ -1034,17 +1054,13 @@ func _setup_tile_upgrade_btn(btn: Button, id: String) -> void:
 		return
 	_set_buy_btn_label(btn, id, true, 12)
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	_style_upgrade_btn(btn, Economy.can_buy(id))
+	_style_upgrade_btn(btn, Economy.can_buy_qty(id))
 	btn.pressed.connect(_on_buy_tile_upgrade.bind(id))
 	_tile_upgrade_buttons.append({"btn": btn, "id": id})
 
 
 func _on_buy_tile_upgrade(id: String) -> void:
-	var ok := false
-	if Economy.buy_max_mode:
-		ok = Economy.buy_upgrade_max(id) > 0
-	else:
-		ok = Economy.buy_upgrade(id)
+	var ok := Economy.buy_upgrade_qty(id) > 0
 	if ok:
 		# Nur die betroffene Karte (Text + Button) aktualisieren, NICHT das ganze Raster
 		# neu bauen – sonst springt die rotierende 3D-Vorschau bei jedem Kauf zurück.
@@ -1077,7 +1093,7 @@ func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 		return
 	_set_buy_btn_label(btn, id, true, 12)
-	_style_upgrade_btn(btn, Economy.can_buy(id))
+	_style_upgrade_btn(btn, Economy.can_buy_qty(id))
 
 
 # Baut eine kleine 3D-Vorschau (eigene SubViewport-Welt) auf und merkt sich den
@@ -3187,7 +3203,7 @@ func _make_upgrade_card(id: String) -> Panel:
 		buy_btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	else:
 		_set_buy_btn_label(buy_btn, id, false, 13)
-		_style_upgrade_btn(buy_btn, Economy.can_buy(id))
+		_style_upgrade_btn(buy_btn, Economy.can_buy_qty(id))
 		_upgrade_buttons.append({"btn": buy_btn, "id": id})
 	buy_btn.pressed.connect(_on_buy_upgrade.bind(id))
 	card.add_child(buy_btn)
@@ -3200,11 +3216,7 @@ func _make_upgrade_card(id: String) -> Panel:
 
 
 func _on_buy_upgrade(id: String) -> void:
-	var ok := false
-	if Economy.buy_max_mode:
-		ok = Economy.buy_upgrade_max(id) > 0
-	else:
-		ok = Economy.buy_upgrade(id)
+	var ok := Economy.buy_upgrade_qty(id) > 0
 	if ok:
 		# Upgrades leben jetzt nur noch im Shop-Tab (Kategorie-Index 1)
 		if _active_modal_tab == 0 and _active_shop_cat == 1:
@@ -3395,9 +3407,9 @@ func _refresh_upgrade_buttons() -> void:
 			continue
 		if Economy.is_maxed(id):
 			continue
-		_style_upgrade_btn(btn, Economy.can_buy(id))
+		_style_upgrade_btn(btn, Economy.can_buy_qty(id))
 		# Im Max-Modus hängt die „+N · Gesamtkosten"-Anzeige am Geldstand → live mitziehen.
-		if Economy.buy_max_mode:
+		if Economy.is_buy_max():
 			_set_buy_btn_label(btn, id, false, 13)
 
 
@@ -3535,7 +3547,7 @@ func _refresh_prestige_action() -> void:
 	_prestige_fill_mat.set_shader_parameter("mode", 0 if Display.performance_mode else 5)
 
 	if pending >= 1.0:
-		_prestige_btn_lbl.text = "%s  PRESTIGE  →  +%s %s" % [Icons.RECYCLE, Economy.format_currency(pending), Icons.STAR]
+		_prestige_btn_lbl.text = "%s  %s  →  +%s %s" % [Icons.RECYCLE, tr("PRESTIGE"), Economy.format_currency(pending), Icons.STAR]
 		_prestige_btn.disabled = false
 		# Volle, leuchtende Prestige-Gold-Füllung.
 		_prestige_fill_mat.set_shader_parameter("base_color", Color(C_STAR.r, C_STAR.g, C_STAR.b, 0.90))
@@ -3585,7 +3597,7 @@ func _prestige_node_icon(id: String) -> String:
 		"car_start":       return Icons.CAR
 		"track":           return Icons.FLAG_3
 		"earning":         return Icons.TRENDING_UP
-		"car_points":      return Icons.STEERING_WHEEL
+		"car_points":      return Icons.STAR
 		"drive_time_inf":  return Icons.CLOCK
 		"tilebonus_start": return Icons.COIN
 		"keep_unlocks":    return Icons.KEY
@@ -3698,13 +3710,13 @@ func _make_prestige_card(id: String) -> Panel:
 		btn.add_theme_stylebox_override("disabled", _sbf(C_SURFACE, C_ACCENT_MU.darkened(0.5)))
 		btn.add_theme_color_override("font_disabled_color", C_TEXT_DIM)
 	elif maxed:
-		btn.text     = Icons.CHECK + " MAX (Stufe %d)" % level
+		btn.text     = Icons.CHECK + " " + (tr("MAX (Stufe %d)") % level)
 		btn.disabled = true
 		btn.add_theme_stylebox_override("disabled", _sbf(Color(0.10, 0.26, 0.15), Color(0.30, 0.75, 0.42)))
 		btn.add_theme_color_override("font_disabled_color", Color(0.55, 0.95, 0.65))
 	else:
 		var cost := Economy.get_prestige_node_cost(id)
-		btn.text = "%d %s" % [cost, Icons.STAR]
+		btn.text = "%s %s" % [Economy.format_currency(cost), Icons.STAR]
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		_style_prestige_buy_btn(btn, Economy.can_buy_prestige_node(id))
 		btn.pressed.connect(_on_buy_prestige_node.bind(id))
@@ -3717,8 +3729,8 @@ func _make_prestige_card(id: String) -> Panel:
 func _prestige_prereq_text(id: String) -> String:
 	var need := Economy.get_prestige_node_unlock_count(id)
 	if need <= 0:
-		return "gesperrt"
-	return "nach %d. Prestige" % need
+		return tr("gesperrt")
+	return tr("nach %d. Prestige") % need
 
 
 # Stil eines Prestige-Kauf-Knopfs (leistbar = Gold, sonst gedämpft).
@@ -3802,7 +3814,7 @@ func _build_prestige_confirm(parent: Control) -> void:
 	yes.focus_mode = Control.FOCUS_NONE
 	yes.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	yes.add_theme_font_size_override("font_size", 14)
-	yes.text = Icons.RECYCLE + "  Prestige"
+	yes.text = Icons.RECYCLE + "  " + tr("Prestige")
 	yes.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
 	yes.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
 	yes.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
