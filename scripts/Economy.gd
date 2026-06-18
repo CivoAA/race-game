@@ -347,13 +347,13 @@ const PRESTIGE_NODES = {
 	# Tile-Gate Steilwand (wie Tribüne): schaltet die Steilwandkurve ÜBERHAUPT erst frei. Danach im
 	# Shop noch für Geld freischaltbar (can_unlock_tile + is_tile_unlocked).
 	"wall_unlock": {
-		"name": "Steilwand", "icon": "", "base_cost": 6, "growth": 1.0, "max_level": 1,
+		"name": "Steilwand", "icon": "", "base_cost": 3, "growth": 1.0, "max_level": 1,
 		"desc": "Schaltet die Steilwandkurve frei (danach im Shop noch für Geld freischaltbar).",
 	},
 	# Punkte je Auto (NEU, hinter der Steilwand): jedes FAHRENDE Auto bringt zusätzliche Prestige-Punkte.
 	# Additiv VOR den globalen Multiplikatoren: + get_active_car_count()·Stufe (siehe prestige_pending_points).
 	"car_points": {
-		"name": "Punkte je Auto", "icon": "", "base_cost": 7, "growth": 2.0, "max_level": 10,
+		"name": "Prestige-Punkte pro Auto", "icon": "", "base_cost": 8, "growth": 2.0, "max_level": 10,
 		"desc": "Jedes fahrende Auto bringt je Stufe +1 Prestige-Punkt pro Prestige.",
 	},
 	# Unendliche Fahrzeit (NEU, einmalig, vor Tempo-Start): hebt das Zeitlimit auf – jede Strecke fährt
@@ -408,6 +408,10 @@ const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe 
 # (wie die anderen Front-Knoten), danach steil – Stufe 3 (= 4. Auto, Fahr-Cap voll) 150k, Stufe 4 1,5M;
 # ab da ×10. Levels über 3 braucht man erst mit der Werkstatt-Stufe (ACTIVE_CAR_CAP = 4 bei Tier 0).
 const CAR_START_COSTS = [1, 2000, 150000, 1500000, 15000000, 150000000, 1500000000, 15000000000, 150000000000, 1500000000000]
+
+# Extra-Strecke: eigene ⭐-Kostenkurve (in get_prestige_node_cost special-cased). Stufe 1 (= Strecke 2)
+# kostet 1 ⭐ (wie die anderen Front-Knoten), Stufe 2 (= Strecke 3) bewusst teuer: 300k ⭐.
+const TRACK_COSTS = [1, 300000]
 
 # Head-Start-Knoten → Upgrade-IDs, deren Start-Level (Floor) sie anheben. Der Floor liegt reset-fest
 # in prestige_nodes; get_upgrade_level() liest ihn mit → wirkt LIVE beim Kauf und überlebt den
@@ -612,10 +616,12 @@ var endless_mode: bool = false   # Kein Timer, Geld wird live gutgeschrieben
 # Globale Einstellung (slot-unabhängig, in user://settings.cfg): blendet die Cheat-Buttons
 # (Endlos-Modus ∞ und +1B ⭐) in der oberen Leiste ein/aus.
 var cheat_mode: bool = false
-# Shop-Kaufmenge-Modus (Umschalter „Einzeln/Max" im Shop). false = einzeln (1 Stufe je Klick),
-# true = Max (so viele Stufen wie mit dem aktuellen Geld möglich, in einem Klick). Reine UI-/
-# Session-Einstellung – nicht gespeichert, gilt für Upgrades UND Streckenteil-Upgrades.
-var buy_max_mode: bool = false
+# Shop-Kaufmenge (durchschaltbarer Knopf im Shop): Index in BUY_QTY_OPTIONS. Feste Mengen 1/5/10/25
+# kaufen genau so viele Stufen je Klick (Preis = Summe dieser Stufen); -1 = „Max" (so viele Stufen wie
+# mit dem aktuellen Geld leistbar). Reine UI-/Session-Einstellung – nicht gespeichert, gilt für
+# Upgrades UND Streckenteil-Upgrades.
+const BUY_QTY_OPTIONS = [1, 5, 10, 25, -1]
+var buy_qty_mode: int = 0   # Index in BUY_QTY_OPTIONS (Standard: Einzelkauf)
 
 signal run_ended(track_idx: int, earned: float)
 # Eine (oder mehrere) Runde(n) wurden gutgeschrieben (Auto über die Startlinie) – Betrag = Summe.
@@ -1455,7 +1461,12 @@ func _tilebonus_value(level: int) -> float:
 	var lv := clampi(level, 0, 100)
 	if lv <= 20:
 		return 0.5 * lv
-	return 10.0 * pow(2.0, float(lv - 20) / 3.0)
+	# Lv20–25: Verdopplung alle 3 Stufen (wie zuvor) → bei Lv25 ≈ +31.7/Feld.
+	if lv <= 25:
+		return 10.0 * pow(2.0, float(lv - 20) / 3.0)
+	# Ab Stufe 25 etwas flacher (Verdopplung alle 4 statt 3 Stufen), stetig an Lv25 angeknüpft.
+	var at25 := 10.0 * pow(2.0, 5.0 / 3.0)
+	return at25 * pow(2.0, float(lv - 25) / 4.0)
 
 
 # End-Multiplikator bei Upgrade-Stufe `level` (0..70). Vier Phasen mit zunehmender Schrittweite:
@@ -1515,6 +1526,44 @@ func max_affordable_info(id: String) -> Dictionary:
 		total += c
 		count += 1
 	return {"count": count, "cost": total}
+
+
+# Aktuell gewählte Kaufmenge (Wert aus BUY_QTY_OPTIONS; -1 = Max).
+func get_buy_qty() -> int:
+	return BUY_QTY_OPTIONS[clampi(buy_qty_mode, 0, BUY_QTY_OPTIONS.size() - 1)]
+
+
+func is_buy_max() -> bool:
+	return get_buy_qty() < 0
+
+
+# Schaltet den Kaufmengen-Knopf eine Stufe weiter (1 → 5 → 10 → 25 → Max → 1 …).
+func cycle_buy_qty() -> void:
+	buy_qty_mode = (buy_qty_mode + 1) % BUY_QTY_OPTIONS.size()
+
+
+# Kauf-Vorschau für die aktuelle Kaufmenge. Bei „Max" identisch zu max_affordable_info (so viele
+# Stufen wie leistbar). Bei fester Menge N werden die nächsten min(N, Rest-Stufen) Stufen
+# zusammengerechnet – der Preis (cost) ist IMMER die Summe dieser Stufen, auch wenn das Geld (noch)
+# nicht reicht; `affordable` sagt nur, ob aktuell leistbar. → {"count", "cost", "affordable"}
+func buy_qty_info(id: String) -> Dictionary:
+	if is_buy_max():
+		var mi := max_affordable_info(id)
+		mi["affordable"] = int(mi["count"]) > 0
+		return mi
+	var lvl := get_upgrade_level(id)
+	var mx  := get_max_level(id)
+	var target := mini(get_buy_qty(), mx - lvl)
+	var total := 0
+	for i in range(target):
+		total += _upgrade_cost_at(id, lvl + i)
+	return {"count": target, "cost": total, "affordable": target > 0 and _currency >= float(total)}
+
+
+# Kann mit der aktuellen Kaufmenge gekauft werden (mind. 1 Stufe und leistbar)?
+func can_buy_qty(id: String) -> bool:
+	var info := buy_qty_info(id)
+	return int(info["count"]) > 0 and bool(info["affordable"])
 
 
 # Tile-Bonus-Kosten der NÄCHSTEN Stufe. Wie beim Tempo: die ersten TILEBONUS_EARLY_LEVELS Stufen
@@ -1589,6 +1638,25 @@ func buy_upgrade_max(id: String) -> int:
 			_apply_speed_to_active_runs()
 		emit_signal("upgrade_purchased", id)
 	return bought
+
+
+# Kauf gemäß aktueller Kaufmenge (Knopf-Umschalter). „Max" → buy_upgrade_max. Feste Menge N → kauft
+# genau die in buy_qty_info ermittelten Stufen in EINEM Schritt (nur wenn die Summe leistbar ist),
+# sonst nichts. save_game + Signal nur einmal. Rückgabe = Anzahl gekaufter Stufen.
+func buy_upgrade_qty(id: String) -> int:
+	if is_buy_max():
+		return buy_upgrade_max(id)
+	var info := buy_qty_info(id)
+	var n := int(info["count"])
+	if n <= 0 or not bool(info["affordable"]):
+		return 0
+	_currency -= float(info["cost"])
+	upgrade_levels[id] = get_upgrade_level(id) + n
+	save_game()
+	if id == "speed":
+		_apply_speed_to_active_runs()
+	emit_signal("upgrade_purchased", id)
+	return n
 
 
 # ── Anzeige-Helfer (für das Upgrade-Menü) ──────────────────────────────────────
@@ -1674,8 +1742,8 @@ func format_currency(value) -> String:
 	# Gewähltes Geld-Zahlenformat (globale Anzeige-Einstellung in Display).
 	var mode := Display.money_notation
 	if mode == Display.MoneyNotation.SCIENTIFIC:
-		# e-Form erst ab 1e7 (darunter reine Zahl, damit der Shop nicht schon bei "1e3" startet).
-		if v < 1e7:
+		# e-Form bereits ab 1e6 (eine Million): ab da z. B. "1.23e6" statt der langen Zahl (Wunsch).
+		if v < 1e6:
 			return sign_str + str(int(round(v)))
 		# Beliebiger Exponent, Mantisse in [1,10): z. B. 1.23e7.
 		var sexp = int(floor(log(v) / log(10.0)))
@@ -1804,9 +1872,13 @@ func get_car_tier_model(tier: int = -1) -> String:
 		0: return Paths.MODEL_TEST_CAR
 		_: return Paths.MODEL_ERIC_CAR
 
-# Geld-Schwelle für den NÄCHSTEN Aufstieg = Basis · Wachstum^aktuelle_Stufe.
-func get_car_ascend_cost() -> int:
-	return int(round(CAR_ASCEND_BASE * pow(CAR_ASCEND_GROWTH, car_tier)))
+# Geld-Schwelle für den NÄCHSTEN Aufstieg. Eigene Kurve (Wunsch): 1. Auto 5 Mio., 2. Auto 100 Mio.,
+# 3. Auto 100 Mrd. (= 1e11), danach ×10 je weiterer Stufe (1e12, 1e13, …).
+func get_car_ascend_cost() -> float:
+	match car_tier:
+		0: return 5_000_000.0
+		1: return 100_000_000.0
+		_: return 1e11 * pow(10.0, float(car_tier - 2))
 
 func can_ascend_car() -> bool:
 	return _currency >= get_car_ascend_cost()
@@ -2001,6 +2073,9 @@ func get_prestige_node_cost(id: String) -> int:
 	# Auto-Startlevel: eigene steile Kostenkurve (CAR_START_COSTS), siehe Konstante.
 	if id == "car_start":
 		return int(CAR_START_COSTS[clampi(lvl, 0, CAR_START_COSTS.size() - 1)])
+	# Extra-Strecke: eigene Kostenkurve (TRACK_COSTS) – Strecke 3 ist mit 300k ⭐ ein echtes Ziel.
+	if id == "track":
+		return int(TRACK_COSTS[clampi(lvl, 0, TRACK_COSTS.size() - 1)])
 	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), lvl)))
 
 
@@ -2094,25 +2169,25 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 			var lv := clampi(level, 0, GRID_STEPS.size() - 1)
 			return "%d×%d" % [GRID_STEPS[lv].x, GRID_STEPS[lv].y]
 		"car_start":
-			return "+%d Auto" % level if level == 1 else "+%d Autos" % level
+			return (tr("+%d Auto") if level == 1 else tr("+%d Autos")) % level
 		"track":
 			var n := PRESTIGE_TRACK_BASE + level
-			return "%d Strecke" % n if n == 1 else "%d Strecken" % n
+			return (tr("%d Strecke") if n == 1 else tr("%d Strecken")) % n
 		"earning":
 			# Einmaliger Unlock der geldgetriebenen Punkte-Skalierung.
-			return Icons.CHECK + " freigeschaltet" if level >= 1 else Icons.LOCK + " gesperrt"
+			return Icons.CHECK + " " + tr("freigeschaltet") if level >= 1 else Icons.LOCK + " " + tr("gesperrt")
 		"car_points":
-			return "+%d / Auto" % level
+			return tr("+%d / Auto") % level
 		"drive_time_inf":
-			return Icons.CHECK + " endlos" if level >= 1 else Icons.LOCK + " gesperrt"
+			return Icons.CHECK + " " + tr("endlos") if level >= 1 else Icons.LOCK + " " + tr("gesperrt")
 		"points_mult":
-			return "×%d Punkte" % int(pow(2.0, float(level)))
+			return tr("×%d Punkte") % int(pow(2.0, float(level)))
 		"tilebonus_start", "speed_start", "endmult_start":
-			return "Start Lv %d" % level
+			return tr("Start Lv %d") % level
 		"keep_unlocks":
-			return Icons.CHECK + " aktiv" if level >= 1 else "aus"
+			return Icons.CHECK + " " + tr("aktiv") if level >= 1 else tr("aus")
 		"wall_unlock", "loop_unlock", "ramp_unlock", "portal_unlock", "stand_unlock":
-			return Icons.CHECK + " freigeschaltet" if level >= 1 else "gesperrt"
+			return Icons.CHECK + " " + tr("freigeschaltet") if level >= 1 else tr("gesperrt")
 	return str(level)
 
 

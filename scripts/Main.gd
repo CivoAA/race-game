@@ -1519,7 +1519,7 @@ func _tile_fallback_glyph(item: Dictionary) -> String:
 
 # Anzeige-Reihenfolge der Kategorien in der Bau-Liste (unabhängig von der SHOP_ITEMS-Reihenfolge).
 # Innerhalb einer Kategorie bleibt die SHOP_ITEMS-Reihenfolge erhalten.
-const SECTION_ORDER := ["ERDE", "SAND", "ASPHALT", "EIS", "RENNSTRECKE", "KLEBER", "WASSER", "SPEZIAL"]
+const SECTION_ORDER := ["ERDE", "SAND", "EIS", "ASPHALT", "RENNSTRECKE", "KLEBER", "WASSER", "SPEZIAL"]
 
 # Kategorie-Überschrift für ein Shop-Slot (gleiche Kategorie → keine neue Überschrift).
 # Default-Belag (Gerade/Kurve) und Rennbelag teilen den Tier "default", bekommen aber GETRENNTE
