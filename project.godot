@@ -23,7 +23,7 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 boot_splash/bg_color=Color(0.086, 0.098, 0.129, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
-"#Fester,saubererSpeicherortfÃ¼ruser://âwirdvonSteamAuto-Cloudsynchronisiert.#Windows:%APPDATA%\\RoadTycoon\\(statt%APPDATA%\\Godot\\app_userdata\\...)config/use_custom_user_dir"=true
+config/use_custom_user_dir=true
 
 [autoload]
 

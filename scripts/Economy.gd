@@ -678,22 +678,36 @@ func _ready() -> void:
 const LEGACY_USER_DIR_NAME = "RaceTrackBuilder"
 
 func _migrate_legacy_user_dir() -> void:
-	var new_abs := ProjectSettings.globalize_path("user://").trim_suffix("/").trim_suffix("\\")
-	var legacy_abs := new_abs.get_base_dir().path_join(LEGACY_USER_DIR_NAME)
-	# Name unverändert oder kein Alt-Ordner vorhanden → nichts zu tun.
-	if legacy_abs == new_abs or not DirAccess.dir_exists_absolute(legacy_abs):
-		return
-	# Im neuen Ordner liegen schon Daten? Dann nichts überschreiben, nur den
-	# (evtl. noch herumliegenden) Alt-Ordner aufräumen.
+	# Liegen im neuen Ordner schon Saves? Dann ist die Migration erledigt (läuft so genau einmal).
 	if _new_user_dir_has_data():
-		_remove_dir_recursive(legacy_abs)
 		return
-	DirAccess.make_dir_recursive_absolute(new_abs)
-	_copy_dir_recursive(legacy_abs, new_abs)
-	_remove_dir_recursive(legacy_abs)
+	var new_abs := ProjectSettings.globalize_path("user://").trim_suffix("/").trim_suffix("\\")
+	var base := new_abs.get_base_dir()   # Windows: %APPDATA% (Roaming)
+	# Mögliche Alt-Speicherorte in Prioritätsreihenfolge. Hintergrund: Bis dieser Build lief
+	# use_custom_user_dir faktisch NICHT (der Eintrag war kaputt), darum lag user:// unter dem
+	# Godot-Standardpfad …/Godot/app_userdata/<Projektname>. Jetzt (custom dir aktiv) zeigt user://
+	# direkt auf %APPDATA%/RoadTycoon → einmalig die alten Spielstände herüberkopieren.
+	var candidates := [
+		base.path_join("Godot/app_userdata/RoadTycoon"),               # Beta-Saves (Name RoadTycoon, custom dir war aus)
+		base.path_join("Godot/app_userdata/" + LEGACY_USER_DIR_NAME),  # noch älter (alter Projektname)
+		base.path_join(LEGACY_USER_DIR_NAME),                          # falls custom dir je mit altem Namen lief
+	]
+	for legacy_abs in candidates:
+		if legacy_abs == new_abs or not DirAccess.dir_exists_absolute(legacy_abs):
+			continue
+		if not _dir_has_save_data(legacy_abs):
+			continue
+		DirAccess.make_dir_recursive_absolute(new_abs)
+		_copy_dir_recursive(legacy_abs, new_abs)
+		# Alt-Ordner bewusst NICHT löschen: bleibt als Backup und stört einen evtl. älteren
+		# Parallel-Build nicht. Der _new_user_dir_has_data()-Check oben verhindert Doppel-Migration.
+		return
 
 func _new_user_dir_has_data() -> bool:
-	var d := DirAccess.open("user://")
+	return _dir_has_save_data(ProjectSettings.globalize_path("user://"))
+
+func _dir_has_save_data(abs_path: String) -> bool:
+	var d := DirAccess.open(abs_path)
 	if d == null:
 		return false
 	for fname in d.get_files():
@@ -712,16 +726,6 @@ func _copy_dir_recursive(from_abs: String, to_abs: String) -> void:
 			DirAccess.copy_absolute(from_abs.path_join(fname), dst)
 	for sub in d.get_directories():
 		_copy_dir_recursive(from_abs.path_join(sub), to_abs.path_join(sub))
-
-func _remove_dir_recursive(abs_path: String) -> void:
-	var d := DirAccess.open(abs_path)
-	if d == null:
-		return
-	for fname in d.get_files():
-		DirAccess.remove_absolute(abs_path.path_join(fname))
-	for sub in d.get_directories():
-		_remove_dir_recursive(abs_path.path_join(sub))
-	DirAccess.remove_absolute(abs_path)
 
 
 # ── Globale Einstellungen (slot-unabhängig, user://settings.cfg) ────────────────
