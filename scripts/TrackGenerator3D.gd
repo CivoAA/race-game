@@ -170,7 +170,15 @@ func _portal_exit_cell(grid_state: Array) -> Vector2i:
 	var cols: int = grid_state[0].size() if rows > 0 else 0
 	if rows < 2 or cols < 2:
 		return Vector2i(-1, -1)
+	# Start-/Ziel-Feld suchen (kann frei platziert/gedreht sein); Fahrtrichtung aus seiner Drehung.
 	var row := 1; var col := 1; var exit_dir := "E"
+	for r in range(rows):
+		for c in range(grid_state[r].size()):
+			var sd = grid_state[r][c]
+			if typeof(sd) == TYPE_DICTIONARY and sd.get("is_start", false):
+				row = r; col = c
+				exit_dir = ["E", "S", "W", "N"][(((int(sd.get("rotation", 0)) % 360) + 360) / 90) % 4]
+				break
 	var visited: Dictionary = {}
 	for _i in range(rows * cols * 2):
 		var key := "%d_%d" % [row, col]

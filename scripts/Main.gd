@@ -54,6 +54,10 @@ var _build_panel_bot: float = 0.0
 # der Kaufpreis startet danach für Sand/Default/Renn bei 5 % des Freischaltpreises (base_price) und
 # skaliert idle (bewusst flaches growth, damit das Baumenü günstig bleibt).
 const SHOP_ITEMS = [
+	# Start-/Ziel-Feld: kostenlos, immer freigeschaltet, genau EINS je Strecke (Platzieren verschiebt
+	# das bestehende). Steht ganz oben über der Erd-Strecke. type "straight" → Lage/Fahrtrichtung folgt
+	# der Drehung (waagerecht = Ein-/Ausfahrt O/W, senkrecht = N/S).
+	{"tier": "start",   "type": "straight", "name": "Start/Ziel",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": ""},
 	{"tier": "dirt",    "type": "curve",    "name": "Erd-Kurve",   "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtcurvebonus"},
 	{"tier": "dirt",    "type": "straight", "name": "Erd-Gerade",  "key": "",            "unlock": 0,     "base_price": 0,     "growth": 1.0, "upgrade": "dirtstraightbonus"},
 	# Sand: günstigste BEZAHLTE Strecke (+15, eigene additive Upgrades sandstraightbonus/sandcurvebonus).
@@ -72,9 +76,11 @@ const SHOP_ITEMS = [
 	# Upgrades (racestraightbonus/racecurvebonus). Teuerstes reguläres Teil + eigenes Pixelart (racing-Ordner).
 	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 200000, "base_price": 10000, "growth": 2.6,  "upgrade": "racestraightbonus"},
 	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 220000, "base_price": 11000, "growth": 1.8, "upgrade": "racecurvebonus"},
-	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 25000000, "base_price": 5000000, "growth": 5.0},
+	# Reihenfolge Steilwand → Looping → Rampe (2026-06-19), aufsteigende Preise. Looping = simpler
+	# Multiplikator (mittlere Stufe), Rampe = Schneeball-Effekt (teure Spät-Freischaltung, steht hinten).
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
-	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0, "upgrade": "loopbonus"},
+	{"tier": "loop",    "type": "loop",     "name": "Looping",       "key": "loop",       "unlock": 2000000000, "base_price": 400000000, "growth": 5.0, "upgrade": "loopbonus"},
+	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0},
 	{"tier": "portal",  "type": "portal",   "name": "Portal",        "key": "portal",     "unlock": 100000000000, "base_price": 20000000000, "growth": 5.0, "upgrade": "portalbonus"},
 	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 1000000000000, "base_price": 200000000000, "growth": 9.0, "upgrade": "standbonus"},
 	# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren. Vorerst OHNE Ökonomie-
@@ -86,7 +92,7 @@ const SHOP_ITEMS = [
 	{"tier": "test",    "type": "glue_curve",    "name": "Kleber-Kurve",  "key": "glue_curve",    "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
 ]
 
-const SHOP_SLOT_COUNT = 19  # = SHOP_ITEMS.size()
+const SHOP_SLOT_COUNT = 20  # = SHOP_ITEMS.size()
 const PORTAL_MAX      = 2   # genau 2 Portale je Strecke baubar
 # Sanfter Einstieg der Bau-Preise: die ersten EARLY_TILE_COUNT bezahlten Tiles von Sand-, Default-,
 # Eis- und Renn-Belag skalieren deutlich langsamer (EARLY_TILE_GROWTH statt item.growth); danach geht
@@ -208,7 +214,9 @@ func _ready() -> void:
 	GRID_COLS = Economy.get_grid_cols()
 	_init_grid()
 	_draw_grid_background()
-	_place_start_tile()
+	# Kein automatisches Start-/Ziel-Feld mehr: eine frische Strecke startet leer, der Spieler
+	# setzt das Start-Feld selbst (aus dem Shop). Gespeicherte Strecken spawnen ihr Start-Feld
+	# beim Wiederherstellen über _restore_grid.
 	_setup_grid_highlight()
 	_setup_camera()
 	_setup_run_bar()
@@ -318,15 +326,46 @@ func _draw_grid_background() -> void:
 				grid_node.add_child(bg)
 
 
-func _place_start_tile() -> void:
-	var row = 1; var col = 1
-	var data = {
-		"type": "straight", "rotation": 0, "flipped": false, "is_start": true,
-		"points": 0.0, "multiplier": 1.0, "variant_label": "",
-	}
-	_spawn_tile(row, col, data)
+# Zelle des aktuellen Start-/Ziel-Feldes (oder (-1,-1), falls keins existiert).
+func _find_start_cell() -> Vector2i:
+	for r in range(GRID_ROWS):
+		for c in range(GRID_COLS):
+			var d = grid[r][c]
+			if d != null and d.get("is_start", false):
+				return Vector2i(r, c)
+	return Vector2i(-1, -1)
+
+
+# Anfangs-Fahrtrichtung der gefahrenen Runde = die Richtung, in die der Pfeil auf dem Start-Feld
+# zeigt: rot 0 → Osten (rechts), 90 → Süden (unten), 180 → Westen (links), 270 → Norden (oben).
+# Die Gerade verbindet immer beide Achsen-Enden, daher ist jede dieser Richtungen befahrbar.
+func _start_exit_dir(rot: int) -> String:
+	return ["E", "S", "W", "N"][(((int(rot) % 360) + 360) / 90) % 4]
+
+
+# Verschiebt das (einzige) Start-/Ziel-Feld an (row,col) mit der Drehung aus xform. Nur auf ein
+# freies oder Dreck-Feld (bzw. das bestehende Start-Feld) – belegte Felder bleiben unangetastet.
+func _relocate_start(row: int, col: int, xform: Dictionary) -> void:
+	var dst = grid[row][col]
+	if dst != null and not dst.get("is_dirt", false) and not dst.get("is_start", false):
+		tile_selector.set_status("Start nur auf freies Feld setzen")
+		_flash_currency()
+		return
+	var cur := _find_start_cell()
+	if cur.x >= 0:
+		_free_tile_node(cur.x, cur.y)
+	if grid[row][col] != null:
+		_free_tile_node(row, col)   # evtl. Dreck-Tile auf der Zielzelle räumen
+	_spawn_tile(row, col, {
+		"type": "straight", "rotation": int(xform.get("rotation", 0)), "flipped": false,
+		"is_start": true, "points": 0.0, "multiplier": 1.0, "variant_label": "",
+	})
 	last_placed_row = row
 	last_placed_col = col
+	_invalidate_track()
+	_update_build_ui()
+	_update_grid_highlight()
+	_after_quick_place(row, col)
 
 
 # ── Grid highlight ─────────────────────────────────────────────────────────────
@@ -1181,7 +1220,6 @@ func _on_tab_changed(idx: int) -> void:
 		c.queue_free()
 	_init_grid()
 	_draw_grid_background()
-	_place_start_tile()
 	_setup_grid_highlight()
 	if new_grid.size() > 0:
 		_restore_grid(new_grid)
@@ -1277,7 +1315,7 @@ func _price_pool_type(t: String) -> String:
 
 
 func _tile_price(item: Dictionary) -> int:
-	if item["tier"] == "dirt":
+	if item["tier"] == "dirt" or item["tier"] == "start":
 		return 0
 	var ptype := _price_pool_type(String(item["type"]))
 	var eff: int = _count_paid_tiles(ptype)       # bezahlte Tiles dieses Typs (Idle-Skalierung)
@@ -1393,6 +1431,7 @@ func _update_build_ui() -> void:
 		# Tier-Akzentfarbe (Chip-Rand + Fallback-Icon). Gesperrt = gedämpftes Braun.
 		var accent: Color
 		match item["tier"]:
+			"start":  accent = Color(0.95, 0.95, 0.98)
 			"dirt":   accent = Color(0.72, 0.90, 0.56)
 			"sand":   accent = Color(0.95, 0.82, 0.50)
 			"ramp":   accent = Color(1.00, 0.78, 0.36)
@@ -1489,6 +1528,7 @@ func _tile_thumb_texture(item: Dictionary) -> Texture2D:
 func _tile_thumb_path(item: Dictionary) -> String:
 	var t := String(item.get("type", ""))
 	match String(item.get("tier", "")):
+		"start":  return Paths.TEX_START_2D
 		"loop":   return Paths.TEX_LOOP_2D
 		"portal": return Paths.portal_texture("E", false)   # blaues Portal (Basis-Vorschau)
 		"ramp":   return Paths.TEX_RAMP_2D
@@ -1519,7 +1559,7 @@ func _tile_fallback_glyph(item: Dictionary) -> String:
 
 # Anzeige-Reihenfolge der Kategorien in der Bau-Liste (unabhängig von der SHOP_ITEMS-Reihenfolge).
 # Innerhalb einer Kategorie bleibt die SHOP_ITEMS-Reihenfolge erhalten.
-const SECTION_ORDER := ["ERDE", "SAND", "EIS", "ASPHALT", "RENNSTRECKE", "KLEBER", "WASSER", "SPEZIAL"]
+const SECTION_ORDER := ["START", "ERDE", "SAND", "EIS", "ASPHALT", "RENNSTRECKE", "KLEBER", "WASSER", "SPEZIAL"]
 
 # Kategorie-Überschrift für ein Shop-Slot (gleiche Kategorie → keine neue Überschrift).
 # Default-Belag (Gerade/Kurve) und Rennbelag teilen den Tier "default", bekommen aber GETRENNTE
@@ -1528,6 +1568,7 @@ func _shop_section_label(idx: int) -> String:
 	var item: Dictionary = SHOP_ITEMS[idx]
 	var t := String(item["type"])
 	match item["tier"]:
+		"start":   return "START"
 		"dirt":    return "ERDE"
 		"sand":    return "SAND"
 		"ice":     return "EIS"
@@ -1546,15 +1587,17 @@ func _tile_effect_text(item: Dictionary) -> String:
 	if t == "race_straight" or t == "race_curve":
 		return "+%s pro Feld  ·  ×%.1f" % [Economy.format_half(_tile_field_earn(item)), RACE_TILE_MULT]
 	match item["tier"]:
+		"start":
+			return "Start- und Ziellinie  ·  genau 1 je Strecke"
 		"ramp":
 			var dirs = ["→", "↓", "←", "↑"]
-			return "Sprung %s  ·  +%d ×%.1f" % [dirs[ramp_preview_rot / 90], int(round(Economy.get_ramp_earn())), Economy.get_ramp_jump_mult()]
+			return "Sprung %s  ·  +%d ×%.1f  ·  andere ×%.1f" % [dirs[ramp_preview_rot / 90], int(round(Economy.get_ramp_earn())), Economy.get_ramp_jump_mult(), Economy.get_ramp_jump_mult()]
 		"ice":
 			return "%s +%.1f Lvl Speed · %d Felder" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(), Economy.get_ice_range()]
 		"wall":
 			return "+%s %s · +%.1f Lvl · %d Felder" % [Economy.format_currency(Economy.get_wall_earn()), Icons.COIN, Economy.get_wall_boost_levels(), Economy.get_wall_range()]
 		"loop":
-			return "%s ×%.1f  ·  andere ×%.1f" % [Icons.CIRCLE, Economy.get_loop_factor(), Economy.get_loop_factor()]
+			return "%s ×%.1f" % [Icons.CIRCLE, Economy.get_loop_factor()]
 		"portal":
 			return "+%s %s  ·  %d/%d gesetzt" % [Economy.format_currency(Economy.get_portal_earn()), Icons.COIN, _count_portals(), PORTAL_MAX]
 		"stand":
@@ -1570,7 +1613,7 @@ func _tile_effect_text(item: Dictionary) -> String:
 func _tile_price_short(item: Dictionary, locked: bool) -> Dictionary:
 	if locked:
 		return {"text": Icons.LOCK + " Shop", "color": Color(0.80, 0.64, 0.46), "afford": true}
-	if item["tier"] == "dirt":
+	if item["tier"] == "dirt" or item["tier"] == "start":
 		return {"text": "frei", "color": Color(0.64, 0.84, 0.52), "afford": true}
 	# Bezahltes Tile: Preis rot, wenn das Geld (noch) nicht reicht.
 	var price = _tile_price(item)
@@ -1741,6 +1784,18 @@ func _tile_texture_for(data: Dictionary) -> Texture2D:
 
 
 func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
+	# Start-/Ziel-Feld: eigener Node, dessen Pfeil-Asset in die Fahrtrichtung zeigt (siehe
+	# _create_start_node). Wird VOR der Geraden-Szene behandelt, deren _draw die Textur sonst
+	# wieder geradedreht (Pfeil bliebe immer Richtung Osten).
+	if data.get("is_start", false):
+		var node = _create_start_node(data)
+		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
+		node.name = "Tile_%d_%d" % [row, col]
+		grid_node.add_child(node)
+		data["node"] = node
+		grid[row][col] = data
+		return
+
 	if data.get("is_dirt", false):
 		var node = _create_dirt_node(data)
 		node.position = _grid_to_world(row, col) + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
@@ -1883,6 +1938,29 @@ func _spawn_tile(row: int, col: int, data: Dictionary) -> void:
 	grid_node.add_child(node)
 	data["node"] = node
 	grid[row][col] = data
+
+
+# Start-/Ziel-Feld: Pfeil-Asset, das in die Fahrtrichtung zeigt. Die Achse wählt das Asset
+# (waagerecht = start.png mit Pfeil Osten, senkrecht = start_NS.png mit Pfeil Süden); für die
+# Gegenrichtungen Westen/Norden wird das Asset um 180° gespiegelt. So zeigt der Pfeil bei
+# rot 0→O, 90→S, 180→W, 270→N – passend zur Fahrtrichtung aus _start_exit_dir().
+func _create_start_node(data: Dictionary) -> Node2D:
+	var node := Node2D.new()
+	var rot := ((int(data.get("rotation", 0)) % 360) + 360) % 360
+	var vertical := (rot / 90) % 2 == 1
+	var tex := load(Paths.TEX_START_NS_2D if vertical else Paths.TEX_START_2D) as Texture2D
+	if tex != null:
+		var spr := Sprite2D.new()
+		spr.texture  = tex
+		spr.centered = true
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		var sz := tex.get_size()
+		if sz.x > 0 and sz.y > 0:
+			spr.scale = Vector2(TILE_SIZE / sz.x, TILE_SIZE / sz.y)
+		if rot == 180 or rot == 270:
+			spr.rotation_degrees = 180   # O→W bzw. S→N: Pfeil umkehren
+		node.add_child(spr)
+	return node
 
 
 # Erzeugt einen Dirt-Tile-Node mit Gras-Hintergrund und Dreck-Pfad (kein Tile-Scene-Load).
@@ -2127,7 +2205,11 @@ func _create_portal_node(data: Dictionary, is_exit: bool = false) -> Node2D:
 func _portal_route_roles() -> Dictionary:
 	if not _track_valid:
 		return {}
-	var row = 1; var col = 1; var exit_dir = "E"
+	var start := _find_start_cell()
+	if start.x < 0:
+		return {}
+	var row = start.x; var col = start.y
+	var exit_dir = _start_exit_dir(int(grid[start.x][start.y].get("rotation", 0)))
 	var visited: Dictionary = {}
 	for _i in range(GRID_ROWS * GRID_COLS * 2):
 		var key = "%d_%d" % [row, col]
@@ -2463,8 +2545,8 @@ func _slow_left_press(global_pos: Vector2) -> void:
 		return
 	var d = grid[cell.x][cell.y]
 
-	# Leere Zelle oder Start-Tile: nichts zu greifen.
-	if d == null or d.get("is_start", false):
+	# Leere Zelle: nichts zu greifen. Das Start-/Ziel-Feld lässt sich verschieben (nicht löschen).
+	if d == null:
 		return
 
 	# ramp_end/wall_end greift immer das Start-Feld (das Paar wird als Ganzes bewegt).
@@ -2537,7 +2619,7 @@ func _slow_click_select(row: int, col: int) -> void:
 	if not _is_valid_cell(Vector2i(row, col)):
 		return
 	var d = grid[row][col]
-	if d == null or d.get("is_start", false):
+	if d == null:
 		return
 	if selected_grid_row == row and selected_grid_col == col:
 		_clear_grid_selection()
@@ -2619,6 +2701,7 @@ func _begin_grid_drag() -> void:
 		"rotation":  int(d.get("rotation", 0)),
 		"direction": int(d.get("direction", 1)),
 		"is_dirt":   d.get("is_dirt", false),
+		"is_start":  d.get("is_start", false),   # Start-Vorschau zeigt den Richtungspfeil
 		"stack":     int(d.get("stack", 1)),   # Tribünen-Stapel → Drag-Vorschau zeigt richtige Stufe
 	}
 	_drag_ghost  = _make_ghost(_drag_data)
@@ -2818,6 +2901,8 @@ func _shop_drag_data(item: Dictionary) -> Dictionary:
 		return {"type": "wall_start", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false}
 	if item["tier"] == "stand":
 		return {"type": "stand", "rotation": ramp_preview_rot, "direction": 1, "is_dirt": false, "stack": 1}
+	if item["tier"] == "start":
+		return {"type": "straight", "rotation": 0, "direction": 1, "is_dirt": false, "is_start": true}
 	return {
 		"type":      item["type"],
 		"rotation":  0,
@@ -2849,6 +2934,9 @@ func _make_ghost(data: Dictionary) -> Node2D:
 # Einzelne Tile-Grafik (ohne Badges/Labels) für die Vorschau.
 func _make_tile_visual(data: Dictionary) -> Node2D:
 	var node: Node2D
+	if data.get("is_start", false):
+		# Start-Node bringt seine Pfeil-Drehung selbst mit → keine zusätzliche Node-Drehung.
+		return _create_start_node(data)
 	if data.get("is_dirt", false):
 		node = _create_dirt_node(data)
 	elif data.get("type", "") in ["ramp_start", "ramp_end"]:
@@ -3028,19 +3116,19 @@ func _update_hint_label() -> void:
 func _handle_grid_left_click(row: int, col: int) -> void:
 	var cell_data = grid[row][col]
 	var is_start  = (cell_data != null and cell_data.get("is_start", false))
+	var tool_is_start: bool = selected_shop_slot >= 0 and SHOP_ITEMS[selected_shop_slot]["tier"] == "start"
 
 	# Shop-Werkzeug aktiv
 	if selected_shop_slot >= 0:
-		if is_start:
+		# Auf das Start-Feld bauen ist gesperrt – außer das Start-Werkzeug selbst (= verschieben).
+		if is_start and not tool_is_start:
 			return
-		# Klick auf das zuletzt platzierte Tile → auswählen statt überschreiben (drehen)
-		if cell_data != null and row == last_placed_row and col == last_placed_col:
+		# Klick auf das zuletzt platzierte Tile → auswählen statt überschreiben (drehen).
+		# Mit dem Start-Werkzeug stattdessen platzieren/verschieben (kein Auswählen).
+		if not tool_is_start and cell_data != null and row == last_placed_row and col == last_placed_col:
 			_select_grid_tile(row, col)
 		else:
 			_place_shop_tile(row, col)
-		return
-
-	if is_start:
 		return
 
 	# Rampen-/Steilwand-Tiles: immer zur Start-Hälfte wechseln (Ziel für [R]/Verschieben).
@@ -3083,7 +3171,10 @@ func _select_grid_tile(row: int, col: int) -> void:
 	last_placed_row   = row
 	last_placed_col   = col
 	_update_grid_highlight()
-	tile_selector.set_status(_type_display_name(grid[row][col]["type"]))
+	if grid[row][col].get("is_start", false):
+		tile_selector.set_status("Start/Ziel")
+	else:
+		tile_selector.set_status(_type_display_name(grid[row][col]["type"]))
 
 
 func _move_selected_tile_to(new_row: int, new_col: int) -> void:
@@ -3186,6 +3277,7 @@ func _move_selected_tile_to(new_row: int, new_col: int) -> void:
 		"variant_label": data.get("variant_label", ""),
 		"series":        data.get("series", ""),
 		"combine_level": data.get("combine_level", 0),
+		"is_start":      data.get("is_start", false),   # Start-/Ziel-Feld behält seine Rolle beim Verschieben
 		"is_dirt":       data.get("is_dirt", false),
 		"stack":         data.get("stack", 1),   # Tribünen-Stapel mitnehmen → richtiges Asset/Bonus
 	}
@@ -3232,6 +3324,10 @@ func _place_shop_tile(row: int, col: int, xform: Dictionary = {}) -> void:
 	var item = SHOP_ITEMS[selected_shop_slot]
 	if not Economy.is_tile_unlocked(item["key"]):
 		return   # Sicherheitshalber: gesperrte Tiles nicht platzieren
+	# Start-/Ziel-Feld: genau eins je Strecke → bestehendes Start-Tile an die neue Stelle verschieben.
+	if item["tier"] == "start":
+		_relocate_start(row, col, xform)
+		return
 	# Rampe ist ein Sonderfall (2 Felder, eigenes Platzieren)
 	if item["tier"] == "ramp":
 		_place_ramp(row, col)
@@ -3512,7 +3608,7 @@ func _rotate_active(degrees: int) -> void:
 	if row < 0:
 		return
 	var data = grid[row][col]
-	if data == null or data.get("is_start", false):
+	if data == null:
 		return
 	# Rampen-/Steilwand-Paare immer am Start-Tile greifen, auch wenn das End-Tile
 	# ausgewählt ist – sonst dreht sich nur die einzelne Partner-Kachel.
@@ -3751,12 +3847,29 @@ func get_grid_state() -> Array:
 
 
 func _restore_grid(state: Array) -> void:
+	# Start-/Ziel-Feld an seiner gespeicherten Position und Drehung spawnen, falls der Spielstand
+	# eins enthält. Ein evtl. schon vorhandenes Start-Feld wird vorher geräumt (Tab-/Resize-Reload).
+	var sr := -1; var sc := -1; var srot := 0
+	for row in range(min(GRID_ROWS, state.size())):
+		for col in range(min(GRID_COLS, state[row].size())):
+			var d = state[row][col]
+			if typeof(d) == TYPE_DICTIONARY and d.get("is_start", false):
+				sr = row; sc = col; srot = int(d.get("rotation", 0))
+	if sr >= 0:
+		var cur := _find_start_cell()
+		if cur.x >= 0:
+			_free_tile_node(cur.x, cur.y)
+		if grid[sr][sc] != null:
+			_free_tile_node(sr, sc)
+		_spawn_tile(sr, sc, {
+			"type": "straight", "rotation": srot, "flipped": false,
+			"is_start": true, "points": 0.0, "multiplier": 1.0, "variant_label": "",
+		})
+
 	for row in range(GRID_ROWS):
 		if row >= state.size():
 			break
 		for col in range(GRID_COLS):
-			if row == 1 and col == 1:
-				continue  # Start-Tile bereits gesetzt
 			if col >= state[row].size():
 				break
 			var d = state[row][col]
@@ -3764,6 +3877,8 @@ func _restore_grid(state: Array) -> void:
 				continue
 			if d.get("is_start", false):
 				continue
+			if grid[row][col] != null and grid[row][col].get("is_start", false):
+				continue  # Start-Zelle nicht überbauen
 			_spawn_tile(row, col, d.duplicate())
 	last_placed_row = -1
 	last_placed_col = -1
@@ -3792,7 +3907,6 @@ func _rebuild_grid_for_size() -> void:
 	_init_grid()
 	_draw_grid_background()
 	_setup_grid_highlight()
-	_place_start_tile()
 	_restore_grid(saved)
 	_update_camera_limits()
 
@@ -3861,7 +3975,8 @@ func _build_drive_state() -> Array:
 			if bonus_grid[r][c] != null and typeof(state[r][c]) == TYPE_DICTIONARY:
 				state[r][c]["bonus_points"] = bonus_grid[r][c]["points"]
 				state[r][c]["bonus_mult"]   = bonus_grid[r][c]["mult"]
-	# Kreuzungs-Tiles unter einer Rampe: erhöhter Ertrag (Basis ×2, je 5 Rampen-Upgrade-Stufen +0.2)
+	# Kreuzungs-Tiles unter einer Rampe: Schneeball ×J (je 5 Rampen-Upgrade-Stufen +0.2). Gilt auch
+	# fürs Start-/Ziel-Feld – die Rampe wirkt dort wie überall (×J auf sich UND alle anderen Mult.).
 	for cell in _ramp_jump_cells():
 		if typeof(state[cell.x][cell.y]) == TYPE_DICTIONARY:
 			state[cell.x][cell.y]["jump_mult"] = Economy.get_ramp_jump_mult()
@@ -3977,12 +4092,16 @@ func _make_bonus_marker(eff: Dictionary) -> Node2D:
 
 # Prüft ob die Strecke eine geschlossene Runde mit korrekter Fahrtrichtung ist.
 func _is_track_valid() -> bool:
-	var row = 1; var col = 1; var exit_dir = "E"
+	var start := _find_start_cell()
+	if start.x < 0:
+		return false
+	var row = start.x; var col = start.y
+	var exit_dir = _start_exit_dir(int(grid[start.x][start.y].get("rotation", 0)))
 	var visited: Dictionary = {}
 	for _i in range(GRID_ROWS * GRID_COLS * 2):
 		var key = "%d_%d" % [row, col]
 		if key in visited:
-			return (row == 1 and col == 1)
+			return (row == start.x and col == start.y)
 		visited[key] = true
 		# Portal: teleportiert zum Partner-Portal; weiter über dessen offene Seite (Partner verbraucht).
 		var cur = grid[row][col]
@@ -4124,24 +4243,23 @@ func _cell_total_mult(sd) -> float:
 	var bm := float(sd.get("bonus_mult", 1.0))                       # ×1.5-Bonusfeld (ohne Tribünen)
 	var sm := float(sd.get("stand_mult", 1.0))                       # Produkt aller Tribünen-Mult.
 	var sc := int(sd.get("stand_count", 0))                          # Anzahl wirkender Tribünen
-	# Der Sprung-×2 wirkt auf dem übersprungenen Mittelfeld (jump_mult≠1 aus _build_drive_state)
-	# UND auf der Rampe selbst (ramp_start) – die Rampe verdoppelt also auch ihren eigenen Ertrag.
-	# Spiegelt Economy._lap_reward_for_car (has_jump auch für kind "ramp").
-	var has_jump := float(sd.get("jump_mult", 1.0)) != 1.0 or t == "ramp_start"
+	# Rampe ⇄ Looping GETAUSCHT (2026-06-19): Der Schneeball-×J liegt auf dem übersprungenen
+	# Mittelfeld (jump_mult≠1 aus _build_drive_state) – eigener ×J UND alle anderen Mult. ×J.
+	# Die Rampe SELBST verdoppelt zwar ihren Ertrag (Economy), zeigt aber bewusst KEIN eigenes
+	# ×2-Badge: der Sprung-×2 steht nur EINMAL auf dem Mittelfeld. Looping = ganz normaler ×F.
+	var is_jump := float(sd.get("jump_mult", 1.0)) != 1.0
 	var m := 1.0
-	if t == "loop":
-		# Looping: eigener ×F UND jeder andere Multiplikator dieses Feldes mit F skaliert (M·F);
-		# JEDE Tribüne einzeln (sm·F^sc). Spiegelt Economy._lap_reward_for_car.
-		var lf := Economy.get_loop_factor()
-		m = lf
-		if fm != 1.0: m *= fm * lf
-		if bm != 1.0: m *= bm * lf
-		if sc > 0:    m *= sm * pow(lf, sc)
-		if has_jump:  m *= Economy.get_ramp_jump_mult() * lf
+	if is_jump:
+		var jf := Economy.get_ramp_jump_mult()
+		m = jf
+		if fm != 1.0: m *= fm * jf
+		if bm != 1.0: m *= bm * jf
+		if sc > 0:    m *= sm * pow(jf, sc)
+		if t == "loop": m *= Economy.get_loop_factor() * jf
+	elif t == "loop":
+		m = fm * bm * sm * Economy.get_loop_factor()
 	else:
 		m = fm * bm * sm
-		if has_jump:
-			m *= Economy.get_ramp_jump_mult()
 	return m
 
 

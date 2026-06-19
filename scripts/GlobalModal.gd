@@ -747,11 +747,11 @@ func _tile_entries() -> Array:
 		{"name": "Straßen-Kurve",  "key": "def_curve",   "model": Paths.MODEL_TRACK_CURVE_DEFAULT,    "desc": "+150 Ertrag", "upgrade": "curvebonus", "field_earn_base": 150},
 		{"name": "Rennstrecke",  "key": "race_straight","model": Paths.MODEL_TRACK_STRAIGHT_RACING,  "desc": "+1000 Ertrag · ×1.2", "upgrade": "racestraightbonus", "field_earn_base": 1000},
 		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+1000 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 1000},
-		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · Kreuzung", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		{"name": "Steilwandkurve","key": "wall",       "model": Paths.MODEL_TRACK_WALL,             "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
-		{"name": "Looping",      "key": "loop",        "model": Paths.MODEL_TRACK_LOOP,             "desc": "×2 · verdoppelt andere ×", "upgrade": "loopbonus", "field_earn_base": 0},
+		{"name": "Looping",      "key": "loop",        "model": Paths.MODEL_TRACK_LOOP,             "desc": "×2 · Multiplikator", "upgrade": "loopbonus", "field_earn_base": 0},
+		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · verdoppelt andere ×", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		# Portal = zwei GLBs auf EINER Kachel (Rampe + blaues Tor) → als Modell-Liste in der Vorschau.
-		{"name": "Portal",       "key": "portal",      "model": Paths.MODEL_TRACK_PORTAL_RAMP,      "models": [Paths.MODEL_TRACK_PORTAL_RAMP, Paths.MODEL_TRACK_PORTAL_BLUE], "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
+		{"name": "Portal",       "key": "portal",      "model": Paths.MODEL_TRACK_PORTAL_RAMP,      "models": [Paths.MODEL_TRACK_PORTAL_RAMP, Paths.MODEL_TRACK_PORTAL_BLUE], "double_sided": true, "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
 		# Tribüne: im Spiel stapelbar (Stand1..4) → die Vorschau wechselt zyklisch durch alle Stufen.
 		{"name": "Tribüne",      "key": "stand",       "model": Paths.stand_model(1), "models": Paths.MODEL_TRACK_STANDS, "cycle": true, "desc": "×2.5 Nachbarfeld · stapelbar", "upgrade": "standbonus", "field_earn_base": 0},
 		# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren, vorerst ohne
@@ -839,7 +839,7 @@ func _attach_tile_preview(card: Panel, entry: Dictionary) -> void:
 	if show_models.is_empty():
 		show_models = [model] if model != "" else [Paths.MODEL_TRACK_STRAIGHT_DEFAULT]
 
-	_build_tile_preview(card, CARD_PREV_POS, CARD_PREV_SZ, show_models, entry.get("cycle", false))
+	_build_tile_preview(card, CARD_PREV_POS, CARD_PREV_SZ, show_models, entry.get("cycle", false), entry.get("double_sided", false))
 
 	if film:
 		var veil := ColorRect.new()
@@ -963,10 +963,10 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 		var wmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
 		return "+%s %s · +%.1f Lvl · %d Felder%s" % [Economy.format_currency(Economy.get_wall_earn(wall_lv)), Icons.COIN, Economy.get_wall_boost_levels(wall_lv), Economy.get_wall_range(wall_lv), wmax_tag]
 	elif upg_id == "loopbonus":
-		# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
+		# Looping: ganz normaler Multiplikator ×F (Schneeball liegt seit 2026-06-19 auf der Rampe).
 		var loop_lv := Economy.get_upgrade_level(upg_id)
 		var lmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		return "×%.1f · andere ×%.1f%s" % [Economy.get_loop_factor(loop_lv), Economy.get_loop_factor(loop_lv), lmax_tag]
+		return "×%.1f%s" % [Economy.get_loop_factor(loop_lv), lmax_tag]
 	elif upg_id == "portalbonus":
 		# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
 		var p_lv := Economy.get_upgrade_level(upg_id)
@@ -982,10 +982,10 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 	var base_e := int(entry.get("field_earn_base", 0))
 	var lv     := Economy.get_upgrade_level(upg_id)
 	var cur    := Economy.format_half(float(base_e) + Economy.get_effect(upg_id, lv))
-	# Rampe: zusätzlich den Sprung-Multiplikator (steigt je 5 Stufen) statt "Feld" zeigen.
+	# Rampe: Sprung-Multiplikator (steigt je 5 Stufen) – wirkt auf sich UND alle anderen Mult. des Sprungfeldes.
 	if upg_id == "rampbonus":
 		var suffix := " (MAX)" if Economy.is_maxed(upg_id) else " → +%s" % Economy.format_half(float(base_e) + Economy.get_effect(upg_id, lv + 1))
-		return "+%s%s · ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult()]
+		return "+%s%s · ×%.1f · andere ×%.1f" % [cur, suffix, Economy.get_ramp_jump_mult(lv), Economy.get_ramp_jump_mult(lv)]
 	# Rennstrecke/-kurve: zusätzlich zum +Ertrag den festen ×1.2 anzeigen.
 	var race_suffix := " · ×1.2" if upg_id in ["racestraightbonus", "racecurvebonus"] else ""
 	if Economy.is_maxed(upg_id):
@@ -1098,7 +1098,7 @@ func _refresh_tile_upgrade_btn(btn: Button, id: String) -> void:
 
 # Baut eine kleine 3D-Vorschau (eigene SubViewport-Welt) auf und merkt sich den
 # rotierenden Pivot. Kamera rahmt das Modell automatisch über sein AABB.
-func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_paths: Array, cycle: bool = false) -> void:
+func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_paths: Array, cycle: bool = false, double_sided: bool = false) -> void:
 	var svc := SubViewportContainer.new()
 	svc.position     = pos
 	svc.size         = sz
@@ -1161,6 +1161,10 @@ func _build_tile_preview(parent: Control, pos: Vector2, sz: Vector2, model_paths
 	MaterialUtil.apply_track_texture(model)
 	MaterialUtil.apply_alpha_scissor(model)
 	MaterialUtil.apply_unshaded(model)
+	# Portal-Vorschau doppelseitig rendern (wie auf der echten Strecke, TrackGenerator3D): die
+	# Tor-/Wirbel-Flächen sind offen/dünn – ohne beidseitiges Material schaut man hindurch.
+	if double_sided:
+		MaterialUtil.apply_double_sided(model)
 
 	# Cycling: nur das erste Teil zeigen, Rest verstecken, und einen Cycler registrieren.
 	var do_cycle := cycle and parts.size() > 1

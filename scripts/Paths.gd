@@ -107,6 +107,8 @@ const TEX_GRASS_2D = "res://assets/2D-tiles/grass2.png"
 const TEX_LOGO = "res://assets/2D-tiles/allgemein/logo.png"
 # Start-Feld-Markierung (Ziel/Start-Flagge) – liegt über grass2, ersetzt das alte grüne Overlay.
 const TEX_START_2D = "res://assets/2D-tiles/allgemein/start.png"
+# Start-Feld senkrecht (Pfeil nach Süden/unten) – für die N/S-Achse, statt die O/W-Flagge zu drehen.
+const TEX_START_NS_2D = "res://assets/2D-tiles/allgemein/start_NS.png"
 # Looping-Artwork (2D): EIN Bild, standardmäßig OW gemalt – für die NS-Basislage 90° gedreht.
 const TEX_LOOP_2D    = "res://assets/2D-tiles/allgemein/looping.png"
 # Steilwandkurve-Artwork (2D): EIN Bild, 32×64 = deckt das GANZE 2-Kachel-Paar ab (Basislage rot=0:

@@ -84,14 +84,15 @@ const HINTS := {
 		"Eisgerade: gibt keine Währung, macht dein Auto aber auf den folgenden Feldern "
 		+ "schneller – mehr Tempo bedeutet mehr Runden. Das Upgrade verstärkt Boost und Reichweite.",
 	"rampbonus":
-		"Rampe: lässt das Auto über das nächste Kreuzungsfeld springen und verdoppelt dort "
-		+ "den Ertrag. Das Upgrade erhöht den Rampen-Ertrag und den Sprung-Bonus.",
+		"Rampe: lässt das Auto über das nächste Kreuzungsfeld springen. Dort verdoppelt sie den "
+		+ "Ertrag UND verstärkt zusätzlich alle anderen Multiplikatoren des übersprungenen Feldes; "
+		+ "die Rampe selbst verdoppelt ihren eigenen Ertrag. Das Upgrade erhöht Ertrag und Sprung-Faktor.",
 	"wallbonus":
 		"Steilwandkurve: eine 180°-Kehre. Sie bringt Währung und gibt dem Auto danach einen "
 		+ "Tempo-Schub. Das Upgrade steigert beides.",
 	"loopbonus":
-		"Looping: verdoppelt den Ertrag des Feldes und verstärkt zusätzlich alle anderen "
-		+ "Multiplikatoren auf diesem Feld. Das Upgrade erhöht den Faktor.",
+		"Looping: ein ganz normaler Multiplikator – vervielfacht den Ertrag seines Feldes um den "
+		+ "Faktor. Das Upgrade erhöht den Faktor.",
 	"portalbonus":
 		"Portal: teleportiert dein Auto von einem Ende zum anderen und gibt bei jedem "
 		+ "Durchgang viel Währung. Es gibt immer genau zwei pro Strecke. Das Upgrade erhöht den Ertrag.",
