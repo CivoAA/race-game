@@ -518,7 +518,9 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			if typeof(d) == TYPE_DICTIONARY and d.get("is_start", false):
 				start_row = row
 				start_col = col
-				exit_dir  = "E"
+				# Fahrtrichtung = Pfeil-Richtung des Start-Felds: 0→O, 90→S, 180→W, 270→N.
+				# Spiegelt Main._start_exit_dir().
+				exit_dir  = ["E", "S", "W", "N"][(((int(d.get("rotation", 0)) % 360) + 360) / 90) % 4]
 				break
 		if start_row >= 0:
 			break

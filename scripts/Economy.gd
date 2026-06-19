@@ -664,9 +664,12 @@ const TILE_UNLOCK_COST = {
 	"race_curve":    220000,
 	# Eis: EIN gemeinsamer Schlüssel schaltet Gerade + Kurve frei (Preis von der Geraden).
 	"ice":          25000,
-	"ramp":         25000000,
+	# Reihenfolge Steilwand → Looping → Rampe (2026-06-19), aufsteigende Freischaltkosten. Der Looping
+	# ist der simple Multiplikator (mittlere Stufe), die Rampe trägt den Schneeball-Effekt und ist die
+	# teure Spät-Freischaltung. Muss mit Main.SHOP_ITEMS (gleiche unlock-Werte) übereinstimmen.
 	"wall":         500000000,
-	"loop":         15000000000,
+	"loop":         2000000000,
+	"ramp":         15000000000,
 	"portal":       100000000000,
 	"stand":        1000000000000,
 	# Test-Beläge (Wasser/Kleber): nur zum Ausprobieren der neuen 3D-Assets, vorerst ohne
@@ -1074,25 +1077,26 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 		var bm: float = float(tile.get("bonus_mult", 1.0))      # ×1.5-Bonusfeld (OHNE Tribünen)
 		var sm: float = float(tile.get("stand_mult", 1.0))      # Produkt aller Tribünen-Mult.
 		var sc: int   = int(tile.get("stand_count", 0))         # Anzahl wirkender Tribünen
-		# Sprung-×2 wirkt auf dem übersprungenen Mittelfeld (is_jump) UND auf der Rampe selbst
-		# (kind "ramp") – die Rampe verdoppelt also auch ihren eigenen Ertrag.
-		var has_jump: bool = bool(tile.get("is_jump", false)) or String(tile.get("kind", "plain")) == "ramp"
+		# Rampe ⇄ Looping GETAUSCHT (2026-06-19): Der Schneeball-Effekt liegt jetzt auf der RAMPE,
+		# konkret auf dem übersprungenen Mittelfeld (is_jump): eigener ×J UND jeder ANDERE
+		# Multiplikator dieses Feldes wird mit J skaliert (M·J), J = get_ramp_jump_mult(). JEDE
+		# Tribüne zählt EINZELN (sm·J^sc). Die Rampe SELBST (kind "ramp") verdoppelt nur ihren
+		# EIGENEN Ertrag (simpler ×J). Der Looping ist jetzt ein GANZ NORMALER Multiplikator (×F).
 		var m: float
-		if bool(tile.get("is_loop", false)):
-			# Looping: eigener ×F UND jeder ANDERE Multiplikator dieses Feldes mit F multipliziert
-			# (M·F). F = get_loop_factor() (Basis 1.5, +0.2 je loopbonus-Stufe). JEDE Tribüne zählt
-			# EINZELN: pro Tribüne ein eigenes ×F (sm·F^sc), nicht nur einmal aufs Produkt. Beispiel
-			# auf Rampen-Sprungfeld bei F=2: ((X+0)·(2·2))·2. Auf ×1.5-Feld: (X·(1.5·2))·2.
-			var lf := get_loop_factor()
-			m = lf
-			if fm != 1.0: m *= fm * lf
-			if bm != 1.0: m *= bm * lf
-			if sc > 0:    m *= sm * pow(lf, sc)
-			if has_jump:  m *= jump_mult * lf
+		if bool(tile.get("is_jump", false)):
+			var jf := jump_mult
+			m = jf
+			if fm != 1.0: m *= fm * jf
+			if bm != 1.0: m *= bm * jf
+			if sc > 0:    m *= sm * pow(jf, sc)
+			if bool(tile.get("is_loop", false)): m *= get_loop_factor() * jf
+		elif bool(tile.get("is_loop", false)):
+			# Looping: ganz normaler Multiplikator, kombiniert sich normal mit den anderen Mult.
+			m = fm * bm * sm * get_loop_factor()
 		else:
 			m = fm * bm * sm
-			if has_jump:
-				m *= jump_mult
+			if String(tile.get("kind", "plain")) == "ramp":
+				m *= jump_mult   # Rampe verdoppelt ihren eigenen Ertrag
 		running = (running + add) * m
 	# End-Multiplikator, globaler Prestige-Multiplikator und (Super-Auto) der Extra-End-×Faktor zum Schluss.
 	return int(round(running * get_car_end_mult(0) * get_prestige_mult() * float(car.get("end_mult_extra", 1.0))))
@@ -1697,9 +1701,13 @@ func effect_text(id: String, level: int) -> String:
 	# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 	if id == "wallbonus":
 		return "+%s %s · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), Icons.COIN, get_wall_boost_levels(level), get_wall_range(level)]
-	# Looping: eigener ×F und Faktor F auf alle anderen Multiplikatoren des Feldes.
+	# Looping: ganz normaler Multiplikator ×F (seit 2026-06-19 kein Schneeball mehr – der liegt jetzt auf der Rampe).
 	if id == "loopbonus":
-		return "×%.1f · andere ×%.1f" % [get_loop_factor(level), get_loop_factor(level)]
+		return "×%.1f" % get_loop_factor(level)
+	# Rampe (seit 2026-06-19 mit Schneeball): additiver Ertrag je Rampe + ×J auf sich und alle anderen Mult. des Sprungfeldes.
+	if id == "rampbonus":
+		var je := RAMP_BASE_EARN + _effect_at("rampbonus", level)
+		return "+%s %s · ×%.1f · andere ×%.1f" % [format_currency(je), Icons.COIN, get_ramp_jump_mult(level), get_ramp_jump_mult(level)]
 	# Portal: additiver Geld-Ertrag je Durchgang (kein Multiplikator).
 	if id == "portalbonus":
 		return "+%s %s /Durchgang" % [format_currency(get_portal_earn(level)), Icons.COIN]
@@ -1872,13 +1880,15 @@ func get_car_tier_model(tier: int = -1) -> String:
 		0: return Paths.MODEL_TEST_CAR
 		_: return Paths.MODEL_ERIC_CAR
 
-# Geld-Schwelle für den NÄCHSTEN Aufstieg. Eigene Kurve (Wunsch): 1. Auto 5 Mio., 2. Auto 100 Mio.,
-# 3. Auto 100 Mrd. (= 1e11), danach ×10 je weiterer Stufe (1e12, 1e13, …).
+# Geld-Schwelle für den NÄCHSTEN Aufstieg (Wunsch 2026-06-19): Das 1. Auto bleibt früh leistbar
+# (5 Mio.). Ab dem 2. Auto sind die Kosten an die Prestige-Geld-Stufen gekoppelt (PRESTIGE_K·10^Stufe):
+# 2. Auto = Prestige-Stufe 8, 3. Auto = Stufe 20, danach je weiterer Stufe +12 (also ×10^12).
+# _currency ist float (bis ~1e308) → die riesigen Beträge (2e14, 2e26 …) sind sicher.
 func get_car_ascend_cost() -> float:
-	match car_tier:
-		0: return 5_000_000.0
-		1: return 100_000_000.0
-		_: return 1e11 * pow(10.0, float(car_tier - 2))
+	if car_tier == 0:
+		return 5_000_000.0
+	var stage := 8.0 + float(car_tier - 1) * 12.0
+	return PRESTIGE_K * pow(10.0, stage)
 
 func can_ascend_car() -> bool:
 	return _currency >= get_car_ascend_cost()
@@ -1952,8 +1962,10 @@ func get_ramp_earn() -> float:
 
 # Sprung-Multiplikator für das übersprungene Kreuzungs-Feld: Basis ×2, je 5 Stufen des
 # Rampen-Upgrades +0.2 (Stufe 5 → ×2.2, 10 → ×2.4 …).
-func get_ramp_jump_mult() -> float:
-	return RAMP_JUMP_BASE + 0.2 * float(get_upgrade_level("rampbonus") / 5)
+func get_ramp_jump_mult(level: int = -1) -> float:
+	if level < 0:
+		level = get_upgrade_level("rampbonus")
+	return RAMP_JUMP_BASE + 0.2 * float(level / 5)
 
 
 # Speed-Boost einer Eisgerade in „Tempo-Stufen": Basis 1.0 + 0.5 je Upgrade-Stufe.
