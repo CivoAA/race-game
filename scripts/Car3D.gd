@@ -30,8 +30,10 @@ var is_super: bool = false
 
 func _ready() -> void:
 	_load_model()
-	# Lackierung in der Werkstatt geändert → Auto live umfärben (Super-Auto bleibt unlackiert).
-	if not is_super and not Economy.car_paint_changed.is_connected(_apply_paint):
+	# Lackierung in der Werkstatt geändert → Auto live umfärben. Nur Stufen mit Umfärb-Maske
+	# (Test-Auto Stufe 0, Frosch Stufe 2) bzw. das Blender-Testmodell (Color-Key); "Renn"auto
+	# (Stufe 1) hat keine Maske.
+	if (_color_key or Economy.tier_has_mask()) and not Economy.car_paint_changed.is_connected(_apply_paint):
 		Economy.car_paint_changed.connect(_apply_paint)
 
 
@@ -61,8 +63,9 @@ func _load_model() -> void:
 		MaterialUtil.apply_unshaded(model)
 		_meshes.clear()
 		_collect_meshes(model)
-		# Nur normale Autos bekommen die Werkstatt-Lackierung; das Super-Auto behält seine Textur.
-		if not is_super:
+		# Lackierung nur für Stufen mit Umfärb-Maske (Stufe 0 Test-Auto, Stufe 2 Frosch) bzw. das
+		# Blender-Testmodell (Color-Key). "Renn"auto (Stufe 1) hat keine Maske und behält seine Textur.
+		if _color_key or Economy.tier_has_mask():
 			_apply_paint()
 		print("Auto-Modell geladen: ", path)
 	else:
@@ -154,10 +157,13 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 		_paint_shader = load(Paths.SHADER_CAR_PAINT)
 	var mat := ShaderMaterial.new()
 	mat.shader = _paint_shader
-	if ResourceLoader.exists(Paths.TEX_CAR_ALBEDO):
-		mat.set_shader_parameter("albedo_tex", load(Paths.TEX_CAR_ALBEDO))
-	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
-		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
+	# Albedo + Maske der aktuellen Auto-Stufe (Stufe 0 Test-Auto, Stufe 2 Frosch/Miata).
+	var albedo_path := Economy.get_car_tier_albedo()
+	var mask_path   := Economy.get_car_tier_mask()
+	if ResourceLoader.exists(albedo_path):
+		mat.set_shader_parameter("albedo_tex", load(albedo_path))
+	if ResourceLoader.exists(mask_path):
+		mat.set_shader_parameter("mask_tex", load(mask_path))
 	mat.set_shader_parameter("paint_color", col)
 	mat.set_shader_parameter("paint_on", Economy.is_car_paint_on())
 	# Muster (0 = keins) nur über die Maskenbereiche legen.
