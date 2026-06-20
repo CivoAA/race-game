@@ -138,8 +138,8 @@ const TEX_PORTAL_YELLOW := {
 #   Stapel 2 (doubleGrandstand): zwei gegenüberliegende Richtungen → NS- oder OW-Variante.
 #   Stapel 3 (tipleGrandstand):  drei Richtungen; der Buchstabe nennt die NICHT geboostete Seite
 #                                (die, in die sie NICHT schaut). O = Ost.
-#   Stapel 4/5: noch KEIN eigenes 4er-Artwork → Platzhalter (tipleGrandstandN blau eingefärbt).
-#               Sobald ein echtes 4er-Artwork da ist, einfach TEX_STAND_QUAD setzen.
+#   Stapel 4/5 (fullGrandstand): geschlossener Rechteck-Rahmen, alle vier Richtungen geboostet.
+#               TEX_STAND_QUAD gesetzt → echtes Artwork (Platzhalter nur noch Fallback wenn leer).
 # Alle Bilder sind absolut/welt-orientiert gemalt → keine Node-Drehung (siehe _create_stand_node).
 const TEX_STAND_SINGLE := {
 	"S": "res://assets/2D-tiles/allgemein/singleGrandstand1.png",
@@ -155,8 +155,8 @@ const TEX_STAND_TRIPLE := {
 	"S": "res://assets/2D-tiles/allgemein/tipleGrandstandS.png",
 	"W": "res://assets/2D-tiles/allgemein/tipleGrandstandW.png",
 }
-# Stapel 4/5: sobald echtes 4er-Artwork existiert, hier den Pfad eintragen (leer = Platzhalter unten).
-const TEX_STAND_QUAD = ""
+# Stapel 4/5: echtes 4er-Artwork (geschlossener Rechteck-Rahmen, welt-orientiert wie die anderen).
+const TEX_STAND_QUAD = "res://assets/2D-tiles/allgemein/fullGrandstand.png"
 const TEX_STAND_QUAD_PLACEHOLDER = "res://assets/2D-tiles/allgemein/tipleGrandstandN.png"
 const STAND_QUAD_PLACEHOLDER_TINT = Color(0.45, 0.65, 1.0)   # Blaufärbung des Platzhalters
 # Rampen-Artwork (96×32 = 3 Kacheln breit: links Absprung, Mitte Sprungfeld, rechts Landung).

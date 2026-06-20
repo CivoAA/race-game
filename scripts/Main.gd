@@ -76,6 +76,11 @@ const SHOP_ITEMS = [
 	# Upgrades (racestraightbonus/racecurvebonus). Teuerstes reguläres Teil + eigenes Pixelart (racing-Ordner).
 	{"tier": "default", "type": "race_straight","name": "Rennstrecke","key": "race_straight","unlock": 200000, "base_price": 10000, "growth": 2.6,  "upgrade": "racestraightbonus"},
 	{"tier": "default", "type": "race_curve",   "name": "Rennkurve",  "key": "race_curve",   "unlock": 220000, "base_price": 11000, "growth": 1.8, "upgrade": "racecurvebonus"},
+	# Kleber-/Slime-Belag: EIN gemeinsamer Schlüssel (glue) schaltet Gerade + Kurve frei und teilt sich
+	# einen Preis-Pool (wie Eis). Sehr späte, starke Strecke: bremst das Auto, zahlt aber viel je Feld
+	# (gluebonus regelt Geld + Bremse). Im Baumenü direkt hinter der Rennstrecke. Freischalten 1e12.
+	{"tier": "glue",    "type": "glue_straight", "name": "Kleber-Gerade", "key": "glue", "unlock": 1000000000000, "base_price": 50000000000, "growth": 3.0, "upgrade": "gluebonus"},
+	{"tier": "glue",    "type": "glue_curve",    "name": "Kleber-Kurve",  "key": "glue", "unlock": 1000000000000, "base_price": 50000000000, "growth": 3.0, "upgrade": "gluebonus"},
 	# Reihenfolge Steilwand → Looping → Rampe (2026-06-19), aufsteigende Preise. Looping = simpler
 	# Multiplikator (mittlere Stufe), Rampe = Schneeball-Effekt (teure Spät-Freischaltung, steht hinten).
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
@@ -83,13 +88,11 @@ const SHOP_ITEMS = [
 	{"tier": "ramp",    "type": "ramp",     "name": "Rampe",        "key": "ramp",        "unlock": 15000000000, "base_price": 3000000000, "growth": 5.0},
 	{"tier": "portal",  "type": "portal",   "name": "Portal",        "key": "portal",     "unlock": 100000000000, "base_price": 20000000000, "growth": 5.0, "upgrade": "portalbonus"},
 	{"tier": "stand",   "type": "stand",    "name": "Tribüne",       "key": "stand",      "unlock": 1000000000000, "base_price": 200000000000, "growth": 9.0, "upgrade": "standbonus"},
-	# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren. Vorerst OHNE Ökonomie-
-	# Effekt (kein +Ertrag, kein Multiplikator), Preis pauschal 1. Eigener Tier "test", damit weder
+	# Test-Belag (Wasser): nur die neuen 3D-Assets zum Ausprobieren. Vorerst OHNE Ökonomie-Effekt
+	# (kein +Ertrag, kein Multiplikator), Preis pauschal 1. Eigener Tier "test", damit weder
 	# Early-Growth/Gratis-Kontingent noch ein Spezial-Effekt-Text greifen.
 	{"tier": "test",    "type": "water_straight","name": "Wasser-Gerade", "key": "water_straight","unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
 	{"tier": "test",    "type": "water_curve",   "name": "Wasser-Kurve",  "key": "water_curve",   "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
-	{"tier": "test",    "type": "glue_straight", "name": "Kleber-Gerade", "key": "glue_straight", "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
-	{"tier": "test",    "type": "glue_curve",    "name": "Kleber-Kurve",  "key": "glue_curve",    "unlock": 1, "base_price": 1, "growth": 1.0, "upgrade": ""},
 ]
 
 const SHOP_SLOT_COUNT = 20  # = SHOP_ITEMS.size()
@@ -1286,6 +1289,10 @@ func _count_paid_tiles_in(g: Array, type: String) -> int:
 				# Eis: Gerade + Kurve teilen sich einen Preis-Pool → beide zählen gemeinsam.
 				if t == "ice" or t == "ice_curve":
 					n += 1
+			elif type == "glue":
+				# Kleber: Gerade + Kurve teilen sich einen Preis-Pool → beide zählen gemeinsam.
+				if t == "glue_straight" or t == "glue_curve":
+					n += 1
 			elif t == type:
 				n += 1
 	return n
@@ -1311,14 +1318,17 @@ func _count_paid_tiles(type: String) -> int:
 func _price_pool_type(t: String) -> String:
 	if t == "ice" or t == "ice_curve":
 		return "ice"
+	if t == "glue_straight" or t == "glue_curve":
+		return "glue"
 	return t
 
 
-func _tile_price(item: Dictionary) -> int:
-	if item["tier"] == "dirt" or item["tier"] == "start":
+# Kaufpreis des Feldes mit Index `eff` (0-basiert: das (eff+1)-te bezahlte Tile dieses Typs).
+# GEMEINSAME Wahrheitsquelle für Kauf (_tile_price) UND Rückerstattung (_tile_refund_for) – beide
+# MÜSSEN dieselbe Kurve nutzen, sonst kann man Tiles teurer verkaufen als man sie gekauft hat.
+func _tile_price_at(item: Dictionary, eff: int) -> int:
+	if item["tier"] == "dirt" or item["tier"] == "start" or eff < 0:
 		return 0
-	var ptype := _price_pool_type(String(item["type"]))
-	var eff: int = _count_paid_tiles(ptype)       # bezahlte Tiles dieses Typs (Idle-Skalierung)
 	var base := float(item["base_price"])
 	var g    := float(item["growth"])
 	# Sand-, Default-, Eis- und Renn-Belag: die ersten EARLY_TILE_COUNT bezahlten Tiles skalieren deutlich
@@ -1332,12 +1342,20 @@ func _tile_price(item: Dictionary) -> int:
 	return int(round(base * pow(g, eff)))
 
 
+func _tile_price(item: Dictionary) -> int:
+	if item["tier"] == "dirt" or item["tier"] == "start":
+		return 0
+	var ptype := _price_pool_type(String(item["type"]))
+	var eff: int = _count_paid_tiles(ptype)       # bezahlte Tiles dieses Typs (Idle-Skalierung)
+	return _tile_price_at(item, eff)
+
+
 # Aktueller Ertrag pro Feld dieses Tile-Typs inkl. gekaufter Tile-Upgrades (für die Bau-Leiste).
 # Grundwerte: Dreck = 1, Sand = 15, Default gebufft = 150, Rennstrecke/-kurve = 1000; das
 # zugehörige Upgrade addiert seinen Live-Effekt. Der Renn-×1.2 wird hier nicht eingerechnet.
 func _tile_field_earn(item: Dictionary) -> float:
 	var t := String(item.get("type", ""))
-	# Test-Beläge (Wasser/Kleber): bewusst ohne Effekt → 0 Ertrag pro Feld.
+	# Test-Belag (Wasser): bewusst ohne Effekt → 0 Ertrag pro Feld.
 	if item.get("tier", "") == "test":
 		return 0.0
 	# Grundertrag je Belag (Wahrheitsquelle: CarController.*_TILE_EARN). Sand = günstigste bezahlte
@@ -1349,6 +1367,8 @@ func _tile_field_earn(item: Dictionary) -> float:
 		base = 15     # = CarController.SAND_TILE_EARN
 	elif t == "race_straight" or t == "race_curve":
 		base = 1000   # = CarController.RACE_TILE_EARN
+	elif t == "glue_straight" or t == "glue_curve":
+		base = 0      # Kleber: ganzer Ertrag steckt im gluebonus-Effekt (Basis 50k)
 	elif t == "straight" or t == "curve":
 		base = 150    # = CarController.PREMIUM_TILE_EARN
 	return float(base) + Economy.get_effect(item.get("upgrade", ""))
@@ -1388,18 +1408,19 @@ func _tile_refund_for(data) -> int:
 	if t == "stand":
 		var n_total = _count_paid_tiles("stand")   # inkl. aller Stufen dieses Stapels
 		var stk = int(data.get("stack", 1))
-		var total := 0.0
+		var total := 0
 		for k in range(stk):
 			var idx = n_total - 1 - k
 			if idx < 0:
 				break
-			total += float(item["base_price"]) * pow(float(item["growth"]), idx)
-		return int(round(total))
+			total += _tile_price_at(item, idx)   # exakter Kaufpreis jeder Stapel-Stufe
+		return total
 	var ptype := _price_pool_type(String(item["type"]))   # Eis: gemeinsamer Pool (Gerade + Kurve)
 	var n = _count_paid_tiles(ptype)   # inkl. dieses Tile (Rampe: zählt ramp_start)
 	if n <= 0:
 		return 0
-	return int(round(float(item["base_price"]) * pow(float(item["growth"]), n - 1)))
+	# Erstattung = exakter Kaufpreis des zuletzt gekauften (marginalen) Tiles, Index n-1.
+	return _tile_price_at(item, n - 1)
 
 
 func _update_currency_label() -> void:
@@ -1440,6 +1461,7 @@ func _update_build_ui() -> void:
 			"loop":   accent = Color(0.60, 0.80, 1.00)
 			"portal": accent = Color(1.00, 0.66, 0.32)
 			"stand":  accent = Color(0.86, 0.86, 0.90)
+			"glue":   accent = Color(0.66, 0.90, 0.40)
 			"test":   accent = Color(0.66, 0.84, 0.78)
 			_:        accent = Color(0.74, 0.84, 1.00)
 		if locked:
@@ -1575,6 +1597,7 @@ func _shop_section_label(idx: int) -> String:
 		"default":
 			return "RENNSTRECKE" if (t == "race_straight" or t == "race_curve") else "ASPHALT"
 		"ramp", "wall", "loop", "portal", "stand": return "SPEZIAL"
+		"glue":    return "KLEBER"
 		"test":
 			return "WASSER" if t.begins_with("water") else "KLEBER"
 	return ""
@@ -1604,6 +1627,8 @@ func _tile_effect_text(item: Dictionary) -> String:
 			return "×%.1f Nachbarfeld  ·  stapelbar 5×" % Economy.get_stand_mult(1)
 		"dirt":
 			return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))
+		"glue":
+			return "+%s %s pro Feld  ·  bremst −%d Lvl Tempo" % [Economy.format_currency(Economy.get_glue_earn()), Icons.COIN, Economy.get_glue_slow_levels()]
 		"test":
 			return "Noch kein Effekt"
 	return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))

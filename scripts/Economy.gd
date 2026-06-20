@@ -192,6 +192,16 @@ const UPGRADES = {
 		"base_cost": 400, "growth": 2.6, "max_level": 15,
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
+	# Kleber-/Slime-Belag (Gegenstück zur Eisgerade): klebt das Auto fest → es wird auf dem Kleber-Feld
+	# und den nächsten GLUE_BASE_RANGE Feldern LANGSAMER (absoluter m/s-Abzug). Dafür gibt es viel Geld
+	# je Kleber-Feld (Basis 50k). EIN gemeinsames Upgrade für Gerade UND Kurve (wie icebonus). Effekt
+	# special-cased: Geld via get_glue_earn (prozentual steigend), Verlangsamung via get_glue_slow_levels
+	# (Start 20 Tempo-Stufen, −1 je 3 Upgrade-Stufen, min. 5). base/per_level werden ignoriert.
+	"gluebonus": {
+		"category": "tile", "name": "Kleber-Ertrag (+ je Feld, bremst)",
+		"base_cost": 5000000000, "growth": 1.5, "max_level": 42,
+		"base": 0.0, "per_level": 0.0, "unit": "",
+	},
 	# Steilwandkurve (Wall-Ride): Geld UND Speed-Boost skalieren mit dem Upgrade. Das Geld läuft
 	# über base/per_level (get_effect → +Wert am Einfahrt-Feld, Schritt 1 des Schneeballs), der
 	# Speed-Boost ist wie bei der Eisgerade special-cased (get_wall_*). max_level=15, damit die
@@ -235,12 +245,12 @@ const UPGRADES = {
 	# Bonusfelder: je Typ max. 3 – das Upgrade-Level = Anzahl dieser Felder (Lv1 schaltet frei,
 	# Lv2 = zweites Feld, Lv3 = drittes). Kosten steigen idle-typisch steil.
 	"bonus_plus5": {
-		"category": "bonus", "name": "+5-Felder",
+		"category": "bonus", "name": "+5-Feld",
 		"base_cost": 2000, "growth": 6.0, "max_level": 3,
 		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
 	"bonus_plus10": {
-		"category": "bonus", "name": "+10-Felder",
+		"category": "bonus", "name": "+10-Feld",
 		"base_cost": 4000, "growth": 8.0, "max_level": 3,
 		"base": 0.0, "per_level": 1.0, "unit": "",
 	},
@@ -323,12 +333,12 @@ const PRESTIGE_NODES = {
 		"desc": "Einmalig: schaltet die Punkte-Skalierung frei. Danach bringt jedes Prestige Punkte nach dem verdienten Geld – statt nur 1.",
 	},
 	# Tile-Bonus-Startlevel (Head-Start auf tilebonus): das „Ertrag je Feld"-Upgrade startet höher.
-	# Stufen bewusst auf 40 begrenzt: dort liegt der Feld-Bonus bei ~0,1% des Prestige-Geldwerts
-	# (~1000–2000/Feld bei Gate 2 Mio.) → man kann aus einer Runde nie „mehr Geld als fürs Prestige"
-	# allein über diesen Head-Start ziehen. growth flach (günstig über die 40 Stufen).
+	# Je Prestige-Stufe +5 Spiel-Stufen (HEADSTART_STEP), daher auf 20 begrenzt: 20·5 = 100 = volles
+	# Tile-Bonus-Maximum. Zusammen mit der Preisverschiebung sind diese Stufen gratis und der Shop-Kauf
+	# startet wieder beim Stufe-0-Preis. growth etwas steiler (1.6), weil jede Stufe nun 5× so viel bringt.
 	"tilebonus_start": {
-		"name": "Tile-Bonus-Start", "icon": "", "base_cost": 8, "growth": 1.3, "max_level": 40,
-		"desc": "Je Stufe startet das „Ertrag je Feld\"-Upgrade nach dem Prestige eine Stufe höher (max. Stufe 40).",
+		"name": "Tile-Bonus-Start", "icon": "", "base_cost": 8, "growth": 1.6, "max_level": 20,
+		"desc": "Je Stufe startet das „Ertrag je Feld\"-Upgrade nach dem Prestige fünf Stufen höher (max. Stufe 20 = Tile-Bonus voll).",
 	},
 	# Unlocks behalten: einmaliger Kauf (max_level 1). Danach bleiben die regulär freischaltbaren
 	# Default-Streckenteile (Gerade/Kurve/Eis) über den Prestige-Reset hinweg gratis nutzbar. Die
@@ -365,7 +375,7 @@ const PRESTIGE_NODES = {
 	# Tempo-Startlevel (Head-Start auf speed): das Tempo-Upgrade startet höher.
 	"speed_start": {
 		"name": "Tempo-Start", "icon": "", "base_cost": 11, "growth": 1.5, "max_level": 15,
-		"desc": "Je Stufe startet das Tempo-Upgrade nach dem Prestige eine Stufe höher.",
+		"desc": "Je Stufe startet das Tempo-Upgrade nach dem Prestige fünf Stufen höher.",
 	},
 	# Tile-Gate Looping.
 	"loop_unlock": {
@@ -386,7 +396,7 @@ const PRESTIGE_NODES = {
 	# End-Multiplikator-Startlevel (Head-Start auf endmult).
 	"endmult_start": {
 		"name": "End-Mult-Start", "icon": "", "base_cost": 52, "growth": 1.7, "max_level": 10,
-		"desc": "Je Stufe startet das End-Multiplikator-Upgrade nach dem Prestige eine Stufe höher.",
+		"desc": "Je Stufe startet das End-Multiplikator-Upgrade nach dem Prestige fünf Stufen höher.",
 	},
 	# Tile-Gate Portal.
 	"portal_unlock": {
@@ -401,7 +411,7 @@ const PRESTIGE_NODES = {
 }
 # Reihenfolge im Tech-Baum (links → rechts). Position p (1-basiert) ⇒ freigeschaltet nach dem
 # p-ten Prestige (siehe is_prestige_node_unlocked).
-const PRESTIGE_ORDER = ["income", "car_start", "track", "earning", "wall_unlock", "car_points", "tilebonus_start", "drive_time_inf", "speed_start", "loop_unlock", "points_mult", "keep_unlocks", "ramp_unlock", "grid", "endmult_start", "portal_unlock", "stand_unlock"]
+const PRESTIGE_ORDER = ["income", "car_start", "track", "earning", "wall_unlock", "car_points", "tilebonus_start", "loop_unlock", "points_mult", "drive_time_inf", "speed_start", "keep_unlocks", "ramp_unlock", "grid", "endmult_start", "portal_unlock", "stand_unlock"]
 const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe eine weitere.
 
 # Auto-Startlevel: eigene ⭐-Kostenkurve (in get_prestige_node_cost special-cased). Stufe 1 kostet 1
@@ -422,6 +432,16 @@ const HEADSTART_NODES = {
 	"tilebonus_start": ["tilebonus"],
 	"speed_start":     ["speed"],
 	"endmult_start":   ["endmult"],
+}
+# Wie viele SPIEL-Stufen jede Prestige-Stufe dieses Head-Start-Knotens schenkt. Die „Wert"-Knoten
+# (Tile-Bonus/Tempo/End-Mult) geben je Prestige-Stufe 5 Spiel-Stufen (lohnen sich dadurch deutlich
+# mehr); car_start bleibt bei 1 (mehr würde das gleichzeitige Fahr-Cap von 4 Autos sprengen). Knoten,
+# die hier nicht stehen, geben standardmäßig 1. Zusammen mit der Preisverschiebung (_upgrade_cost_at)
+# sind die geschenkten Stufen GRATIS und der nächste BEZAHLTE Kauf startet wieder beim Stufe-0-Preis.
+const HEADSTART_STEP = {
+	"tilebonus_start": 5,
+	"speed_start":     5,
+	"endmult_start":   5,
 }
 # Tile-Gate-Knoten → Tile-Key. Diese Tiles müssen erst im Prestige-Baum freigeschaltet werden, bevor
 # sie im Shop für Geld kaufbar sind (wie die Tribüne). Siehe can_unlock_tile/is_tile_unlocked.
@@ -672,12 +692,12 @@ const TILE_UNLOCK_COST = {
 	"ramp":         15000000000,
 	"portal":       100000000000,
 	"stand":        1000000000000,
-	# Test-Beläge (Wasser/Kleber): nur zum Ausprobieren der neuen 3D-Assets, vorerst ohne
-	# Ökonomie-Effekt. Freischaltkosten pauschal 1 (wie der Kaufpreis im Bau-Shop).
+	# Kleber-/Slime-Belag: EIN gemeinsamer Schlüssel schaltet Gerade + Kurve frei (wie Eis). Sehr späte,
+	# starke Strecke (bremst, zahlt aber viel) → Freischaltkosten 1e12.
+	"glue":         1000000000000,
+	# Test-Belag (Wasser): nur zum Ausprobieren der neuen 3D-Assets, vorerst ohne Ökonomie-Effekt.
 	"water_straight": 1,
 	"water_curve":    1,
-	"glue_straight":  1,
-	"glue_curve":     1,
 }
 
 # ── Eisgerade ───────────────────────────────────────────────────────────────────
@@ -697,6 +717,19 @@ const ICE_BASE_RANGE        = 3
 const WALL_BASE_BOOST_LEVELS = 2.0
 const WALL_PER_LEVEL_BOOST   = 0.5
 const WALL_BASE_RANGE        = 4
+
+# ── Kleber-/Slime-Belag ─────────────────────────────────────────────────────────
+# Gegenstück zur Eisgerade: bremst das Auto (absoluter m/s-Abzug auf das Kleber-Feld + die nächsten
+# GLUE_BASE_RANGE Felder), zahlt dafür viel Geld je Feld. Geld: Basis 50k, je Upgrade-Stufe prozentual
+# mehr (×GLUE_EARN_GROWTH, etwas stärker als die Rennstrecke). Verlangsamung in „Tempo-Stufen" (wie
+# Eis, nur negativ): Start GLUE_SLOW_BASE Stufen, je 3 Upgrade-Stufen −1, nie unter GLUE_SLOW_MIN →
+# auf Max-Stufe bleiben noch ~5–8 Stufen Bremse. Ein Upgrade (gluebonus) regelt BEIDES für Gerade+Kurve.
+const GLUE_BASE_EARN    = 50000.0
+const GLUE_EARN_GROWTH  = 1.09     # +~9 % Ertrag je Upgrade-Stufe (50k → ~54,5k → … prozentual)
+const GLUE_SLOW_BASE    = 20       # Tempo-Stufen Bremse bei Upgrade-Stufe 0
+const GLUE_SLOW_PER     = 3        # je so viele Upgrade-Stufen −1 Brems-Stufe
+const GLUE_SLOW_MIN     = 5        # untere Grenze der Bremse (nie 0)
+const GLUE_BASE_RANGE   = 2        # Kleber-Feld (j=0) + so viele Folge-Felder werden gebremst
 
 
 func get_tile_unlock_cost(key: String) -> int:
@@ -1051,6 +1084,7 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 	var sandcurve_b    := get_effect("sandcurvebonus")
 	var racestraight_b := get_effect("racestraightbonus")
 	var racecurve_b    := get_effect("racecurvebonus")
+	var glue_b         := get_glue_earn()
 	var dstraight_b := get_effect("dirtstraightbonus")
 	var dcurve_b    := get_effect("dirtcurvebonus")
 	var ramp_b      := get_effect("rampbonus")
@@ -1067,6 +1101,7 @@ func _lap_reward_for_car(car: Dictionary) -> int:
 			"psandcurve":    add += sandcurve_b
 			"pracestraight": add += racestraight_b
 			"pracecurve":    add += racecurve_b
+			"pgluestraight", "pgluecurve": add += glue_b
 			"dstraight": add += dstraight_b
 			"dcurve":    add += dcurve_b
 			"ramp":      add += ramp_b
@@ -1294,7 +1329,7 @@ func get_upgrade_headstart(uid: String) -> int:
 	var lv := 0
 	for nid in HEADSTART_NODES:
 		if uid in HEADSTART_NODES[nid]:
-			lv += get_prestige_node_level(nid)
+			lv += get_prestige_node_level(nid) * int(HEADSTART_STEP.get(nid, 1))
 	return lv
 
 
@@ -1324,6 +1359,9 @@ func _effect_at(id: String, level: int) -> float:
 	# Tile-Bonus: beschleunigende Stufen-Summe (base/per_level ignoriert).
 	if id == "tilebonus":
 		return _tilebonus_value(level)
+	# Kleber-Belag: Geld je Feld (prozentual steigend); base/per_level ignoriert.
+	if id == "gluebonus":
+		return get_glue_earn(level)
 	# End-Multiplikator: stückweise Steigung (base/per_level ignoriert).
 	if id == "endmult":
 		return _endmult_value(level)
@@ -1498,19 +1536,25 @@ func get_upgrade_cost(id: String) -> int:
 # aktuelle Stufe; für die „Max"-Vorschau (max_affordable_info) brauchen wir die Kosten beliebiger
 # Stufen, daher hier mit explizitem Level.
 func _upgrade_cost_at(id: String, level: int) -> int:
+	# Preisverschiebung: Head-Start-Knoten schenken die ersten Stufen GRATIS und verschieben die
+	# Kostenkurve mit – die nächste BEZAHLTE Stufe kostet wieder wie normal die Stufe 0. Dafür rechnet
+	# die Kostenformel mit dem „bezahlten" Stufen-Index (effektive Stufe minus geschenkter Head-Start),
+	# nie unter 0. Ohne Head-Start (=0) bleibt alles unverändert. Greift für ALLE Head-Start-Upgrades
+	# (Tile-Bonus/Tempo/End-Mult/Auto). Verdreifachte Tile-Upgrades haben keinen Head-Start (paid=level).
+	var paid := maxi(0, level - get_upgrade_headstart(id))
 	if id == "speed":
-		return _speed_cost(level)
+		return _speed_cost(paid)
 	if id == "tilebonus":
-		return _tilebonus_cost(level)
+		return _tilebonus_cost(paid)
 	# Verdreifachte Tile-Upgrades: Kosten der NÄCHSTEN Stufe aus _tile_series (geom. mit growth^(1/3),
 	# Summe = alte Gesamtkosten; liegt an jeder 3×-Grenze exakt auf dem alten Preis).
 	if _is_tripled_tile(id):
 		var cost: PackedInt64Array = _tile_series(id)["cost"]
-		return 0 if level >= cost.size() else int(cost[level])
+		return 0 if paid >= cost.size() else int(cost[paid])
 	var d = _def_for(id)
 	if d.is_empty():
 		return 0
-	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), level)))
+	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), paid)))
 
 
 # „Max"-Kaufmenge (Shop-Umschalter „Einzeln/Max"): wie viele Stufen mit dem aktuellen Geld auf
@@ -1698,6 +1742,9 @@ func effect_text(id: String, level: int) -> String:
 	# Eisgerade: kein Geld-Effekt → Speed-Boost (Tempo-Stufen) + Reichweite zeigen.
 	if id == "icebonus":
 		return "+%.1f Lvl · %d Felder" % [get_ice_boost_levels(level), get_ice_range(level)]
+	# Kleber-Belag: Geld-Grundertrag je Feld + Bremse (Tempo-Stufen, negativ).
+	if id == "gluebonus":
+		return "+%s %s · −%d Lvl Tempo" % [format_currency(get_glue_earn(level)), Icons.COIN, get_glue_slow_levels(level)]
 	# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 	if id == "wallbonus":
 		return "+%s %s · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), Icons.COIN, get_wall_boost_levels(level), get_wall_range(level)]
@@ -1988,6 +2035,34 @@ func get_ice_range(level: int = -1) -> int:
 	if level < 0:
 		level = get_upgrade_level("icebonus")
 	return ICE_BASE_RANGE + int(level / 5)
+
+
+# ── Kleber-/Slime-Belag ─────────────────────────────────────────────────────────
+
+# Geld je überfahrenem Kleber-Feld: Basis 50k, je Upgrade-Stufe prozentual mehr (×GLUE_EARN_GROWTH).
+func get_glue_earn(level: int = -1) -> float:
+	if level < 0:
+		level = get_upgrade_level("gluebonus")
+	return GLUE_BASE_EARN * pow(GLUE_EARN_GROWTH, level)
+
+
+# Bremse einer Kleber-Straße in „Tempo-Stufen" (positiv = so viel langsamer): Start GLUE_SLOW_BASE,
+# je GLUE_SLOW_PER Upgrade-Stufen −1, nie unter GLUE_SLOW_MIN. Mehr Upgrade = weniger Bremse + mehr Geld.
+func get_glue_slow_levels(level: int = -1) -> int:
+	if level < 0:
+		level = get_upgrade_level("gluebonus")
+	return maxi(GLUE_SLOW_MIN, GLUE_SLOW_BASE - int(level / GLUE_SLOW_PER))
+
+
+# Absoluter Geschwindigkeits-ABZUG (m/s) je betroffenem Feld – so viel langsamer wie N Tempo-Stufen
+# (1 Stufe = speed.per_level · SPEED_SCALE m/s), unabhängig vom Grund-Tempo (Gegenstück get_ice_speed_bonus).
+func get_glue_speed_penalty(level: int = -1) -> float:
+	return float(get_glue_slow_levels(level)) * float(UPGRADES["speed"]["per_level"]) * SPEED_SCALE
+
+
+# Reichweite der Kleber-Bremse: das Feld selbst (j=0) + GLUE_BASE_RANGE Folge-Felder.
+func get_glue_range(_level: int = -1) -> int:
+	return GLUE_BASE_RANGE
 
 
 # ── Steilwandkurve (Wall-Ride) ──────────────────────────────────────────────────

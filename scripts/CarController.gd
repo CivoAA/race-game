@@ -646,12 +646,18 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			rec["is_dirt"]  = bool(d.get("is_dirt", false))
 			# Default-Tile = gekauft (nicht Dreck, nicht Start) und eine echte Fahrkachel.
 			var is_premium = (not d.get("is_dirt", false)) and (not d.get("is_start", false)) \
-				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve", "sand_straight", "sand_curve"]
+				and t in ["straight", "curve", "curve_alt", "race_straight", "race_curve", "sand_straight", "sand_curve", "glue_straight", "glue_curve"]
 			if is_premium and t in ["race_straight", "race_curve"]:
 				# Rennstrecke: hoher flacher Ertrag (+1000) UND fester ×1.2; eigene additive Upgrades.
 				rec["base"]       = RACE_TILE_EARN
 				rec["fixed_mult"] = RACE_TILE_MULT
 				rec["kind"]       = "pracestraight" if t == "race_straight" else "pracecurve"
+			elif is_premium and t in ["glue_straight", "glue_curve"]:
+				# Kleber: ganzer Geld-Ertrag kommt live aus dem gluebonus-Upgrade (kind), kein flacher
+				# Basiswert, kein ×-Faktor. Die Bremse läuft separat über step_bonus (negativ, unten).
+				rec["base"]       = 0.0
+				rec["fixed_mult"] = 1.0
+				rec["kind"]       = "pgluestraight" if t == "glue_straight" else "pgluecurve"
 			elif is_premium and t in ["sand_straight", "sand_curve"]:
 				# Sand: günstigste bezahlte Strecke (+15, kein Multiplikator); eigene additive Upgrades.
 				rec["base"]       = SAND_TILE_EARN
@@ -720,6 +726,18 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 			if typeof(wdata) == TYPE_DICTIONARY and wdata.get("type", "") == "wall_start":
 				for j in range(0, wall_range + 1):
 					step_bonus[(wk + j) % n] += wall_bonus
+
+	# Kleber-/Slime-Belag: Gegenstück zur Eisgerade – legt einen NEGATIVEN absoluten Tempo-Bonus
+	# (Bremse) auf das Kleber-Feld selbst (j=0) UND die nächsten get_glue_range() Folge-Felder. Das
+	# Segment-Tempo wird in _build_time_table mit maxf(0.01, …) abgefangen, kann also nie ≤0 werden.
+	var glue_pen := Economy.get_glue_speed_penalty()
+	var glue_range := Economy.get_glue_range()
+	if glue_pen > 0.0 and n > 0:
+		for gk in range(n):
+			var gdata = route[gk]["data"]
+			if typeof(gdata) == TYPE_DICTIONARY and gdata.get("type", "") in ["glue_straight", "glue_curve"]:
+				for j in range(0, glue_range + 1):
+					step_bonus[(gk + j) % n] -= glue_pen
 
 	# Wegpunkte aus Route bauen + Zuordnung Wegpunkt→Step (für die Tempo-Faktor-Tabelle)
 	var wps: Array[Vector3] = []
