@@ -442,16 +442,15 @@ func _respawn_cars() -> void:
 
 func _start_cars(grid_state: Array) -> void:
 	var script = load(Paths.SCRIPT_CAR_CONTROLLER)
-	var total  = Economy.get_car_count()
 	# Auto-Prestige-Stufe entscheidet, WAS fährt:
-	#  Stufe 0 → wie bisher: `total` normale Autos (Test-Modell), keine Tier-Autos.
-	#  Stufe ≥1 → NUR Tier-Autos (Super-Auto-Ökonomie, Modell der Stufe): get_tier_car_count()
-	#            = 1 Basis + je SUPER_CAR_COST_CARS normale Autos eines mehr. Normale Autos fahren nicht.
+	#  Stufe 0 → normale Autos (Test-Modell), keine Tier-Autos.
+	#  Stufe ≥1 → NUR Tier-Autos (Super-Auto-Ökonomie, Modell der Stufe). Normale Autos fahren nicht.
 	var tier: int        = Economy.get_car_tier()
-	var supers: int      = Economy.get_tier_car_count() if tier >= 1 else 0
-	# Tier 0: nur ACTIVE_CAR_CAP (= 4) Autos fahren gleichzeitig, auch wenn man mehr besitzt. Die
-	# überzähligen besessenen Autos lohnen erst über die Werkstatt-Stufe (Tier-Auto-Ökonomie).
-	var normal_cnt: int  = 0 if tier >= 1 else mini(total, Economy.ACTIVE_CAR_CAP)
+	# Anzahl fahrender Autos = get_active_car_count() (1 + Auto-Upgrades/Kosten-pro-Auto, Cap 4),
+	# einheitlich für alle Tiers. Ab Tier ≥1 fahren sie als Tier-Autos (Super-Auto-Ökonomie).
+	var active: int      = Economy.get_active_car_count()
+	var supers: int      = active if tier >= 1 else 0
+	var normal_cnt: int  = 0 if tier >= 1 else active
 	var spawn_cnt: int   = normal_cnt + supers
 	if spawn_cnt < 1:
 		spawn_cnt = 1
@@ -479,8 +478,9 @@ func _start_cars(grid_state: Array) -> void:
 		sctrl.is_super       = true
 		sctrl.speed          = Economy.get_car_speed(0) / Economy.SUPER_CAR_SPEED_DIV
 		sctrl.speed_div      = Economy.SUPER_CAR_SPEED_DIV
-		sctrl.bonus_tile_add = Economy.SUPER_CAR_TILE_BONUS
-		sctrl.end_mult_extra = Economy.SUPER_CAR_END_MULT
+		# Werkstatt-Ökonomie je Stufe ("Renn"auto: +10k/×3, Frosch: +1M/×10).
+		sctrl.bonus_tile_add = Economy.get_tier_tile_bonus()
+		sctrl.end_mult_extra = Economy.get_tier_end_mult()
 		sctrl.start_delay    = CAR_STAGGER / float(spawn_cnt) * slot
 		$CarRoot.add_child(sctrl)
 		car_controllers.append(sctrl)

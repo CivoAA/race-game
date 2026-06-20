@@ -34,10 +34,16 @@ const MODEL_TEST_CAR_BLENDER = "res://assets/3D-models/cars/test_car_blender/tes
 # Name der Karosserie-Materialfläche im Blender-Testmodell (das „helle Grün") – nur diese wird umgefärbt.
 const TEST_CAR_BODY_MATERIAL = "Car_main_color"
 
-# Super-Auto („Auto 2") – eigenes Modell, keine Werkstatt-Lackierung (eigene gebackene Texturen).
+# Tier-1-Auto („"Renn"auto") – eigenes Modell, eigene gebackene Texturen (keine Umfärb-Maske).
 const MODEL_ERIC_CAR    = "res://assets/3D-models/cars/eric_car/Car_eric.glb"
 const TEX_CAR_ALBEDO    = "res://assets/3D-models/cars/test_car/car_0.png"
 const TEX_CAR_MASK      = "res://assets/3D-models/cars/test_car/car_mask.png"
+
+# Tier-2-Auto („Frosch", Miata) – mit eigener Umfärb-Maske. Albedo (miata_0.png) hat die umfärbbaren
+# Bereiche grün markiert; miata_mask.png wandelt genau diese in Rot (= umfärbbar), Rest schwarz (fix).
+const MODEL_FROSCH_CAR  = "res://assets/3D-models/cars/frosh_auto/miata.glb"
+const TEX_FROSCH_ALBEDO = "res://assets/3D-models/cars/frosh_auto/miata_0.png"
+const TEX_FROSCH_MASK   = "res://assets/3D-models/cars/frosh_auto/miata_mask.png"
 
 # Shader: färbt nur die maskierten (roten) Bereiche um, behält Hell-Dunkel-Verläufe.
 const SHADER_CAR_PAINT  = "res://shaders/car_paint.gdshader"

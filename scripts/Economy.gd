@@ -51,8 +51,13 @@ const SUPER_CAR_END_MULT    = 1.0             # KEIN zusätzlicher End-×Faktor 
 # je Stufe. Ab Stufe ≥1 fährt NUR das Tier-Auto (Super-Auto-Ökonomie); 4 normale Autos = 1 fahrendes
 # Tier-Auto, Basis 1 gratis. Modell je Stufe liefert get_car_tier_model() (Paths sind Autoload-Consts,
 # daher kein const-Array hier möglich). CAR_TIER_COUNT = Anzahl definierter Stufen-Modelle.
-const CAR_TIER_COUNT        = 2
-const CAR_ASCEND_BASE       = 100_000_000_000.0  # Geld-Schwelle 1. Aufstieg (100 Mrd)
+const CAR_TIER_COUNT        = 3   # 0 = Standard, 1 = "Renn"auto (eric), 2 = Frosch (miata)
+# JEDER Auto-Aufstieg wird mit PRESTIGE-PUNKTEN (⭐) bezahlt – KEIN Geld mehr. ⭐-Kosten je Aufstieg,
+# indiziert nach dem AKTUELLEN car_tier: Standard→"Renn"auto = 1e7, "Renn"auto→Frosch = 1e12. Über die
+# Liste hinaus skaliert es ×CAR_ASCEND_POINT_GROWTH je weiterer Stufe.
+const CAR_ASCEND_POINT_COSTS = [1e7, 1e12]       # ⭐ für [Tier 0→1, Tier 1→2]
+const CAR_ASCEND_POINT_GROWTH = 1000.0           # ⭐-Schwelle ×1000 je Stufe über die Liste hinaus
+const CAR_ASCEND_BASE       = 100_000_000_000.0  # (Legacy, ungenutzt) frühere Geld-Schwelle
 const CAR_ASCEND_GROWTH     = 10.0               # Schwelle ×10 je weiterer Stufe
 const CAR_ASCEND_POINT_MULT = 4.0                # ×4 Prestigepunkte je Stufe (stapelt: ×4, ×16, …)
 const CAR_ASCEND_COUNT_MULT = 2.0                # ×2 Prestige-Zähler je Stufe (stapelt: ×2, ×4, …) →
@@ -93,13 +98,13 @@ const UPGRADES = {
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
 	"car_count": {
-		# Mit dem Prestige-Knoten „Auto-Startlevel" (car_start, max 10) zusammengeführt: beide teilen
-		# sich diese Level-Skala (get_upgrade_level = max(gekauft, Head-Start-Floor)). Bis Stufe 64
-		# kaufbar – aber gleichzeitig fahren nur ACTIVE_CAR_CAP (= 4) Autos (siehe get_active_car_count).
-		# Mehr gekaufte Autos lohnen erst über die Werkstatt-Stufe (SUPER_CAR_COST_CARS Autos → 1 Tier-
-		# Auto). growth flach genug, dass die 64 Stufen über das Spiel erreichbar bleiben.
+		# Mit dem Prestige-Knoten „Auto-Startlevel" (car_start) zusammengeführt: beide teilen sich diese
+		# Level-Skala (get_upgrade_level = max(gekauft, Head-Start-Floor)). HART GEDECKELT: die effektive
+		# max_level kommt aus get_max_level("car_count") = 3 · SUPER_CAR_COST_CARS^car_tier (Tier 0 → 3,
+		# Tier 1 → 12, Tier 2 → 48). Jedes zusätzliche fahrende Auto kostet je Werkstatt-Stufe ×4 so viele
+		# Käufe; Fahr-Cap bleibt ACTIVE_CAR_CAP (= 4). Der max_level-Wert hier ist nur ein Fallback.
 		"category": "general", "name": "Zusätzliches Auto",
-		"base_cost": 1000000, "growth": 1.6, "max_level": 64,
+		"base_cost": 1000000, "growth": 1.6, "max_level": 48,
 		"base": 1.0, "per_level": 1.0, "unit": " Autos",
 	},
 	# End-Multiplikator & Tile-Bonus jetzt global (alle Autos), unter "Allgemeines".
@@ -360,11 +365,13 @@ const PRESTIGE_NODES = {
 		"name": "Steilwand", "icon": "", "base_cost": 3, "growth": 1.0, "max_level": 1,
 		"desc": "Schaltet die Steilwandkurve frei (danach im Shop noch für Geld freischaltbar).",
 	},
-	# Punkte je Auto (NEU, hinter der Steilwand): jedes FAHRENDE Auto bringt zusätzliche Prestige-Punkte.
-	# Additiv VOR den globalen Multiplikatoren: + get_active_car_count()·Stufe (siehe prestige_pending_points).
+	# „× Auto" (NEU, hinter der Steilwand): EINMALIGE Freischaltung. Multipliziert die Prestige-Punkte
+	# pro Prestige mit der Anzahl deiner Autos = (gekaufte Auto-Upgrades + 1, fürs Standard-Auto). Am
+	# Anfang max ×4 (3 Auto-Käufe + 1); steigt mit den Werkstatt-Stufen (mehr kaufbare Auto-Upgrades).
+	# Wirkt VOR den globalen Multiplikatoren (siehe prestige_pending_points).
 	"car_points": {
-		"name": "Prestige-Punkte pro Auto", "icon": "", "base_cost": 8, "growth": 2.0, "max_level": 10,
-		"desc": "Jedes fahrende Auto bringt je Stufe +1 Prestige-Punkt pro Prestige.",
+		"name": "× Auto", "icon": "", "base_cost": 8, "growth": 1.0, "max_level": 1,
+		"desc": "Multipliziert die Prestige-Punkte pro Prestige mit der Anzahl deiner Autos.",
 	},
 	# Unendliche Fahrzeit (NEU, einmalig, vor Tempo-Start): hebt das Zeitlimit auf – jede Strecke fährt
 	# endlos weiter, bis man die Fahrt manuell beendet (gleicher Code-Pfad wie endless_mode, is_endless_run).
@@ -1321,6 +1328,8 @@ func get_upgrade_level(id: String) -> int:
 	# zählt automatisch ab dem Floor weiter.
 	var floored := maxi(int(upgrade_levels.get(id, 0)), get_upgrade_headstart(id))
 	var mx := int(_def_for(id).get("max_level", floored))
+	if id == "car_count":
+		mx = get_max_level(id)   # dynamischer Hart-Cap je Werkstatt-Stufe (3/12/48)
 	return mini(floored, mx)
 
 
@@ -1651,7 +1660,7 @@ func is_maxed(id: String) -> bool:
 	var d = _def_for(id)
 	if d.is_empty():
 		return true
-	return get_upgrade_level(id) >= int(d["max_level"])
+	return get_upgrade_level(id) >= get_max_level(id)
 
 
 func can_buy(id: String) -> bool:
@@ -1718,6 +1727,10 @@ func get_upgrade_unit(id: String) -> String:
 
 
 func get_max_level(id: String) -> int:
+	if id == "car_count":
+		# Hart-Cap: pro Werkstatt-Stufe kostet jedes zusätzliche AKTIVE Auto SUPER_CAR_COST_CARS^tier
+		# Käufe; bei (ACTIVE_CAR_CAP-1 =) 3 Extra-Autos ergibt das Tier 0 → 3, Tier 1 → 12, Tier 2 → 48.
+		return (ACTIVE_CAR_CAP - 1) * get_car_cost_per_extra()
 	return int(_def_for(id).get("max_level", 0))
 
 
@@ -1738,7 +1751,8 @@ func effect_text(id: String, level: int) -> String:
 		var lv = clampi(level, 0, GRID_STEPS.size() - 1)
 		return "%d×%d" % [GRID_STEPS[lv].x, GRID_STEPS[lv].y]
 	if id == "car_count":
-		return "%d Autos" % (1 + level)
+		# Tatsächlich fahrende Autos für dieses Level (je Werkstatt-Stufe kostet ein Auto mehr Käufe).
+		return "%d Autos" % mini(1 + int(level / get_car_cost_per_extra()), ACTIVE_CAR_CAP)
 	# Eisgerade: kein Geld-Effekt → Speed-Boost (Tempo-Stufen) + Reichweite zeigen.
 	if id == "icebonus":
 		return "+%.1f Lvl · %d Felder" % [get_ice_boost_levels(level), get_ice_range(level)]
@@ -1876,13 +1890,18 @@ func get_car_count() -> int:
 # sie lohnen erst über die Werkstatt-Stufe, wo SUPER_CAR_COST_CARS Autos zu einem Tier-Auto werden.
 const ACTIVE_CAR_CAP = 4
 
+# Wie viele car_count-Käufe EIN zusätzliches fahrendes Auto kostet. Steigt je Werkstatt-Stufe ×4
+# (SUPER_CAR_COST_CARS): Tier 0 → 1, Tier 1 → 4, Tier 2 → 16. Zusammen mit dem Fahr-Cap (4 Autos =
+# 3 Extra) ergibt das den Shop-Hart-Cap get_max_level("car_count") = 3/12/48.
+func get_car_cost_per_extra() -> int:
+	return int(pow(float(SUPER_CAR_COST_CARS), float(car_tier)))
+
+
 # Tatsächlich fahrende Autos (Wahrheitsquelle für Spawn + Renten/Reward, auch Hintergrund):
-#  Tier 0  → besessene Autos, gedeckelt auf ACTIVE_CAR_CAP.
-#  Tier ≥1 → Tier-Autos (get_tier_car_count, ungedeckelt; jede SUPER_CAR_COST_CARS Autos = +1).
+# 1 Standard-Auto + je get_car_cost_per_extra() gekauften Auto-Upgrades eines mehr, gedeckelt auf
+# ACTIVE_CAR_CAP (= 4). Gilt einheitlich für alle Tiers (Tier ≥1 fährt das Tier-Auto-Modell).
 func get_active_car_count() -> int:
-	if get_car_tier() >= 1:
-		return get_tier_car_count()
-	return mini(get_car_count(), ACTIVE_CAR_CAP)
+	return mini(1 + int(get_upgrade_level("car_count") / get_car_cost_per_extra()), ACTIVE_CAR_CAP)
 
 
 # ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
@@ -1925,20 +1944,72 @@ func get_car_tier_model(tier: int = -1) -> String:
 	var t = car_tier if tier < 0 else tier
 	match clampi(t, 0, CAR_TIER_COUNT - 1):
 		0: return Paths.MODEL_TEST_CAR
-		_: return Paths.MODEL_ERIC_CAR
+		1: return Paths.MODEL_ERIC_CAR
+		_: return Paths.MODEL_FROSCH_CAR
 
-# Geld-Schwelle für den NÄCHSTEN Aufstieg (Wunsch 2026-06-19): Das 1. Auto bleibt früh leistbar
-# (5 Mio.). Ab dem 2. Auto sind die Kosten an die Prestige-Geld-Stufen gekoppelt (PRESTIGE_K·10^Stufe):
-# 2. Auto = Prestige-Stufe 8, 3. Auto = Stufe 20, danach je weiterer Stufe +12 (also ×10^12).
-# _currency ist float (bis ~1e308) → die riesigen Beträge (2e14, 2e26 …) sind sicher.
+
+# Albedo-Textur für die Werkstatt-Lackierung der jeweiligen Stufe (UV-gebunden ans Modell).
+func get_car_tier_albedo(tier: int = -1) -> String:
+	var t = car_tier if tier < 0 else tier
+	match clampi(t, 0, CAR_TIER_COUNT - 1):
+		2: return Paths.TEX_FROSCH_ALBEDO
+		_: return Paths.TEX_CAR_ALBEDO
+
+
+# Umfärb-Maske der jeweiligen Stufe (Rot = umfärbbar). Stufe 1 (eric) hat KEINE Maske.
+func get_car_tier_mask(tier: int = -1) -> String:
+	var t = car_tier if tier < 0 else tier
+	match clampi(t, 0, CAR_TIER_COUNT - 1):
+		2: return Paths.TEX_FROSCH_MASK
+		_: return Paths.TEX_CAR_MASK
+
+
+# Hat die Stufe eine Umfärb-Maske (→ Lack/Muster greifen)? Stufe 0 (Test-Auto) und 2 (Frosch) ja,
+# Stufe 1 (eric/"Renn"auto) nein.
+func tier_has_mask(tier: int = -1) -> bool:
+	var t = car_tier if tier < 0 else tier
+	return t == 0 or t == 2
+
+# LEGACY/UNGENUTZT: frühere GELD-Schwelle für den Aufstieg. Der Aufstieg läuft jetzt komplett über
+# Prestige-Punkte (get_car_ascend_point_cost / can_ascend_car). Funktion bleibt nur als Referenz.
 func get_car_ascend_cost() -> float:
 	if car_tier == 0:
 		return 5_000_000.0
 	var stage := 8.0 + float(car_tier - 1) * 12.0
 	return PRESTIGE_K * pow(10.0, stage)
 
+# JEDER Aufstieg wird mit Prestige-Punkten bezahlt (für die UI beibehalten, immer true).
+func car_ascend_uses_points() -> bool:
+	return true
+
+# ⭐-Schwelle des NÄCHSTEN Aufstiegs (indiziert nach aktuellem car_tier). Über die Liste hinaus
+# ×CAR_ASCEND_POINT_GROWTH je weiterer Stufe.
+func get_car_ascend_point_cost() -> float:
+	if car_tier < CAR_ASCEND_POINT_COSTS.size():
+		return float(CAR_ASCEND_POINT_COSTS[car_tier])
+	var last := float(CAR_ASCEND_POINT_COSTS[CAR_ASCEND_POINT_COSTS.size() - 1])
+	return last * pow(CAR_ASCEND_POINT_GROWTH, float(car_tier - (CAR_ASCEND_POINT_COSTS.size() - 1)))
+
 func can_ascend_car() -> bool:
-	return _currency >= get_car_ascend_cost()
+	return prestige_points >= get_car_ascend_point_cost()
+
+
+# Werkstatt-Ökonomie je Stufe (oben drauf auf die globalen Geld-Upgrades). Wird mit jedem 3. Auto
+# (Frosch) deutlich stärker:
+#  Tier 1 ("Renn"auto): +10k je Feld, ×3 End-Multiplikator.
+#  Tier 2 (Frosch):     +1.000.000 je Feld, ×10 End-Multiplikator.
+func get_tier_tile_bonus(tier: int = -1) -> float:
+	var t = car_tier if tier < 0 else tier
+	match t:
+		2: return 1_000_000.0
+		_: return SUPER_CAR_TILE_BONUS   # 10.000
+
+func get_tier_end_mult(tier: int = -1) -> float:
+	var t = car_tier if tier < 0 else tier
+	match t:
+		1: return 3.0
+		2: return 10.0
+		_: return SUPER_CAR_END_MULT      # 1.0 (neutral)
 
 # Multiplikator auf verdiente Prestigepunkte (stapelt je Auto-Stufe: ×4, ×16, …).
 func get_car_point_mult() -> float:
@@ -2264,7 +2335,10 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 			# Einmaliger Unlock der geldgetriebenen Punkte-Skalierung.
 			return Icons.CHECK + " " + tr("freigeschaltet") if level >= 1 else Icons.LOCK + " " + tr("gesperrt")
 		"car_points":
-			return tr("+%d / Auto") % level
+			# Einmaliger Unlock: zeigt den aktuell wirksamen ×-Faktor (= Auto-Upgrades + 1).
+			if level >= 1:
+				return "×%d" % (get_upgrade_level("car_count") + 1)
+			return Icons.LOCK + " " + tr("gesperrt")
 		"drive_time_inf":
 			return Icons.CHECK + " " + tr("endlos") if level >= 1 else Icons.LOCK + " " + tr("gesperrt")
 		"points_mult":
@@ -2306,9 +2380,12 @@ func prestige_pending_points() -> float:
 			stage += 1
 			threshold *= PRESTIGE_STAGE_GROWTH
 		pts = _prestige_points_for_stage(stage)
-	# „Punkte je Auto": jedes fahrende Auto bringt +Stufe Punkte (additiv vor den Multiplikatoren).
-	pts += float(get_active_car_count() * get_prestige_node_level("car_points"))
-	return floor(pts * get_car_point_mult() * pow(2.0, float(get_prestige_node_level("points_mult"))))
+	# „× Auto" (einmaliger Unlock): multipliziert die Punkte mit der Anzahl deiner Autos
+	# = (gekaufte Auto-Upgrades + 1). Am Anfang max ×4 (3 Käufe + Standard-Auto).
+	var car_mult := 1.0
+	if get_prestige_node_level("car_points") >= 1:
+		car_mult = float(get_upgrade_level("car_count") + 1)
+	return floor(pts * car_mult * get_car_point_mult() * pow(2.0, float(get_prestige_node_level("points_mult"))))
 
 
 # Füllgrad der unteren Prestige-Leiste [0,1). VOR dem ersten fälligen Punkt (Geld < K): Geld/K.

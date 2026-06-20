@@ -180,6 +180,11 @@ var _prestige_confirm:    Control       = null   # Bestätigungs-Overlay
 var _prestige_confirm_lbl: Label        = null
 var _ascend_confirm:      Control       = null   # Auto-Prestige-Bestätigung (Werkstatt)
 var _ascend_confirm_lbl:  Label         = null
+# Auto-Aufstieg-Knopf in der Werkstatt – baugleich zum Prestige-Knopf (Fortschrittsfüllung), nur orange.
+var _ascend_btn:          Button        = null
+var _ascend_btn_lbl:      Label         = null
+var _ascend_fill:         ColorRect     = null
+var _ascend_fill_mat:     ShaderMaterial = null
 var _cosmetic_confirm:     Control       = null   # Kauf-Bestätigung für Garage-Kosmetik (Farbe/Muster)
 var _cosmetic_confirm_lbl: RichTextLabel = null
 var _cosmetic_yes_btn:     Button        = null   # „Kaufen"-Knopf (ausgegraut bei zu wenig Trophäen)
@@ -243,6 +248,8 @@ func _do_rebuild() -> void:
 	_prestige_fill          = null;  _prestige_fill_mat   = null
 	_prestige_confirm       = null;  _prestige_confirm_lbl = null
 	_ascend_confirm         = null;  _ascend_confirm_lbl  = null
+	_ascend_btn             = null;  _ascend_btn_lbl      = null
+	_ascend_fill            = null;  _ascend_fill_mat     = null
 	_cosmetic_confirm       = null;  _cosmetic_confirm_lbl = null
 	_cosmetic_yes_btn       = null
 	_cosmetic_pending_cat   = "";    _cosmetic_pending_idx = -1
@@ -361,6 +368,10 @@ func _process(delta: float) -> void:
 	# Prestige-Tab: Vorschau-Zahl („+N ⭐") live mitziehen, während im Hintergrund Geld reinkommt.
 	if _active_modal_tab == PRESTIGE_TAB:
 		_refresh_prestige_action()
+
+	# Werkstatt-Tab: Auto-Aufstieg-Knopf (Fortschrittsfüllung) live mitziehen.
+	if _active_modal_tab == WERKSTATT_TAB:
+		_refresh_ascend_action()
 
 	# Statistik-Tab: Werte (v. a. Spielzeit) in Echtzeit weiterticken.
 	if _active_modal_tab == STATISTIK_TAB:
@@ -533,11 +544,14 @@ func _is_tab_locked(idx: int) -> bool:
 
 
 func _tab_lock_hint(idx: int) -> String:
-	# Namen bewusst NICHT nennen, solange gesperrt – nur die Verdienst-Schwelle als Hinweis.
+	# Namen bewusst NICHT nennen, solange gesperrt – nur die echte Freischalt-Schwelle als Hinweis
+	# (direkt aus den Economy-Konstanten, damit sie immer mit der Unlock-Bedingung übereinstimmt).
 	if idx == PRESTIGE_TAB:
-		return "Verdiene 100K (seit dem letzten Prestige), um diesen Bereich dauerhaft freizuschalten."
+		return tr("Besitze %s %s, um diesen Bereich dauerhaft freizuschalten.") % [
+			Economy.format_currency(Economy.PRESTIGE_TAB_UNLOCK_EARN), Icons.COIN]
 	if idx == WERKSTATT_TAB:
-		return "Sammle 1.000.000 Prestige-Punkte (⭐), um diesen Bereich dauerhaft freizuschalten."
+		return tr("Sammle %s %s Prestige-Punkte, um diesen Bereich dauerhaft freizuschalten.") % [
+			Economy.format_currency(Economy.WERKSTATT_TAB_UNLOCK_POINTS), Icons.STAR]
 	return ""
 
 
@@ -1823,7 +1837,7 @@ func _refresh_statistik() -> void:
 		],
 		[
 			["Freigeschaltete Strecken",  "%d / %d" % [Economy.get_unlocked_tracks(), Economy.TRACK_COUNT]],
-			["Autos pro Strecke",         str(Economy.get_car_count())],
+			["Autos pro Strecke",         str(Economy.get_active_car_count())],
 			["Baufeld",                   "%d × %d" % [Economy.get_grid_rows(), Economy.get_grid_cols()]],
 		],
 		[
@@ -2762,52 +2776,103 @@ func _update_garage_summary() -> void:
 # Tab „Autos": Auto-Prestige-Panel (Aufstieg auf die nächste Auto-Stufe gegen Voll-Reset + ×4 ⭐).
 func _build_autos_options() -> void:
 	var tier := Economy.get_car_tier()
-	var cost := Economy.get_car_ascend_cost()
-	var can  := Economy.can_ascend_car()
 
 	var info := Label.new()
 	info.position = Vector2(0, 2)
-	info.size     = Vector2(_vw(), 40)
+	info.size     = Vector2(_vw(), 26)
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info.add_theme_font_size_override("font_size", 13)
+	info.add_theme_font_size_override("font_size", 14)
 	info.add_theme_color_override("font_color", C_TEXT)
-	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
-	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, tier + 1))
-	info.text = tr("Aktuelles Auto: %s (Stufe %d)\nUpgrade: %s  →  Reset inkl. Prestige-Baum, danach ×%d %s und %d Baum-Knoten je Prestige") % [
-		tr(_car_tier_name(tier)), tier, Economy.format_currency(cost), pts, Icons.STAR, step]
+	info.text = tr("Aktuelles Auto: %s (Stufe %d)") % [tr(_car_tier_name(tier)), tier]
 	_ws_options_box.add_child(info)
 
-	var btn := Button.new()
-	btn.size     = Vector2(300, 36)
-	btn.position = Vector2((_vw() - 300) / 2.0, 50)
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.add_theme_font_size_override("font_size", 14)
-	btn.disabled = not can
-	btn.text = "%s  %s" % [Icons.ARROW_BIG_UP, tr("Auto upgraden")]
-	if can:
-		btn.add_theme_stylebox_override("normal",  _sbf(C_STAR_BG, C_STAR))
-		btn.add_theme_stylebox_override("hover",   _sbf(C_STAR_BG_HI, C_STAR))
-		btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_STAR))
-		btn.add_theme_color_override("font_color", C_STAR)
-		btn.pressed.connect(_on_ascend_pressed)
-	else:
-		btn.add_theme_stylebox_override("normal", _sbf(C_SURFACE, C_LINE))
-		btn.add_theme_color_override("font_color", C_TEXT_DIM)
-		btn.tooltip_text = tr("Erst genug Guthaben sammeln (%s)") % Economy.format_currency(cost)
-	_ws_options_box.add_child(btn)
+	# Großer Auto-Aufstieg-Knopf – baugleich zum Prestige-Knopf (Fortschrittsfüllung per Shader),
+	# nur in Werkstatt-Orange. Text + Füllstand setzt _refresh_ascend_action() (auch live im _process).
+	const BTN_W = 360
+	const BTN_H = 52
+	_ascend_btn = Button.new()
+	_ascend_btn.position = Vector2((_vw() - BTN_W) / 2.0, 36)
+	_ascend_btn.size     = Vector2(BTN_W, BTN_H)
+	_ascend_btn.focus_mode = Control.FOCUS_NONE
+	_ascend_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_ascend_btn.clip_contents = true
+	_ascend_btn.pressed.connect(_on_ascend_pressed)
+	_ws_options_box.add_child(_ascend_btn)
+
+	var fill_sh := Shader.new()
+	fill_sh.code = PRESTIGE_FILL_SHADER
+	_ascend_fill_mat = ShaderMaterial.new()
+	_ascend_fill_mat.shader = fill_sh
+	_ascend_fill_mat.set_shader_parameter("size_px",   _ascend_btn.size)
+	_ascend_fill_mat.set_shader_parameter("radius_px", 8.0)
+	_ascend_fill = ColorRect.new()
+	_ascend_fill.position     = Vector2(0, 0)
+	_ascend_fill.size         = _ascend_btn.size
+	_ascend_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ascend_fill.material     = _ascend_fill_mat
+	_ascend_btn.add_child(_ascend_fill)
+
+	_ascend_btn_lbl = Label.new()
+	_ascend_btn_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ascend_btn_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ascend_btn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ascend_btn_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	_ascend_btn_lbl.add_theme_font_size_override("font_size", 15)
+	_ascend_btn_lbl.add_theme_constant_override("outline_size", 4)
+	_ascend_btn_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_ascend_btn.add_child(_ascend_btn_lbl)
+
+	_refresh_ascend_action()
 
 	if _ws_summary_lbl != null:
 		if tier >= 1:
-			_ws_summary_lbl.text = tr("Es fährt nur das %s-Auto · 4 normale Autos = 1 fahrendes Auto (Lack/Muster folgt für dieses Modell)") % tr(_car_tier_name(tier))
+			var per := Economy.get_car_cost_per_extra()
+			var note := "" if Economy.tier_has_mask() else tr(" (Lack/Muster folgt für dieses Modell)")
+			_ws_summary_lbl.text = tr("Es fährt nur das %s-Auto · jedes weitere Auto kostet %d Auto-Upgrades%s") % [tr(_car_tier_name(tier)), per, note]
 		else:
 			_ws_summary_lbl.text = "Nach dem Upgrade fährt nur noch das neue Auto auf der Strecke."
+
+
+# Aktualisiert Text + Füllstand des Auto-Aufstieg-Knopfs (analog _refresh_prestige_action). Läuft
+# beim Aufbau und live im _process, solange der Werkstatt-Tab offen ist.
+func _refresh_ascend_action() -> void:
+	if _ascend_btn == null or not is_instance_valid(_ascend_btn):
+		return
+	var tier     := Economy.get_car_tier()
+	var can      := Economy.can_ascend_car()
+	# ⭐-Multiplikator und Prestige-Zähler-Schritt der NÄCHSTEN Stufe (×4/×2 beim 1. Aufstieg).
+	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
+	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, tier + 1))
+	# Jeder Aufstieg kostet jetzt PRESTIGE-PUNKTE (⭐), kein Geld mehr.
+	var target: float   = Economy.get_car_ascend_point_cost()
+	var cur:    float   = Economy.get_prestige_points()
+	var cost_txt: String = "%s %s" % [Economy.format_currency(target), Icons.STAR]
+	var progress: float = clampf(float(cur) / maxf(target, 1.0), 0.0, 1.0)
+	_ascend_fill_mat.set_shader_parameter("progress", progress)
+	_ascend_fill_mat.set_shader_parameter("mode", 0 if Display.performance_mode else 5)
+	# Text immer „Upgrade: <Preis>  →  ×<pts> ⭐, ×<step> ♻" (♻ = Prestige-Zähler-Symbol).
+	_ascend_btn_lbl.text = "%s %s  →  ×%d %s, ×%d %s" % [
+		tr("Upgrade:"), cost_txt, pts, Icons.STAR, step, Icons.RECYCLE]
+	_ascend_btn.disabled = not can
+	if can:
+		_ascend_fill_mat.set_shader_parameter("base_color", Color(C_TOOL.r, C_TOOL.g, C_TOOL.b, 0.90))
+		_ascend_btn.add_theme_stylebox_override("normal",  _sbf(C_TOOL_BG, C_TOOL))
+		_ascend_btn.add_theme_stylebox_override("hover",   _sbf(C_TOOL_BG_HI, C_TOOL))
+		_ascend_btn.add_theme_stylebox_override("pressed", _sbf(C_SURFACE, C_TOOL))
+		_ascend_btn_lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+	else:
+		_ascend_fill_mat.set_shader_parameter("base_color", Color(C_TOOL.r, C_TOOL.g, C_TOOL.b, 0.62))
+		var sb := _sbf(C_SURFACE, C_TOOL.darkened(0.45))
+		_ascend_btn.add_theme_stylebox_override("normal",   sb)
+		_ascend_btn.add_theme_stylebox_override("disabled", sb)
+		_ascend_btn_lbl.add_theme_color_override("font_color", Color(0.92, 0.94, 0.96))
 
 
 func _car_tier_name(tier: int) -> String:
 	match tier:
 		0: return "Standard"
-		1: return "Eric"
+		1: return "\"Renn\"auto"
+		2: return "Frosch"
 		_: return "Tier %d" % tier
 
 
@@ -2972,12 +3037,12 @@ func _apply_ws_config() -> void:
 		_apply_preview_colorkey()
 		_update_garage_summary()
 		return
-	# Lack/Muster brauchen die Umfärb-Maske (nur Test-Auto, Stufe 0). Höhere Tier-Modelle haben
-	# keine Maske → Originaltextur zeigen (kein Override), wie ingame.
+	# Lack/Muster brauchen die Umfärb-Maske (Test-Auto Stufe 0, Frosch Stufe 2). Stufen ohne Maske
+	# ("Renn"auto Stufe 1) → Originaltextur zeigen (kein Override), wie ingame.
 	var opts = _ws_options("paint")
 	var pi = int(_ws_sel.get("paint", 0))
 	var col = null
-	if Economy.get_car_tier() == 0 and pi >= 0 and pi < opts.size():
+	if Economy.tier_has_mask() and pi >= 0 and pi < opts.size():
 		col = opts[pi].get("color", null)
 	# Material auch ohne Lack anlegen, sobald ein Muster gewählt ist (Muster auf Standardfarbe).
 	var want_mat := col != null or Economy.get_car_pattern() != 0
@@ -3053,10 +3118,13 @@ func _make_paint_material(col: Color) -> ShaderMaterial:
 		_paint_shader = load(Paths.SHADER_CAR_PAINT)
 	var mat := ShaderMaterial.new()
 	mat.shader = _paint_shader
-	if ResourceLoader.exists(Paths.TEX_CAR_ALBEDO):
-		mat.set_shader_parameter("albedo_tex", load(Paths.TEX_CAR_ALBEDO))
-	if ResourceLoader.exists(Paths.TEX_CAR_MASK):
-		mat.set_shader_parameter("mask_tex", load(Paths.TEX_CAR_MASK))
+	# Albedo + Maske der aktuellen Auto-Stufe (Stufe 0 Test-Auto, Stufe 2 Frosch/Miata).
+	var albedo_path := Economy.get_car_tier_albedo()
+	var mask_path   := Economy.get_car_tier_mask()
+	if ResourceLoader.exists(albedo_path):
+		mat.set_shader_parameter("albedo_tex", load(albedo_path))
+	if ResourceLoader.exists(mask_path):
+		mat.set_shader_parameter("mask_tex", load(mask_path))
 	mat.set_shader_parameter("paint_color", col)
 	mat.set_shader_parameter("paint_on", Economy.is_car_paint_on())
 	# Muster (0 = keins) nur über die Maskenbereiche legen.
@@ -3445,6 +3513,11 @@ const C_STAR       := Color(0.74, 0.48, 0.97)   # Prestige-Lila (Sternfarbe) –
 const C_STAR_BG    := Color(0.20, 0.12, 0.30)   # dunkles Lila: gefüllter Prestige-Button-Hintergrund (normal)
 const C_STAR_BG_HI := Color(0.28, 0.17, 0.40)   # dunkles Lila: Prestige-Button-Hintergrund (hover)
 
+# Werkstatt-Orange (wie die Nav-Definition in GameHUD) – für den baugleichen Auto-Aufstieg-Knopf.
+const C_TOOL       := Color(0.96, 0.55, 0.26)   # Werkstatt-Orange
+const C_TOOL_BG    := Color(0.30, 0.16, 0.07)   # dunkles Orange: gefüllter Aufstieg-Button-Hintergrund (normal)
+const C_TOOL_BG_HI := Color(0.40, 0.22, 0.10)   # dunkles Orange: Aufstieg-Button-Hintergrund (hover)
+
 func _build_prestige_panel(parent: Control, cy: int, ch: int) -> void:
 	var container := Control.new()
 	container.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -3699,7 +3772,11 @@ func _make_prestige_card(id: String) -> Panel:
 	desc_lbl.add_theme_font_size_override("font_size", 11)
 	desc_lbl.add_theme_color_override("font_color", C_TEXT_DIM)
 	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	desc_lbl.text = String(defn.get("desc", ""))
+	# „× Auto": statt des Klammer-Zusatzes den aktuell wirksamen ×-Faktor (Auto-Upgrades + 1) anzeigen.
+	if id == "car_points":
+		desc_lbl.text = tr("Multipliziert die Prestige-Punkte pro Prestige mit der Anzahl deiner Autos: ×%d") % (Economy.get_upgrade_level("car_count") + 1)
+	else:
+		desc_lbl.text = String(defn.get("desc", ""))
 	card.add_child(desc_lbl)
 
 	# Aktions-Knopf
