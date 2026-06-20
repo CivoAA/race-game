@@ -392,8 +392,11 @@ func _input(event: InputEvent) -> void:
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_TRANSLATION_CHANGED:
 		return
-	if _ws_title_lbl != null and is_instance_valid(_ws_title_lbl):
-		_ws_title_lbl.text = "%s  %s" % [Icons.CAR, tr("Auto-Aufstieg")]
+	if not _ws_sub_btns.is_empty():
+		var wtabs := _werkstatt_tabs()
+		for i in _ws_sub_btns.size():
+			if i < wtabs.size() and is_instance_valid(_ws_sub_btns[i]):
+				_ws_sub_btns[i].text = "%s  %s" % [wtabs[i].icon, tr(wtabs[i].name)]
 	if not _garage_tab_btns.is_empty():
 		var gtabs := _garage_tabs()
 		for i in _garage_tab_btns.size():
@@ -528,7 +531,8 @@ func _show_modal_tab(idx: int) -> void:
 		return
 	# Die gemeinsame 3D-Auto-Vorschau in den gerade sichtbaren Tab (Werkstatt/Garage) umhängen.
 	if idx == WERKSTATT_TAB:
-		_attach_preview_to(_werkstatt_container)
+		_attach_preview_to(_ws_ascend_box)
+		_apply_ws_sub_tab()
 		_apply_ws_config()
 	elif idx == GARAGE_TAB:
 		_attach_preview_to(_garage_container)
@@ -571,6 +575,7 @@ func _attach_preview_to(container: Control) -> void:
 	if cur != null:
 		cur.remove_child(_preview_svc)
 	container.add_child(_preview_svc)
+	_preview_svc.visible  = true   # im Motorhaube-Untertab blendet _apply_ws_sub_tab sie wieder aus
 	_preview_svc.position = Vector2(_preview_x(), PREVIEW_Y)
 	_preview_svc.size     = Vector2(PREVIEW_W, PREVIEW_H)
 	# In der Garage ggf. nach links rücken (Muster-Tab: Platz für die Muster-Farbauswahl rechts).
@@ -1961,7 +1966,19 @@ func _garage_tabs() -> Array:
 var _ws_sel:         Dictionary    = {"paint": 0, "pattern": 0}
 var _ws_options_box: Control       = null   # Auto-Aufstieg-Inhalt
 var _ws_summary_lbl: Label         = null   # Auto-Aufstieg-Status
-var _ws_title_lbl:   Label         = null   # „🚗 Auto-Aufstieg"-Titel (selbst per tr() übersetzt)
+var _ws_title_lbl:   Label         = null   # (LEGACY/ungenutzt: Untertab-Button trägt jetzt den Titel)
+
+# Werkstatt-Untertabs (Auto-Aufstieg · Motorhaube). Analog zur Garage.
+var _ws_active_sub:  int           = 0
+var _ws_sub_btns:    Array[Button] = []
+var _ws_ascend_box:  Control       = null   # Auto-Aufstieg (mit gemeinsamer 3D-Vorschau)
+var _ws_motor_box:   Control       = null   # Motorhaube (Backpack-Tuning)
+
+func _werkstatt_tabs() -> Array:
+	return [
+		{"id": "ascend", "name": "Auto-Aufstieg", "icon": Icons.CAR},
+		{"id": "motor",  "name": "Motorhaube",    "icon": Icons.ENGINE},
+	]
 
 # Garage
 var _garage_active_tab:  int           = 0
@@ -2052,29 +2069,80 @@ func _build_werkstatt_panel(parent: Control, cy: int, ch: int) -> void:
 	_tab_panels.append(container)
 	_werkstatt_container = container
 
-	var title := Label.new()
-	title.position = Vector2(0, 14)
-	title.size     = Vector2(_vw(), 26)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 16)
-	title.add_theme_color_override("font_color", C_TEXT)
-	title.text = "%s  %s" % [Icons.CAR, tr("Auto-Aufstieg")]
-	container.add_child(title)
-	_ws_title_lbl = title
+	# Unter-Tab-Leiste (Auto-Aufstieg · Motorhaube) – analog zur Garage.
+	const SUB_W   = 160
+	const SUB_GAP = 8
+	var wtabs := _werkstatt_tabs()
+	var total_w := wtabs.size() * SUB_W + (wtabs.size() - 1) * SUB_GAP
+	var sx := (_vw() - total_w) / 2.0
+	_ws_sub_btns.clear()
+	for i in wtabs.size():
+		var t = wtabs[i]
+		var btn := Button.new()
+		btn.text     = "%s  %s" % [t.icon, tr(t.name)]
+		btn.position = Vector2(sx + i * (SUB_W + SUB_GAP), 12)
+		btn.size     = Vector2(SUB_W, 36)
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		_style_ws_tab(btn, i == 0)
+		btn.pressed.connect(_on_ws_sub_tab.bind(i))
+		container.add_child(btn)
+		_ws_sub_btns.append(btn)
 
-	# Auto-Aufstieg-Inhalt
+	# ── Auto-Aufstieg (bisheriger Inhalt + gemeinsame 3D-Vorschau) ──
+	_ws_ascend_box = Control.new()
+	_ws_ascend_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# IGNORE: die Full-Rect-Box liegt ÜBER der Untertab-Leiste – sonst schluckt sie deren Klicks.
+	# Interaktive Kinder (Knöpfe, Raster) erhalten ihre Maus-Events unabhängig davon weiter.
+	_ws_ascend_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(_ws_ascend_box)
+
 	_ws_options_box = Control.new()
-	_ws_options_box.position = Vector2(0, 48)
-	_ws_options_box.size     = Vector2(_vw(), 102)
-	container.add_child(_ws_options_box)
+	_ws_options_box.position = Vector2(0, 56)
+	_ws_options_box.size     = Vector2(_vw(), 100)
+	_ws_ascend_box.add_child(_ws_options_box)
 
-	_build_preview_frame(container)
-	_ws_summary_lbl = _make_preview_summary(container)
+	_build_preview_frame(_ws_ascend_box)
+	_ws_summary_lbl = _make_preview_summary(_ws_ascend_box)
 
-	# Gemeinsame 3D-Vorschau (initial in der Werkstatt) – wird beim Tab-Wechsel umgehängt.
+	# Gemeinsame 3D-Vorschau (initial im Auto-Aufstieg) – wird beim Tab-Wechsel umgehängt.
 	_sync_paint_selection_from_economy()
-	_build_preview_viewport(container, Vector2(_preview_x(), PREVIEW_Y), Vector2(PREVIEW_W, PREVIEW_H))
+	_build_preview_viewport(_ws_ascend_box, Vector2(_preview_x(), PREVIEW_Y), Vector2(PREVIEW_W, PREVIEW_H))
 	_rebuild_autos_options()
+
+	# ── Motorhaube (Backpack-Tuning) ──
+	_ws_motor_box = Control.new()
+	_ws_motor_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ws_motor_box.visible = false
+	# IGNORE wie die Aufstieg-Box (liegt über der Untertab-Leiste); das Raster/die Palette darin
+	# sind eigene Kinder mit eigenem mouse_filter und bleiben voll bedienbar.
+	_ws_motor_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(_ws_motor_box)
+	_rebuild_motorhaube()
+
+	_apply_ws_sub_tab()
+
+
+# Untertab gewechselt: Buttons umstylen + passenden Inhalt zeigen.
+func _on_ws_sub_tab(idx: int) -> void:
+	_ws_active_sub = idx
+	_apply_ws_sub_tab()
+
+
+# Sichtbarkeit der Werkstatt-Untertabs setzen. Die gemeinsame 3D-Vorschau gehört zum
+# Auto-Aufstieg → im Motorhaube-Tab ausblenden (sie wird sonst über den Inhalt gerendert).
+func _apply_ws_sub_tab() -> void:
+	for i in _ws_sub_btns.size():
+		_style_ws_tab(_ws_sub_btns[i], i == _ws_active_sub)
+	if _ws_ascend_box != null:
+		_ws_ascend_box.visible = (_ws_active_sub == 0)
+	if _ws_motor_box != null:
+		_ws_motor_box.visible = (_ws_active_sub == 1)
+	if _preview_svc != null and is_instance_valid(_preview_svc) \
+			and _preview_svc.get_parent() == _ws_ascend_box:
+		_preview_svc.visible = (_ws_active_sub == 0)
+	if _ws_active_sub == 1:
+		_rebuild_motorhaube()
 
 
 # Garage-Tab: Lackierung + Muster (aus der Werkstatt ausgelagert), dieselbe 3D-Vorschau.
@@ -2175,6 +2243,133 @@ func _rebuild_autos_options() -> void:
 	_build_autos_options()
 
 
+# ── Motorhaube (Backpack-Tuning, Werkstatt-Untertab) ───────────────────────────
+# Das Panel (Kopfzeile + Platte + Schublade + Drag&Drop) ist eigenständig in MotorhaubeGrid.gd;
+# hier nur Freischalt-Ansicht + Instanziierung.
+const MotorhaubeGridScript := preload("res://scripts/MotorhaubeGrid.gd")
+const MH_CELL := 150   # Wunsch-Anzeigegröße eines 32er-Feldes (sehr groß; füllt das Band, deckelt autom.)
+
+
+# Höhe des nutzbaren Inhaltsbereichs (Modal-Panel), passend zur Anker-Geometrie in _build_modal.
+func _modal_content_h() -> float:
+	return _vh() - TOP_H - (BOT_H + RUI.nav_h())
+
+
+# Baut den Motorhaube-Untertab komplett neu (gesperrt → Freischalt-Ansicht, sonst Raster + Palette).
+func _rebuild_motorhaube() -> void:
+	if _ws_motor_box == null:
+		return
+	for c in _ws_motor_box.get_children():
+		c.queue_free()
+	var area_h := _modal_content_h()
+	if not Economy.is_motorhaube_unlocked():
+		_build_motorhaube_locked(area_h)
+	else:
+		_build_motorhaube_unlocked(area_h)
+
+
+# Gesperrt: große Platzhalter-Haube mittig + Titel/Beschreibung + Freischalt-Knopf (Geld).
+func _build_motorhaube_locked(area_h: float) -> void:
+	var hw := 380.0
+	var hh := 210.0
+	var cx := _vw() / 2.0
+	var hood_y := area_h * 0.5 - hh / 2.0 - 44.0
+
+	var hood := Panel.new()
+	hood.position = Vector2(cx - hw / 2.0, hood_y)
+	hood.size     = Vector2(hw, hh)
+	var hsb := StyleBoxFlat.new()
+	hsb.bg_color = Color(0.165, 0.175, 0.20)
+	hsb.set_corner_radius_all(16)
+	hsb.set_border_width_all(2)
+	hsb.border_color = C_TOOL
+	hood.add_theme_stylebox_override("panel", hsb)
+	_ws_motor_box.add_child(hood)
+
+	var icon := Label.new()
+	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+	icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	icon.add_theme_font_size_override("font_size", 84)
+	icon.add_theme_color_override("font_color", Color(C_TOOL, 0.5))
+	icon.text = Icons.ENGINE
+	hood.add_child(icon)
+
+	var desc := Label.new()
+	desc.position = Vector2(cx - 300.0, hood_y + hh + 16.0)
+	desc.size     = Vector2(600, 24)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.add_theme_font_size_override("font_size", 13)
+	desc.add_theme_color_override("font_color", C_TEXT_DIM)
+	desc.text = tr("Schalte die Motorhaube frei und baue dein Tuning per Drag & Drop zusammen.")
+	_ws_motor_box.add_child(desc)
+
+	var cost := Economy.MOTORHAUBE_UNLOCK_COST
+	var btn := Button.new()
+	btn.size     = Vector2(360, 48)
+	btn.position = Vector2(cx - 180.0, hood_y + hh + 48.0)
+	btn.text = "%s  %s  (%s %s)" % [Icons.LOCK_OPEN, tr("Motorhaube freischalten"),
+		Economy.format_currency(cost), Icons.COIN]
+	_style_motor_button(btn, Economy.get_currency() >= cost)
+	btn.pressed.connect(func() -> void:
+		if Economy.unlock_motorhaube():
+			_rebuild_motorhaube())
+	_ws_motor_box.add_child(btn)
+
+
+# Freigeschaltet: Raster (Drop-Empfänger) + Kopfzeile (Upgrade) + Palette (Kinder des Rasters).
+func _build_motorhaube_unlocked(area_h: float) -> void:
+	var grid := Control.new()
+	grid.set_script(MotorhaubeGridScript)
+	grid.position = Vector2(0, 50)
+	grid.size     = Vector2(_vw(), area_h - 50.0)
+	grid.clip_contents = true
+	_ws_motor_box.add_child(grid)
+
+	var sz := Economy.get_motorhaube_grid_size()
+	var size_text := "%s  %d×%d" % [Icons.LAYOUT_GRID, sz.x, sz.y]
+	var maxed := Economy.is_motorhaube_grid_maxed()
+	var up_text := ""
+	var up_enabled := false
+	if maxed:
+		up_text = tr("Maximale Größe erreicht")
+	else:
+		var nxt: Vector2i = Economy.MOTORHAUBE_GRID_SIZES[Economy.get_motorhaube_grid_level() + 1]
+		up_text = "%s  %s %d×%d  (%s %s)" % [Icons.LAYOUT_GRID, tr("Vergrößern auf"),
+			nxt.x, nxt.y, Economy.format_currency(Economy.get_motorhaube_upgrade_cost()), Icons.COIN]
+		up_enabled = Economy.can_upgrade_motorhaube_grid()
+
+	grid.setup({
+		"cols": sz.x, "rows": sz.y, "base_cell": MH_CELL,
+		"items": Economy.get_motorhaube_items(),
+		"item_defs": Economy.MOTORHAUBE_ITEM_DEFS,
+		"size_text": size_text, "upgrade_text": up_text,
+		"upgrade_enabled": up_enabled, "maxed": maxed,
+	})
+	grid.items_changed.connect(func(items: Array) -> void: Economy.set_motorhaube_items(items))
+	grid.upgrade_requested.connect(func() -> void:
+		if Economy.upgrade_motorhaube_grid():
+			_rebuild_motorhaube())
+
+
+# Knopf-Stil im Werkstatt-Orange (aktiv) bzw. gedämpft (gesperrt/unleistbar).
+func _style_motor_button(btn: Button, enabled: bool) -> void:
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if enabled else Control.CURSOR_ARROW
+	btn.disabled = not enabled
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_TOOL_BG if enabled else C_SURFACE
+	sb.set_corner_radius_all(8)
+	sb.set_border_width_all(2)
+	sb.border_color = C_TOOL if enabled else C_LINE
+	sb.content_margin_left = 10; sb.content_margin_right = 10
+	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+		btn.add_theme_stylebox_override(st, sb)
+	btn.add_theme_color_override("font_color", C_TEXT if enabled else C_TEXT_DIM)
+	btn.add_theme_color_override("font_color_disabled", C_TEXT_DIM)
+	btn.add_theme_font_size_override("font_size", 14)
+
+
 # Setzt die markierte Lackierungs-/Muster-Karte passend zum gespeicherten Economy-Zustand.
 func _sync_paint_selection_from_economy() -> void:
 	_ws_sel["pattern"] = Economy.get_car_pattern()
@@ -2233,6 +2428,7 @@ func _refresh_werkstatt() -> void:
 	_sync_paint_selection_from_economy()
 	_rebuild_autos_options()
 	_rebuild_garage_options()
+	_rebuild_motorhaube()
 	_refresh_garage_trophies()
 	_apply_ws_config()
 

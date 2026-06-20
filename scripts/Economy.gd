@@ -623,6 +623,50 @@ var super_car_count: int   = 0
 # Zähler für geheime Erfolge (profil-gebunden, überlebt Prestige – nur reset_slot löscht ihn).
 var total_tiles_placed: int = 0      # insgesamt platzierte Streckenteile (für „Großbaumeister")
 
+# ── Motorhaube (Backpack-Tuning, Werkstatt-Untertab) ────────────────────────────
+# Großes Tuning-Raster (wie Backpack Battles): Items per Drag ablegen. Die Items haben
+# AKTUELL KEINEN Spieleffekt – reines UI-/Sammel-Gerüst mit Platzhalter-Assets.
+# Freischaltung + Raster-Upgrades kosten Geld. Profil-gebunden, überlebt Prestige; nur
+# reset_slot löscht. Siehe [[project_werkstatt_carconfig]].
+var motorhaube_unlocked:   bool  = false
+var motorhaube_grid_level: int   = 0      # Index in MOTORHAUBE_GRID_SIZES
+var motorhaube_items:      Array = []     # platzierte Items: [{id:String, x:int, y:int}]
+
+# Raster-Stufen (Spalten × Reihen). Upgrade-Pfad: 1×2 → 2×2 → 2×3 → 3×3 → 3×4 → 4×4.
+const MOTORHAUBE_GRID_SIZES := [
+	Vector2i(1, 2), Vector2i(2, 2), Vector2i(2, 3),
+	Vector2i(3, 3), Vector2i(3, 4), Vector2i(4, 4),
+]
+const MOTORHAUBE_UNLOCK_COST := 5000.0
+# Kosten Stufe i → i+1 (Platzhalter-Balancing, später leicht anpassbar).
+const MOTORHAUBE_UPGRADE_COSTS := [10000.0, 25000.0, 50000.0, 100000.0, 250000.0]
+
+# Verfügbare Item-Vorlagen (Palette zum Ziehen). size = Felder (Spalten × Reihen) à 32px.
+# color = Platzhalter bis die Pixel-Assets existieren. Noch KEIN Effekt (bewusst leer).
+# Insgesamt 20 Bauteile in gemischten Größen (1×1, 1×2, 2×1, 2×2, 1×3, 3×1).
+const MOTORHAUBE_ITEM_DEFS := [
+	{"id": "bolt",        "name": "Schraube",      "size": Vector2i(1, 1), "color": Color(0.62, 0.66, 0.72)},
+	{"id": "plug",        "name": "Zündkerze",     "size": Vector2i(1, 1), "color": Color(0.93, 0.74, 0.30)},
+	{"id": "nut",         "name": "Mutter",        "size": Vector2i(1, 1), "color": Color(0.70, 0.72, 0.76)},
+	{"id": "fuse",        "name": "Sicherung",     "size": Vector2i(1, 1), "color": Color(0.95, 0.55, 0.25)},
+	{"id": "sensor",      "name": "Sensor",        "size": Vector2i(1, 1), "color": Color(0.40, 0.80, 0.78)},
+	{"id": "piston",      "name": "Kolben",        "size": Vector2i(1, 1), "color": Color(0.78, 0.50, 0.36)},
+	{"id": "valve",       "name": "Ventil",        "size": Vector2i(1, 1), "color": Color(0.55, 0.78, 0.40)},
+	{"id": "belt",        "name": "Keilriemen",    "size": Vector2i(1, 2), "color": Color(0.36, 0.55, 0.92)},
+	{"id": "spring",      "name": "Feder",         "size": Vector2i(1, 2), "color": Color(0.80, 0.80, 0.45)},
+	{"id": "cable",       "name": "Kabel",         "size": Vector2i(1, 2), "color": Color(0.85, 0.40, 0.55)},
+	{"id": "pump",        "name": "Pumpe",         "size": Vector2i(1, 2), "color": Color(0.50, 0.60, 0.85)},
+	{"id": "hose",        "name": "Schlauch",      "size": Vector2i(2, 1), "color": Color(0.42, 0.78, 0.55)},
+	{"id": "gasket",      "name": "Dichtung",      "size": Vector2i(2, 1), "color": Color(0.88, 0.62, 0.50)},
+	{"id": "manifold",    "name": "Krümmer",       "size": Vector2i(2, 1), "color": Color(0.60, 0.55, 0.70)},
+	{"id": "battery",     "name": "Batterie",      "size": Vector2i(2, 2), "color": Color(0.85, 0.42, 0.40)},
+	{"id": "filter",      "name": "Luftfilter",    "size": Vector2i(2, 2), "color": Color(0.66, 0.50, 0.88)},
+	{"id": "radiator",    "name": "Kühler",        "size": Vector2i(2, 2), "color": Color(0.40, 0.70, 0.90)},
+	{"id": "turbo",       "name": "Turbolader",    "size": Vector2i(2, 2), "color": Color(0.90, 0.45, 0.30)},
+	{"id": "intercooler", "name": "Ladeluftkühler","size": Vector2i(1, 3), "color": Color(0.45, 0.75, 0.70)},
+	{"id": "exhaust",     "name": "Auspuff",       "size": Vector2i(3, 1), "color": Color(0.58, 0.60, 0.64)},
+]
+
 # Prestige-Zustand (überlebt den Prestige-Reset; nur „Neues Spiel"/reset_slot löscht ihn).
 var prestige_points: float      = 0.0   # verfügbare ⭐ (float wie _currency → kein int64-Flip bei sehr hohen Punkten)
 var prestige_earned: float      = 0.0   # seit dem letzten Prestige verdientes Geld (float wie _currency, kein Überlauf)
@@ -1308,6 +1352,70 @@ func add(amount: float) -> void:
 
 func add_silent(amount: float) -> void:
 	_currency += amount  # Kein sofortiges Speichern (z.B. per Runde)
+
+
+# ── Motorhaube (Backpack-Tuning) ────────────────────────────────────────────────
+func is_motorhaube_unlocked() -> bool:
+	return motorhaube_unlocked
+
+
+func unlock_motorhaube() -> bool:
+	if motorhaube_unlocked or _currency < MOTORHAUBE_UNLOCK_COST:
+		return false
+	_currency -= MOTORHAUBE_UNLOCK_COST
+	motorhaube_unlocked = true
+	save_game()
+	return true
+
+
+func get_motorhaube_grid_level() -> int:
+	return clampi(motorhaube_grid_level, 0, MOTORHAUBE_GRID_SIZES.size() - 1)
+
+
+func get_motorhaube_grid_size() -> Vector2i:
+	return MOTORHAUBE_GRID_SIZES[get_motorhaube_grid_level()]
+
+
+func is_motorhaube_grid_maxed() -> bool:
+	return get_motorhaube_grid_level() >= MOTORHAUBE_GRID_SIZES.size() - 1
+
+
+# Kosten des nächsten Raster-Upgrades; -1, wenn bereits maximal.
+func get_motorhaube_upgrade_cost() -> float:
+	if is_motorhaube_grid_maxed():
+		return -1.0
+	return MOTORHAUBE_UPGRADE_COSTS[get_motorhaube_grid_level()]
+
+
+func can_upgrade_motorhaube_grid() -> bool:
+	return motorhaube_unlocked and not is_motorhaube_grid_maxed() and _currency >= get_motorhaube_upgrade_cost()
+
+
+func upgrade_motorhaube_grid() -> bool:
+	if not can_upgrade_motorhaube_grid():
+		return false
+	_currency -= get_motorhaube_upgrade_cost()
+	motorhaube_grid_level += 1
+	save_game()
+	return true
+
+
+func get_motorhaube_items() -> Array:
+	return motorhaube_items
+
+
+# Vom UI nach jeder Drag-Änderung (Ablegen/Verschieben/Entfernen) gesetzt. Persistiert sofort.
+func set_motorhaube_items(items: Array) -> void:
+	motorhaube_items = items.duplicate(true)
+	save_game()
+
+
+# Item-Vorlage (id, name, size, color) zu einer id; {} falls unbekannt.
+func get_motorhaube_item_def(id: String) -> Dictionary:
+	for d in MOTORHAUBE_ITEM_DEFS:
+		if String(d["id"]) == id:
+			return d
+	return {}
 
 
 # Meldet ein neu platziertes Streckenteil (vom Bau-Code in Main aufgerufen). Zählt für den geheimen
@@ -2706,6 +2814,9 @@ func save_game_to_slot(slot: int) -> void:
 		"car_tier":        car_tier,
 		"super_car_count": super_car_count,
 		"total_tiles_placed": total_tiles_placed,
+		"motorhaube_unlocked":   motorhaube_unlocked,
+		"motorhaube_grid_level": motorhaube_grid_level,
+		"motorhaube_items":      motorhaube_items,
 		"timestamp":   Time.get_datetime_string_from_system(false, true),
 		"name":        _slot_name,
 	}))
@@ -2773,6 +2884,10 @@ func load_game_from_slot(slot: int) -> void:
 				# Migration: alter Bool-Unlock (super_car_on) → 1 Super-Auto.
 				super_car_count = int(data.get("super_car_count", 1 if bool(data.get("super_car_on", false)) else 0))
 				total_tiles_placed = int(data.get("total_tiles_placed", 0))
+				motorhaube_unlocked   = bool(data.get("motorhaube_unlocked", false))
+				motorhaube_grid_level = int(data.get("motorhaube_grid_level", 0))
+				var mhi        = data.get("motorhaube_items", [])
+				motorhaube_items = mhi.duplicate(true) if typeof(mhi) == TYPE_ARRAY else []
 				_slot_name     = String(data.get("name", ""))
 				# Multi-Track-Grids laden
 				var tg = data.get("track_grids", [])
@@ -2863,6 +2978,9 @@ func _reset_state_to_defaults() -> void:
 	car_tier        = 0   # Werkstatt-Auto („2. Auto") ist PROFIL-gebunden
 	super_car_count = 0
 	total_tiles_placed = 0
+	motorhaube_unlocked   = false
+	motorhaube_grid_level = 0
+	motorhaube_items      = []
 	_slot_name      = ""
 	_init_tracks()
 
