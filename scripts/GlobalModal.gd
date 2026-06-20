@@ -749,17 +749,18 @@ func _tile_entries() -> Array:
 		{"name": "Rennkurve",    "key": "race_curve",  "model": Paths.MODEL_TRACK_CURVE_RACING,     "desc": "+1000 Ertrag · ×1.2", "upgrade": "racecurvebonus", "field_earn_base": 1000},
 		{"name": "Steilwandkurve","key": "wall",       "model": Paths.MODEL_TRACK_WALL,             "desc": "180°-Wall-Ride · Geld + Speed", "upgrade": "wallbonus", "field_earn_base": 0},
 		{"name": "Looping",      "key": "loop",        "model": Paths.MODEL_TRACK_LOOP,             "desc": "×2 · Multiplikator", "upgrade": "loopbonus", "field_earn_base": 0},
+		# Kleber (Gerade + Kurve): EIN Eintrag schaltet beide frei und führt das gemeinsame Upgrade
+		# (gluebonus). Bremst das Auto, zahlt aber viel je Feld. Im Shop direkt hinter dem Looping.
+		{"name": "Kleber (Gerade + Kurve)", "key": "glue", "model": Paths.MODEL_TRACK_STRAIGHT_GLUE, "desc": "+50k /Feld · bremst", "upgrade": "gluebonus", "field_earn_base": 0},
 		{"name": "Rampe",        "key": "ramp",        "model": Paths.MODEL_TRACK_RAMP,              "desc": "Sprung ×2 · verdoppelt andere ×", "upgrade": "rampbonus", "field_earn_base": int(Economy.RAMP_BASE_EARN)},
 		# Portal = zwei GLBs auf EINER Kachel (Rampe + blaues Tor) → als Modell-Liste in der Vorschau.
 		{"name": "Portal",       "key": "portal",      "model": Paths.MODEL_TRACK_PORTAL_RAMP,      "models": [Paths.MODEL_TRACK_PORTAL_RAMP, Paths.MODEL_TRACK_PORTAL_BLUE], "double_sided": true, "desc": "Teleport · +25k /Durchgang", "upgrade": "portalbonus", "field_earn_base": 0},
 		# Tribüne: im Spiel stapelbar (Stand1..4) → die Vorschau wechselt zyklisch durch alle Stufen.
 		{"name": "Tribüne",      "key": "stand",       "model": Paths.stand_model(1), "models": Paths.MODEL_TRACK_STANDS, "cycle": true, "desc": "×2.5 Nachbarfeld · stapelbar", "upgrade": "standbonus", "field_earn_base": 0},
-		# Test-Beläge (Wasser/Kleber): nur die neuen 3D-Assets zum Ausprobieren, vorerst ohne
-		# Ökonomie-Effekt. Freischaltkosten 1 (Economy.TILE_UNLOCK_COST), kein Upgrade.
+		# Test-Belag (Wasser): nur die neuen 3D-Assets zum Ausprobieren, vorerst ohne Ökonomie-Effekt.
+		# Freischaltkosten 1 (Economy.TILE_UNLOCK_COST), kein Upgrade.
 		{"name": "Wasser-Gerade", "key": "water_straight","model": Paths.MODEL_TRACK_STRAIGHT_WATER, "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
 		{"name": "Wasser-Kurve",  "key": "water_curve",   "model": Paths.MODEL_TRACK_CURVE_WATER,    "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
-		{"name": "Kleber-Gerade", "key": "glue_straight", "model": Paths.MODEL_TRACK_STRAIGHT_GLUE,  "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
-		{"name": "Kleber-Kurve",  "key": "glue_curve",    "model": Paths.MODEL_TRACK_CURVE_GLUE,     "desc": "Test · noch kein Effekt", "upgrade": "", "field_earn_base": 0},
 	]
 
 
@@ -957,6 +958,11 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 		var ice_lv := Economy.get_upgrade_level(upg_id)
 		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
 		return "%s +%.1f Lvl · %d Felder%s" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
+	elif upg_id == "gluebonus":
+		# Kleber-Belag: Geld-Grundertrag je Feld + Bremse (Tempo-Stufen, negativ).
+		var glue_lv := Economy.get_upgrade_level(upg_id)
+		var gmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
+		return "+%s %s · −%d Lvl Tempo%s" % [Economy.format_currency(Economy.get_glue_earn(glue_lv)), Icons.COIN, Economy.get_glue_slow_levels(glue_lv), gmax_tag]
 	elif upg_id == "wallbonus":
 		# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 		var wall_lv := Economy.get_upgrade_level(upg_id)
