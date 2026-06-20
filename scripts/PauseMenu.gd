@@ -186,8 +186,22 @@ func _resume() -> void:
 # Wird beim Verlassen (ESC, „Strecke"/Seitenwechsel über die Nav) aufgerufen.
 func _autosave_settings() -> void:
 	if _settings_panel != null and _settings_panel.visible and _settings_dirty:
-		settings.save(Paths.SETTINGS_FILE)
+		_save_settings()
 		_settings_dirty = false
+
+
+# Speichert das gecachte `settings`-Objekt – ABER übernimmt vorher Keys, die andere Szenen
+# (v. a. MainMenu) in dieselbe settings.cfg schreiben und die PauseMenu NICHT selbst verwaltet,
+# frisch von der Platte. Sonst clobbert PauseMenus beim App-Start geladener Altwert diese Keys.
+# Siehe Memory „project-pausemenu-settings-clobber". Neue solche Keys hier ergänzen.
+func _save_settings() -> void:
+	var disk := ConfigFile.new()
+	if disk.load(Paths.SETTINGS_FILE) == OK:
+		settings.set_value("options", "active_profile",
+			disk.get_value("options", "active_profile", 0))
+		settings.set_value("build", "collapsed_sections",
+			disk.get_value("build", "collapsed_sections", []))
+	settings.save(Paths.SETTINGS_FILE)
 
 
 # ── Pause-Hauptmenü ───────────────────────────────────────────────────────────
@@ -1382,7 +1396,7 @@ func _on_settings_save() -> void:
 
 # Bestätigt: speichern, übernehmen und die Einstellungen schließen.
 func _on_save_confirm() -> void:
-	settings.save(Paths.SETTINGS_FILE)
+	_save_settings()
 	_settings_dirty = false
 	_exit_settings()
 
