@@ -727,17 +727,25 @@ func _build_waypoints(grid_state: Array) -> Array[Vector3]:
 				for j in range(0, wall_range + 1):
 					step_bonus[(wk + j) % n] += wall_bonus
 
-	# Kleber-/Slime-Belag: Gegenstück zur Eisgerade – legt einen NEGATIVEN absoluten Tempo-Bonus
-	# (Bremse) auf das Kleber-Feld selbst (j=0) UND die nächsten get_glue_range() Folge-Felder. Das
-	# Segment-Tempo wird in _build_time_table mit maxf(0.01, …) abgefangen, kann also nie ≤0 werden.
-	var glue_pen := Economy.get_glue_speed_penalty()
+	# Kleber-/Slime-Belag: Gegenstück zur Eisgerade – bremst PROZENTUAL (multiplikativer Tempo-Faktor
+	# get_glue_speed_factor, Stufe 0 = 0.10) NUR auf dem Kleber-Feld selbst (j=0; get_glue_range()=0,
+	# keine Folge-Felder). Wird auf step_speed (Faktor) multipliziert, nicht absolut abgezogen → wirkt
+	# anteilig zum jeweiligen Auto-Tempo. Anders als der Eis-Bonus STACKT die Bremse NICHT: überlappen
+	# sich mehrere Kleberfelder, zählt pro Feld der stärkste Faktor (min), nicht das Produkt.
+	var glue_factor := Economy.get_glue_speed_factor()
 	var glue_range := Economy.get_glue_range()
-	if glue_pen > 0.0 and n > 0:
+	if glue_factor < 1.0 and n > 0:
+		var glue_mult := PackedFloat32Array()
+		for _i in range(n):
+			glue_mult.append(1.0)
 		for gk in range(n):
 			var gdata = route[gk]["data"]
 			if typeof(gdata) == TYPE_DICTIONARY and gdata.get("type", "") in ["glue_straight", "glue_curve"]:
 				for j in range(0, glue_range + 1):
-					step_bonus[(gk + j) % n] -= glue_pen
+					var gi : int = (gk + j) % n
+					glue_mult[gi] = minf(glue_mult[gi], glue_factor)
+		for gi in range(n):
+			step_speed[gi] *= glue_mult[gi]
 
 	# Wegpunkte aus Route bauen + Zuordnung Wegpunkt→Step (für die Tempo-Faktor-Tabelle)
 	var wps: Array[Vector3] = []

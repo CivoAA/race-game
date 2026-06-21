@@ -79,8 +79,8 @@ const SHOP_ITEMS = [
 	# Kleber-/Slime-Belag: EIN gemeinsamer Schlüssel (glue) schaltet Gerade + Kurve frei und teilt sich
 	# einen Preis-Pool (wie Eis). Sehr späte, starke Strecke: bremst das Auto, zahlt aber viel je Feld
 	# (gluebonus regelt Geld + Bremse). Im Baumenü direkt hinter der Rennstrecke. Freischalten 1e12.
-	{"tier": "glue",    "type": "glue_straight", "name": "Kleber-Gerade", "key": "glue", "unlock": 1000000000000, "base_price": 50000000000, "growth": 3.0, "upgrade": "gluebonus"},
-	{"tier": "glue",    "type": "glue_curve",    "name": "Kleber-Kurve",  "key": "glue", "unlock": 1000000000000, "base_price": 50000000000, "growth": 3.0, "upgrade": "gluebonus"},
+	{"tier": "glue",    "type": "glue_straight", "name": "Kleber-Gerade", "key": "glue", "unlock": 1000000000000, "base_price": 200000000000, "growth": 3.0, "upgrade": "gluebonus"},
+	{"tier": "glue",    "type": "glue_curve",    "name": "Kleber-Kurve",  "key": "glue", "unlock": 1000000000000, "base_price": 200000000000, "growth": 3.0, "upgrade": "gluebonus"},
 	# Reihenfolge Steilwand → Looping → Rampe (2026-06-19), aufsteigende Preise. Looping = simpler
 	# Multiplikator (mittlere Stufe), Rampe = Schneeball-Effekt (teure Spät-Freischaltung, steht hinten).
 	{"tier": "wall",    "type": "wall",     "name": "Steilwandkurve","key": "wall",       "unlock": 500000000, "base_price": 100000000, "growth": 5.0, "upgrade": "wallbonus"},
@@ -1628,7 +1628,7 @@ func _tile_effect_text(item: Dictionary) -> String:
 		"dirt":
 			return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))
 		"glue":
-			return "+%s %s pro Feld  ·  bremst −%d Lvl Tempo" % [Economy.format_currency(Economy.get_glue_earn()), Icons.COIN, Economy.get_glue_slow_levels()]
+			return "+%s %s pro Feld  ·  bremst −%d%% Tempo" % [Economy.format_currency(Economy.get_glue_earn()), Icons.COIN, Economy.get_glue_slow_pct()]
 		"test":
 			return "Noch kein Effekt"
 	return "+%s pro Feld" % Economy.format_half(_tile_field_earn(item))

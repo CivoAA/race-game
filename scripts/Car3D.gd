@@ -38,10 +38,10 @@ func _ready() -> void:
 
 
 func _load_model() -> void:
-	# Tier-Auto (is_super) nutzt das Modell der aktuellen Auto-Prestige-Stufe; normale Autos
-	# das Test-Auto (mit Umfärb-Maske für die Werkstatt-Lackierung).
+	# Modell der aktuellen Auto-Prestige-Stufe (Tier 0 = default_car, … 3 = Blender-Auto) – gilt für
+	# normale UND Tier-Autos, da bei Tier ≥1 ohnehin nur Tier-Autos fahren (car_tier passt zum Modell).
 	# Reiner Test-Schalter (Garage „Test-Auto"): überschreibt alles mit dem Blender-Testmodell.
-	var path := Economy.get_car_tier_model() if is_super else Paths.MODEL_TEST_CAR
+	var path := Economy.get_car_tier_model()
 	if Economy.test_blender_car:
 		path = Paths.MODEL_TEST_CAR_BLENDER
 	_color_key = (path == Paths.MODEL_TEST_CAR_BLENDER)

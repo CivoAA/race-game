@@ -141,7 +141,7 @@ func _build_row(id: String) -> Control:
 	name_lbl.size = Vector2(210, 40)
 	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_lbl.add_theme_font_size_override("font_size", 14)
-	name_lbl.text = "%s\nLv %d/%d" % [Economy.get_upgrade_name(id), level, Economy.get_max_level(id)]
+	name_lbl.text = "%s\nLv %d/%d" % [Economy.get_upgrade_name(id), level, Economy.effective_max_level(id)]
 	row.add_child(name_lbl)
 
 	var eff_lbl = Label.new()
