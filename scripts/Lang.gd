@@ -23,8 +23,9 @@ extends Node
 const HINTS := {
 	"speed":
 		"Tempo macht deine Autos schneller, sodass sie in derselben Zeit mehr Runden "
-		+ "fahren und du mehr verdienst. Pass aber auf: Manche Autos brauchen mehr "
-		+ "Tempo als andere.",
+		+ "fahren und du mehr verdienst. Dein aktuelles Auto hat aber eine "
+		+ "Höchstgeschwindigkeit – ist sie erreicht, geht es erst mit einem besseren "
+		+ "Auto aus der Werkstatt weiter.",
 	"tilebonus":
 		"Der Tile-Bonus gibt dir {value} Währung zusätzlich für jedes Feld, über das "
 		+ "dein Auto fährt – ganz egal, welches Feld du baust.",

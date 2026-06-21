@@ -978,10 +978,10 @@ func _tile_upgrade_desc(upg_id: String, entry: Dictionary) -> String:
 		var max_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
 		return "%s +%.1f Lvl · %d Felder%s" % [Icons.SNOWFLAKE, Economy.get_ice_boost_levels(ice_lv), Economy.get_ice_range(ice_lv), max_tag]
 	elif upg_id == "gluebonus":
-		# Kleber-Belag: Geld-Grundertrag je Feld + Bremse (Tempo-Stufen, negativ).
+		# Kleber-Belag: Geld-Grundertrag je Feld + prozentuale Bremse.
 		var glue_lv := Economy.get_upgrade_level(upg_id)
 		var gmax_tag := " (MAX)" if Economy.is_maxed(upg_id) else ""
-		return "+%s %s · −%d Lvl Tempo%s" % [Economy.format_currency(Economy.get_glue_earn(glue_lv)), Icons.COIN, Economy.get_glue_slow_levels(glue_lv), gmax_tag]
+		return "+%s %s · −%d%% Tempo%s" % [Economy.format_currency(Economy.get_glue_earn(glue_lv)), Icons.COIN, Economy.get_glue_slow_pct(glue_lv), gmax_tag]
 	elif upg_id == "wallbonus":
 		# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 		var wall_lv := Economy.get_upgrade_level(upg_id)
@@ -3023,7 +3023,7 @@ func _build_autos_options() -> void:
 	if _ws_summary_lbl != null:
 		if tier >= 1:
 			var per := Economy.get_car_cost_per_extra()
-			var note := "" if Economy.tier_has_mask() else tr(" (Lack/Muster folgt für dieses Modell)")
+			var note := "" if Economy.tier_supports_paint() else tr(" (Lack/Muster folgt für dieses Modell)")
 			_ws_summary_lbl.text = tr("Es fährt nur das %s-Auto · jedes weitere Auto kostet %d Auto-Upgrades%s") % [tr(_car_tier_name(tier)), per, note]
 		else:
 			_ws_summary_lbl.text = "Nach dem Upgrade fährt nur noch das neue Auto auf der Strecke."
@@ -3036,6 +3036,18 @@ func _refresh_ascend_action() -> void:
 		return
 	var tier     := Economy.get_car_tier()
 	var can      := Economy.can_ascend_car()
+	# Letztes Auto erreicht (Werkstatt auf CAR_TIER_COUNT Autos gedeckelt) → kein Aufstieg mehr.
+	if tier >= Economy.CAR_TIER_COUNT - 1:
+		_ascend_fill_mat.set_shader_parameter("progress", 1.0)
+		_ascend_fill_mat.set_shader_parameter("mode", 0 if Display.performance_mode else 5)
+		_ascend_fill_mat.set_shader_parameter("base_color", Color(C_TOOL.r, C_TOOL.g, C_TOOL.b, 0.62))
+		_ascend_btn_lbl.text = "%s %s" % [Icons.CHECK, tr("Letztes Auto erreicht")]
+		var sb_max := _sbf(C_SURFACE, C_TOOL.darkened(0.45))
+		_ascend_btn.add_theme_stylebox_override("normal",   sb_max)
+		_ascend_btn.add_theme_stylebox_override("disabled", sb_max)
+		_ascend_btn_lbl.add_theme_color_override("font_color", Color(0.92, 0.94, 0.96))
+		_ascend_btn.disabled = true
+		return
 	# ⭐-Multiplikator und Prestige-Zähler-Schritt der NÄCHSTEN Stufe (×4/×2 beim 1. Aufstieg).
 	var pts  := int(pow(Economy.CAR_ASCEND_POINT_MULT, tier + 1))
 	var step := int(pow(Economy.CAR_ASCEND_COUNT_MULT, tier + 1))
@@ -3069,6 +3081,7 @@ func _car_tier_name(tier: int) -> String:
 		0: return "Standard"
 		1: return "\"Renn\"auto"
 		2: return "Frosch"
+		3: return "Blender-Auto"
 		_: return "Tier %d" % tier
 
 
@@ -3228,8 +3241,9 @@ func _frame_preview_camera() -> void:
 # gelegt: nur die roten Maskenbereiche (Karosserie) werden umgefärbt, die
 # Hell-Dunkel-Verläufe der Originaltextur bleiben erhalten.
 func _apply_ws_config() -> void:
-	# Blender-Testmodell: keine Maske, nur die grüne Karosserie-Fläche umfärben (Color-Key).
-	if Economy.test_blender_car:
+	# Blender-Auto (Tier 3) oder Test-Schalter: keine Maske, nur die grüne Karosserie-Fläche per
+	# Color-Key umfärben (so wie Car3D es ingame macht).
+	if Economy.test_blender_car or Economy.tier_is_colorkey():
 		_apply_preview_colorkey()
 		_update_garage_summary()
 		return
@@ -3240,8 +3254,9 @@ func _apply_ws_config() -> void:
 	var col = null
 	if Economy.tier_has_mask() and pi >= 0 and pi < opts.size():
 		col = opts[pi].get("color", null)
-	# Material auch ohne Lack anlegen, sobald ein Muster gewählt ist (Muster auf Standardfarbe).
-	var want_mat := col != null or Economy.get_car_pattern() != 0
+	# Nur Stufen mit Maske bekommen den Masken-Shader (wie ingame in Car3D). Stufen ohne Maske
+	# (default_car, "Renn"auto) zeigen die Originaltextur – auch wenn ein Muster gewählt ist.
+	var want_mat := (col != null or Economy.get_car_pattern() != 0) and Economy.tier_has_mask()
 	for m in _preview_meshes:
 		if not is_instance_valid(m):
 			continue
@@ -3390,7 +3405,7 @@ const UPG_CARD_H = 196
 # Gleiches Karten-Gefühl wie die Prestige-Knoten – deutlich aufgeräumter als die früheren Zeilen.
 func _make_upgrade_card(id: String) -> Panel:
 	var lv     := Economy.get_upgrade_level(id)
-	var mx     := Economy.get_max_level(id)
+	var mx     := Economy.effective_max_level(id)
 	var maxed  := Economy.is_maxed(id)
 	var has_lv := lv > 0
 
@@ -3448,7 +3463,7 @@ func _make_upgrade_card(id: String) -> Panel:
 		bar_fill.color    = C_ACCENT
 		card.add_child(bar_fill)
 
-	# Effekt (von → zu, bzw. nur aktuell bei MAX/Tempo)
+	# Effekt (von → zu, bzw. nur aktuell bei MAX)
 	var eff_lbl := Label.new()
 	eff_lbl.position = Vector2(8, 110)
 	eff_lbl.size     = Vector2(UPG_CARD_W - 16, 32)
@@ -3457,7 +3472,7 @@ func _make_upgrade_card(id: String) -> Panel:
 	eff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	eff_lbl.add_theme_font_size_override("font_size", 13)
 	eff_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.58))
-	if id != "speed" and not maxed:
+	if not maxed:
 		eff_lbl.text = "%s → %s" % [Economy.effect_text(id, lv), Economy.effect_text(id, lv + 1)]
 	else:
 		eff_lbl.text = Economy.effect_text(id, lv)

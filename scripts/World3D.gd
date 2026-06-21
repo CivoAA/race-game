@@ -476,8 +476,10 @@ func _start_cars(grid_state: Array) -> void:
 		sctrl.set_script(script)
 		sctrl.track_idx      = _active_track_idx
 		sctrl.is_super       = true
-		sctrl.speed          = Economy.get_car_speed(0) / Economy.SUPER_CAR_SPEED_DIV
-		sctrl.speed_div      = Economy.SUPER_CAR_SPEED_DIV
+		# Tier-Auto fährt durch speed_div = 3^car_tier langsamer; trotzdem auf die tatsächlichen
+		# 15 m/s gedeckelt (höherer Tempo-Cap ÷ größeres speed_div → gleiche Höchstgeschwindigkeit).
+		sctrl.speed_div      = Economy.get_car_speed_div()
+		sctrl.speed          = minf(Economy.get_car_speed(0) / sctrl.speed_div, Economy.SPEED_CAP_TEMPO * Economy.SPEED_SCALE)
 		# Werkstatt-Ökonomie je Stufe ("Renn"auto: +10k/×3, Frosch: +1M/×10).
 		sctrl.bonus_tile_add = Economy.get_tier_tile_bonus()
 		sctrl.end_mult_extra = Economy.get_tier_end_mult()

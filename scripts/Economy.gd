@@ -8,27 +8,24 @@ const START_CURRENCY  = 0
 # Umrechnung "Tempo"-Zahl (Shop, 25→150) → tatsächliche Auto-Geschwindigkeit (m/s).
 # Basis-Tempo 25 · 0.1 = 2.5 m/s (bewusst langsam); Max-Tempo 150 · 0.1 = 15 m/s.
 const SPEED_SCALE     = 0.1
-# Tempo-Wert je Speed-Stufe 0..15 („Auto 1"-Bereich), Stufe 15 = 150. Special-case in _effect_at;
-# get_car_speed = Tempo · SPEED_SCALE. Gleichmäßiger Anstieg 25→150 in ganzzahligen Schritten.
-const SPEED_STEPS = [25, 33, 42, 50, 58, 67, 75, 83, 92, 100, 108, 117, 125, 133, 142, 150]
-# Oberhalb von Stufe 15 geht das Tempo weiter: je SPEED_TRIPLE_EVERY Stufen verdreifacht es sich
-# (Stufe 30=450, 45=1350, 60=4050, 75=12150). Grund: langsamere Auto-Tiers (jedes ÷3 → Auto 5 = ÷81)
-# brauchen mehr Tempo, um effektiv 150 zu erreichen (12150 ÷ 81 = 150). Kosten ab Stufe 15 wachsen
-# sanfter (SPEED_TAIL_GROWTH), damit diese Stufen für die hohen Tiers überhaupt erreichbar bleiben.
-const SPEED_BASE_LEVELS  = 15     # Stufen mit dem steilen „Auto 1"-Kostenverlauf (growth 4.4)
-const SPEED_TAIL_GROWTH  = 1.3    # Kosten-Wachstum je Stufe oberhalb von SPEED_BASE_LEVELS
-const SPEED_TRIPLE_EVERY = 15.0   # je so viele Stufen verdreifacht sich das Tempo oberhalb von 150
-# Die ersten SPEED_EARLY_LEVELS Stufen wachsen sanfter (SPEED_EARLY_GROWTH statt growth 4.4), damit
-# der Einstieg günstiger ist. Ab dieser Stufe geht es STETIG (kein Sprung) mit dem ursprünglichen
-# Verlauf weiter: bis SPEED_BASE_LEVELS wieder ×growth, darüber ×SPEED_TAIL_GROWTH. Siehe _speed_cost.
-const SPEED_EARLY_LEVELS = 10     # Anzahl Stufen mit dem sanfteren Einstiegs-Wachstum
-const SPEED_EARLY_GROWTH = 3.6    # Kosten-Wachstum je Stufe für die ersten SPEED_EARLY_LEVELS Stufen
-# Tempo-Obergrenze fürs STANDARD-Auto (car_tier 0, speed_div = 1): es fährt nie schneller als
-# Tempo 150 (= SPEED_CAP_TEMPO · SPEED_SCALE = 15 m/s), egal wie viele Tempo-Stufen gekauft sind.
-# NUR die Eisgerade und die Steilwandkurve dürfen es darüber hinaus beschleunigen (absoluter
-# Segment-Aufschlag in CarController, liegt über dem Cap). Tier-/Super-Autos (speed_div = 3) sind
-# nicht gedeckelt – sie brauchen die hohen Tempo-Stufen, um effektiv 150 zu erreichen.
-const SPEED_CAP_TEMPO = 150.0
+# Tempo („Shop-Speed") wächst STÜCKWEISE LINEAR, damit es nicht zu viele Stufen gibt (siehe
+# _speed_effect_value): +5/Stufe bis Tempo 450, dann +10/Stufe bis 1350, darüber +15/Stufe.
+# Tatsächliche „ingame Speed" = Tempo ÷ Auto-Tier-Teiler (get_car_speed_div); engine-m/s = ingame · SPEED_SCALE.
+# JEDES Auto-Tier teilt das Tempo durch SUPER_CAR_SPEED_DIV^t (Tier 0→÷1, 1→÷3, 2→÷9, 3→÷27) – jedes
+# Auto ist also ein Drittel so schnell wie das vorige (1:1 / 3:1 / 9:1 / 27:1). Jedes Auto erreicht
+# trotzdem dieselbe ingame-Höchstgeschwindigkeit (150): sein Tempo-Cap ist entsprechend höher,
+# get_speed_cap_tempo() = SPEED_CAP_TEMPO · 3^t → 150 / 450 / 1350 / 4050 (= Sperrpunkt des Tempo-
+# Upgrades je Tier). Jeder Tier startet mit so viel Tempo-Stufen, dass die ingame-Speed 5 ist
+# (get_speed_tier_start_level, gratis als Head-Start). NUR Eis-/Steilwandkurve dürfen über die
+# tatsächliche Höchstgeschwindigkeit hinaus beschleunigen (absoluter Segment-Aufschlag, CarController).
+const SPEED_CAP_TEMPO = 150.0     # ingame-Höchstgeschwindigkeit (Tempo ÷ Tier-Teiler) für JEDES Auto
+# Tempo-Kosten: steile Phase bis zum Standard-Cap (Tempo 150 = SPEED_STEEP_LEVELS Stufen bei +5),
+# darüber sanftes Wachstum, damit die höheren Tiers ihren 3× höheren Cap mit ihrer (ebenfalls
+# deutlich größeren) Wirtschaft erreichen können. Greift je Tier ab der ersten BEZAHLTen Stufe (der
+# Head-Start verschiebt die Kostenkurve). Siehe _speed_cost.
+const SPEED_STEEP_LEVELS = 30     # Stufen bis Tempo 150 = SPEED_CAP_TEMPO / 5 (steiler Kostenverlauf)
+const SPEED_STEEP_GROWTH = 2.0    # Kostenwachstum je Stufe in der steilen Phase (0 → Tempo 150)
+const SPEED_TAIL_GROWTH  = 1.04   # sanftes Kostenwachstum oberhalb des Standard-Caps (höhere Tiers)
 
 # ── Super-Auto („Auto 2") ──────────────────────────────────────────────────────
 # MEHRFACH kaufbar (super_car_count): jeder Kauf „kombiniert" SUPER_CAR_COST_CARS normale Autos zu
@@ -51,11 +48,11 @@ const SUPER_CAR_END_MULT    = 1.0             # KEIN zusätzlicher End-×Faktor 
 # je Stufe. Ab Stufe ≥1 fährt NUR das Tier-Auto (Super-Auto-Ökonomie); 4 normale Autos = 1 fahrendes
 # Tier-Auto, Basis 1 gratis. Modell je Stufe liefert get_car_tier_model() (Paths sind Autoload-Consts,
 # daher kein const-Array hier möglich). CAR_TIER_COUNT = Anzahl definierter Stufen-Modelle.
-const CAR_TIER_COUNT        = 3   # 0 = Standard, 1 = "Renn"auto (eric), 2 = Frosch (miata)
+const CAR_TIER_COUNT        = 4   # 0 = Standard (default_car), 1 = "Renn"auto (eric), 2 = Frosch (miata), 3 = Blender-Auto (test_car_blender)
 # JEDER Auto-Aufstieg wird mit PRESTIGE-PUNKTEN (⭐) bezahlt – KEIN Geld mehr. ⭐-Kosten je Aufstieg,
 # indiziert nach dem AKTUELLEN car_tier: Standard→"Renn"auto = 1e7, "Renn"auto→Frosch = 1e12. Über die
 # Liste hinaus skaliert es ×CAR_ASCEND_POINT_GROWTH je weiterer Stufe.
-const CAR_ASCEND_POINT_COSTS = [1e7, 1e12]       # ⭐ für [Tier 0→1, Tier 1→2]
+const CAR_ASCEND_POINT_COSTS = [1e7, 1e12, 1e17]  # ⭐ für [Tier 0→1, Tier 1→2, Tier 2→3]
 const CAR_ASCEND_POINT_GROWTH = 1000.0           # ⭐-Schwelle ×1000 je Stufe über die Liste hinaus
 const CAR_ASCEND_BASE       = 100_000_000_000.0  # (Legacy, ungenutzt) frühere Geld-Schwelle
 const CAR_ASCEND_GROWTH     = 10.0               # Schwelle ×10 je weiterer Stufe
@@ -69,18 +66,17 @@ const CAR_ASCEND_COUNT_MULT = 2.0                # ×2 Prestige-Zähler je Stufe
 # Kosten pro Level = round(base_cost * growth^level)
 # Effektwert pro Level = base + per_level * level
 const UPGRADES = {
-	# Tempo-ZAHL 25→150 (Anzeige). Tatsächliche Auto-Geschwindigkeit = Tempo · SPEED_SCALE
-	# (get_car_speed), Basis bewusst langsam. EINE Quelle für alle Strecken.
-	# Tempo: Stufen 0–15 = SPEED_STEPS (25→150, „Auto 1"). Kosten special-cased in _speed_cost: die
-	# ersten 10 Stufen wachsen sanfter (günstigerer Einstieg, SPEED_EARLY_GROWTH), ab Stufe 10 stetig
-	# wieder mit dem ursprünglichen growth 4.4, ab Stufe 15 mit SPEED_TAIL_GROWTH. Geht bis Stufe 75 =
-	# Tempo 12150, weil langsamere Auto-Tiers (jedes ÷3, Auto 5 ÷81) so viel Tempo brauchen, um effektiv
-	# 150 zu fahren. Effekt ab Stufe 15 special-cased (_effect_at, base/per_level dort ignoriert – die
-	# bleiben nur die „Tempo-Stufe" für Eis-/Steilwand-Speedbonus).
+	# Tempo-ZAHL („Shop-Speed"): STÜCKWEISE linear (+5/+10/+15, siehe _speed_effect_value); base/
+	# per_level werden für Tempo NICHT genutzt. Ingame-Speed = Tempo ÷ get_car_speed_div (Tier 1:1/3:1/
+	# 9:1/27:1), engine-m/s = ingame · SPEED_SCALE. Tempo-Cap (Shop-Sperre) tier-abhängig 150/450/1350/
+	# 4050 für dieselbe ingame-Höchstgeschwindigkeit 150 (get_speed_cap_tempo). Jeder Tier startet mit
+	# Head-Start auf ingame-Speed 5 (get_speed_tier_start_level). Kosten: steil bis Tempo 150
+	# (SPEED_STEEP_*), darüber sanft (SPEED_TAIL_GROWTH); siehe _speed_cost. max_level = großzügige
+	# Obergrenze, der wirksame Cap kommt aus effective_max_level.
 	"speed": {
 		"category": "general", "name": "Tempo",
-		"base_cost": 50, "growth": 4.4, "max_level": 75,
-		"base": 25.0, "per_level": 5.0, "unit": " Tempo",
+		"base_cost": 50, "growth": 4.4, "max_level": 2000,
+		"base": 0.0, "per_level": 5.0, "unit": " Tempo",
 	},
 	# Fahrzeit: eigene Sequenz (_drive_time_value, special-case in _effect_at): 15,20,25,30,
 	# 40,50,60,90,120,150,… (base/per_level dort ignoriert). Bei 30 s ~1 Mio Kosten.
@@ -198,13 +194,14 @@ const UPGRADES = {
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
 	# Kleber-/Slime-Belag (Gegenstück zur Eisgerade): klebt das Auto fest → es wird auf dem Kleber-Feld
-	# und den nächsten GLUE_BASE_RANGE Feldern LANGSAMER (absoluter m/s-Abzug). Dafür gibt es viel Geld
-	# je Kleber-Feld (Basis 50k). EIN gemeinsames Upgrade für Gerade UND Kurve (wie icebonus). Effekt
-	# special-cased: Geld via get_glue_earn (prozentual steigend), Verlangsamung via get_glue_slow_levels
-	# (Start 20 Tempo-Stufen, −1 je 3 Upgrade-Stufen, min. 5). base/per_level werden ignoriert.
+	# und den nächsten GLUE_BASE_RANGE Feldern PROZENTUAL LANGSAMER (multiplikativer Tempo-Faktor).
+	# Dafür gibt es viel Geld je Kleber-Feld (Basis 50k). EIN gemeinsames Upgrade für Gerade UND Kurve
+	# (wie icebonus). Effekt special-cased: Geld via get_glue_earn (prozentual steigend), Verlangsamung
+	# via get_glue_slow_pct (Stufe 0 = −90 %, je 3 Upgrade-Stufen −5 %-Punkte, min. −20 %). base/per_level ignoriert.
 	"gluebonus": {
+		# base_cost = 20 % des Kleber-Freischaltpreises (1e12) – wie die Platzier-Preise der späten Teile.
 		"category": "tile", "name": "Kleber-Ertrag (+ je Feld, bremst)",
-		"base_cost": 5000000000, "growth": 1.5, "max_level": 42,
+		"base_cost": 200000000000, "growth": 1.5, "max_level": 42,
 		"base": 0.0, "per_level": 0.0, "unit": "",
 	},
 	# Steilwandkurve (Wall-Ride): Geld UND Speed-Boost skalieren mit dem Upgrade. Das Geld läuft
@@ -224,13 +221,14 @@ const UPGRADES = {
 		"base_cost": 10000, "growth": 3.0, "max_level": 15,
 		"base": 0.0, "per_level": 200.0, "unit": " /Rampe",
 	},
-	# Looping-Upgrade: erhöht den Loop-Faktor um 0.2 je Stufe (base 2.0 → Stufe 10 = 4.0). Dieser
-	# Faktor ist BEIDE Loop-Multiplikatoren zugleich: der eigene ×F UND der Faktor, mit dem jeder
-	# andere Multiplikator des Feldes multipliziert wird (M·F). get_effect liefert direkt 2.0+0.2·Lvl.
+	# Looping-Upgrade: erhöht den Loop-Faktor um 0.1 je Stufe (base 2.0 → Stufe 30 = 5.0). Seit
+	# 2026-06-19 ist der Looping ein ganz normaler Multiplikator ×F (kein Schneeball mehr).
+	# get_effect liefert direkt 2.0+0.1·Lvl. Preis startet bei 25 % des Unlock-Preises (2 Mrd → 500 Mio)
+	# und wächst weiter steil (growth 2.8), passend zum teuren Spät-Tile.
 	"loopbonus": {
 		"category": "tile", "name": "Looping-Multiplikator (×)",
-		"base_cost": 50000, "growth": 2.8, "max_level": 10,
-		"base": 1.5, "per_level": 0.2, "unit": "",
+		"base_cost": 500000000, "growth": 2.8, "max_level": 30,
+		"base": 2.0, "per_level": 0.1, "unit": "",
 	},
 	# Portal-Upgrade: additiver Geld-Ertrag am Eingangs-Portal (kein Multiplikator). 25 Stufen.
 	# Geld skaliert bewusst etwas STÄRKER als übliche Tiles (per_level = 60 % der Basis je Stufe),
@@ -273,9 +271,9 @@ const UPGRADES = {
 const RAMP_BASE_EARN = 450.0
 const RAMP_JUMP_BASE = 2.0
 
-# Looping: eigener Multiplikator ×F. Zusätzlich wird JEDER andere Multiplikator auf demselben Feld
-# mit F multipliziert (M → M·F). F = get_loop_factor() = 2.0 + 0.2·loopbonus-Level (Stufe 10 → 4.0).
-# Sofort am Feld verrechnet (Schritt 2 des Schneeballs), nicht am Lauf-Ende. LOOP_MULT = Basiswert.
+# Looping: ganz normaler Multiplikator ×F (seit 2026-06-19 kein Schneeball mehr – der liegt auf der
+# Rampe). F = get_loop_factor() = 2.0 + 0.1·loopbonus-Level (Stufe 0 → 2.0, Stufe 30 → 5.0).
+# LOOP_MULT = Basiswert (Stufe 0).
 const LOOP_MULT = 2.0
 
 # Grid-Dimensionen pro grid_size-Level: 4×4 → 4×5 → 4×6 → 5×6
@@ -429,6 +427,25 @@ const CAR_START_COSTS = [1, 2000, 150000, 1500000, 15000000, 150000000, 15000000
 # Extra-Strecke: eigene ⭐-Kostenkurve (in get_prestige_node_cost special-cased). Stufe 1 (= Strecke 2)
 # kostet 1 ⭐ (wie die anderen Front-Knoten), Stufe 2 (= Strecke 3) bewusst teuer: 300k ⭐.
 const TRACK_COSTS = [1, 300000]
+
+# Feste ⭐-Kostenkurven für die mehrstufigen „Wert"-Knoten (in get_prestige_node_cost special-cased).
+# Bewusst auf runde Zahlen gesetzt statt per base_cost·growth^level (die Felder im PRESTIGE_NODES-
+# Eintrag werden für diese IDs IGNORIERT). Ziel-Design: auf halbem Weg zum Max kostet eine Stufe rund
+# 100k ⭐ (Band 50k–150k), die frühen Stufen steigen sanft dahin, die obere Hälfte wird teuer. Voll
+# maxen kostet zig Milliarden ⭐ – man erreicht die Werkstatt (1 Mio. ⭐) also lange vorher. Länge des
+# Arrays == max_level des Knotens.
+const PRESTIGE_COST_TABLE = {
+	"income": [1, 3, 7, 18, 45, 120, 300, 800, 2000, 5500, 14000, 37000, 100000, 250000, 650000,
+		1700000, 4500000, 11000000, 30000000, 75000000, 200000000, 500000000, 1300000000,
+		3500000000, 9000000000],
+	"tilebonus_start": [8, 20, 55, 140, 365, 950, 2500, 6500, 17000, 43000, 110000, 290000, 750000,
+		2000000, 5000000, 13000000, 35000000, 90000000, 235000000, 600000000],
+	"speed_start": [11, 40, 150, 550, 2000, 7500, 28000, 100000, 385000, 1400000, 5300000, 20000000,
+		72000000, 270000000, 1000000000],
+	"endmult_start": [52, 235, 1100, 4900, 22000, 100000, 460000, 2100000, 9500000, 43000000],
+	"points_mult": [20, 1400, 100000, 7000000, 500000000],
+	"grid": [42, 100000, 240000000],
+}
 
 # Head-Start-Knoten → Upgrade-IDs, deren Start-Level (Floor) sie anheben. Der Floor liegt reset-fest
 # in prestige_nodes; get_upgrade_level() liest ihn mit → wirkt LIVE beim Kauf und überlebt den
@@ -770,17 +787,18 @@ const WALL_PER_LEVEL_BOOST   = 0.5
 const WALL_BASE_RANGE        = 4
 
 # ── Kleber-/Slime-Belag ─────────────────────────────────────────────────────────
-# Gegenstück zur Eisgerade: bremst das Auto (absoluter m/s-Abzug auf das Kleber-Feld + die nächsten
-# GLUE_BASE_RANGE Felder), zahlt dafür viel Geld je Feld. Geld: Basis 50k, je Upgrade-Stufe prozentual
-# mehr (×GLUE_EARN_GROWTH, etwas stärker als die Rennstrecke). Verlangsamung in „Tempo-Stufen" (wie
-# Eis, nur negativ): Start GLUE_SLOW_BASE Stufen, je 3 Upgrade-Stufen −1, nie unter GLUE_SLOW_MIN →
-# auf Max-Stufe bleiben noch ~5–8 Stufen Bremse. Ein Upgrade (gluebonus) regelt BEIDES für Gerade+Kurve.
+# Gegenstück zur Eisgerade: bremst das Auto PROZENTUAL (multiplikativer Tempo-Faktor NUR auf dem
+# Kleber-Feld selbst, GLUE_BASE_RANGE=0), zahlt dafür viel Geld je Feld. Geld: Basis 50k,
+# je Upgrade-Stufe prozentual mehr (×GLUE_EARN_GROWTH). Verlangsamung: Stufe 0 = −90 % (Auto fährt nur
+# 10 %), je GLUE_SLOW_PCT_STEP Upgrade-Stufen −5 %-Punkte Abzug, bis auf Max-Stufe nur noch −20 %
+# (Auto fährt 80 %). Ein Upgrade (gluebonus) regelt BEIDES für Gerade+Kurve.
 const GLUE_BASE_EARN    = 50000.0
 const GLUE_EARN_GROWTH  = 1.09     # +~9 % Ertrag je Upgrade-Stufe (50k → ~54,5k → … prozentual)
-const GLUE_SLOW_BASE    = 20       # Tempo-Stufen Bremse bei Upgrade-Stufe 0
-const GLUE_SLOW_PER     = 3        # je so viele Upgrade-Stufen −1 Brems-Stufe
-const GLUE_SLOW_MIN     = 5        # untere Grenze der Bremse (nie 0)
-const GLUE_BASE_RANGE   = 2        # Kleber-Feld (j=0) + so viele Folge-Felder werden gebremst
+const GLUE_SLOW_PCT_BASE = 90      # %-Tempo-Abzug bei Upgrade-Stufe 0 (Auto fährt 10 %)
+const GLUE_SLOW_PCT_PER  = 5       # je GLUE_SLOW_PCT_STEP Stufen −5 %-Punkte Abzug
+const GLUE_SLOW_PCT_STEP = 3       # Upgrade-Stufen je −5 %-Punkte
+const GLUE_SLOW_PCT_MIN  = 20      # minimaler Abzug auf Max-Stufe (Auto fährt 80 %)
+const GLUE_BASE_RANGE   = 0        # nur das Kleber-Feld selbst (j=0) wird gebremst, keine Folge-Felder
 
 
 func get_tile_unlock_cost(key: String) -> int:
@@ -991,9 +1009,11 @@ func _credit_laps(i: int) -> void:
 		car["credited_laps"] = car_laps
 		# Erfolge „verdiene X mit EINEM Auto in einer Runde" – am Pro-Auto-Rundenertrag.
 		_check_metric_achievements("lap_earn", float(car_reward))
-		# Geheime Erfolge rund um Loopings: 1 = durchgefahren, 3+ = „Schwindelfrei", 10+ = „Looping-Wahnsinn".
+		# Geheime Erfolge rund um Loopings: per Rampe DURCH-gesprungen = „Loopingspringer", 3+ = „Schwindelfrei", 10+ = „Looping-Wahnsinn".
 		var loops := _car_route_loop_count(car)
-		if loops >= 1:
+		# „Loopingspringer": NUR wenn man mit einer Rampe DURCH einen Looping springt (Loop auf einem
+		# Rampen-Mittelfeld), nicht schon beim normalen Durchfahren eines Loopings.
+		if _car_route_loop_jumped(car):
 			unlock_achievement("loop_jump")
 		if loops >= 3:
 			unlock_achievement("loop_triple")
@@ -1031,13 +1051,14 @@ func _apply_speed_to_active_runs() -> void:
 		var elapsed := float(_tracks[i]["run_elapsed"])
 		for car in _tracks[i].get("run_cars", []):
 			var lk := float(car.get("lap_k", 0.0))
-			# Auto-eigenes Tempo = globales Tempo ÷ speed_div (Super-Auto: 3; normal: 1).
+			# Auto-eigenes Tempo = globales Tempo ÷ speed_div (Tier t: ÷3^t; Standard: 1).
 			var car_div := maxf(0.001, float(car.get("speed_div", 1.0)))
 			var car_sp := sp / car_div
-			# Standard-Auto (speed_div ≤ 1): auf den Tempo-Cap begrenzen (Eis/Steilwand bleiben über
-			# den absoluten Segment-Aufschlag in CarController weiterhin schneller, nicht via lap_k).
-			if car_div <= 1.0:
-				car_sp = minf(car_sp, SPEED_CAP_TEMPO * SPEED_SCALE)
+			# JEDES Auto fährt höchstens 15 m/s (SPEED_CAP_TEMPO · SPEED_SCALE): pro Tier ist das Tempo
+			# 3× höher gedeckelt, geteilt durch das 3× größere speed_div → dieselbe tatsächliche
+			# Höchstgeschwindigkeit. Eis/Steilwand bleiben über den absoluten Segment-Aufschlag in
+			# CarController weiterhin schneller (nicht via lap_k).
+			car_sp = minf(car_sp, SPEED_CAP_TEMPO * SPEED_SCALE)
 			if lk > 0.0 and car_sp > 0.0:
 				car["lap_time"] = lk / car_sp
 			# Runden-Zähler dieses Autos auf den aktuellen Stand snappen (neues lap_time → future-only).
@@ -1094,6 +1115,16 @@ func _car_route_loop_count(car: Dictionary) -> int:
 		if bool(tile.get("is_loop", false)):
 			n += 1
 	return n
+
+
+# „Loopingspringer": Mindestens ein befahrener Looping liegt auf dem übersprungenen Mittelfeld einer
+# Rampe – das Auto SPRINGT also mit der Rampe durch den Looping (nicht nur durchgefahren). Der Looping-
+# Tile-Eintrag trägt dann is_loop=true UND is_jump=true (Rampen-Mittelfeld, jump_mult≠1).
+func _car_route_loop_jumped(car: Dictionary) -> bool:
+	for tile in car.get("tiles", []):
+		if bool(tile.get("is_loop", false)) and bool(tile.get("is_jump", false)):
+			return true
+	return false
 
 
 # „Loopingspringer?": Mindestens ein befahrenes Portal hat sein Partner-Portal so platziert, dass
@@ -1442,11 +1473,15 @@ func get_upgrade_level(id: String) -> int:
 
 
 # Summe der Head-Start-Knoten-Stufen, die das Start-Level dieses Upgrades anheben (0 = keiner).
+# Tempo bekommt zusätzlich einen Auto-Tier-Head-Start (get_speed_tier_start_level), damit ein frisch
+# aufgestiegenes Auto bereits mit ingame-Speed 5 startet (die Stufen sind gratis = Kostenverschiebung).
 func get_upgrade_headstart(uid: String) -> int:
 	var lv := 0
 	for nid in HEADSTART_NODES:
 		if uid in HEADSTART_NODES[nid]:
 			lv += get_prestige_node_level(nid) * int(HEADSTART_STEP.get(nid, 1))
+	if uid == "speed":
+		lv += get_speed_tier_start_level()
 	return lv
 
 
@@ -1467,12 +1502,9 @@ func _effect_at(id: String, level: int) -> float:
 	# Fahrzeit: eigene Stufen-Sequenz (10,15,…,30,40,…,60,90,…).
 	if id == "drive_time":
 		return float(_drive_time_value(level))
-	# Tempo: Stufen 0–15 aus der Tabelle, darüber Verdreifachung je SPEED_TRIPLE_EVERY Stufen
-	# (Stufe 75 = 12150). base/per_level ignoriert.
+	# Tempo: stückweise linear (+5/+10/+15 je Stufe ab Tempo 0/450/1350) → siehe _speed_effect_value.
 	if id == "speed":
-		if level <= SPEED_BASE_LEVELS:
-			return float(SPEED_STEPS[clampi(level, 0, SPEED_STEPS.size() - 1)])
-		return float(int(round(150.0 * pow(3.0, float(level - SPEED_BASE_LEVELS) / SPEED_TRIPLE_EVERY))))
+		return _speed_effect_value(level)
 	# Tile-Bonus: beschleunigende Stufen-Summe (base/per_level ignoriert).
 	if id == "tilebonus":
 		return _tilebonus_value(level)
@@ -1679,7 +1711,7 @@ func _upgrade_cost_at(id: String, level: int) -> int:
 # kauft nichts. Iterativ, da die Kosten je Stufe steigen. → {"count": int, "cost": int}
 func max_affordable_info(id: String) -> Dictionary:
 	var lvl   := get_upgrade_level(id)
-	var mx    := get_max_level(id)
+	var mx    := effective_max_level(id)
 	var money := _currency
 	var count := 0
 	var total := 0
@@ -1717,7 +1749,7 @@ func buy_qty_info(id: String) -> Dictionary:
 		mi["affordable"] = int(mi["count"]) > 0
 		return mi
 	var lvl := get_upgrade_level(id)
-	var mx  := get_max_level(id)
+	var mx  := effective_max_level(id)
 	var target := mini(get_buy_qty(), mx - lvl)
 	var total := 0
 	for i in range(target):
@@ -1744,31 +1776,87 @@ func _tilebonus_cost(level: int) -> int:
 	return int(round(early * pow(g, level - TILEBONUS_EARLY_LEVELS)))
 
 
-# Tempo-Kosten der NÄCHSTEN Stufe. Drei stetig ineinander übergehende Phasen (keine Sprünge):
-#   Stufe 0–10:   sanfter Einstieg (base · SPEED_EARLY_GROWTH^level) → günstiger als früher.
-#   Stufe 10–15:  ab dem 10er-Preis wieder der ursprüngliche „Auto 1"-Verlauf (×growth = 4.4).
-#   Stufe >15:    sanfteres Tail-Wachstum (×SPEED_TAIL_GROWTH), damit die hohen Tempo-Stufen für
-#                 die langsameren Auto-Tiers (bis Tempo 12150) erreichbar bleiben.
-# Jeder Phasenwechsel knüpft am letzten Preis der Vorphase an → der Übergang ist genau ein
-# normaler ×growth- bzw. ×tail-Schritt, kein Preissprung.
+# Tempo-Kosten der NÄCHSTEN Stufe. Zwei stetig ineinander übergehende Phasen (kein Preissprung):
+#   Stufe 0 … SPEED_STEEP_LEVELS:  steiler Verlauf (×SPEED_STEEP_GROWTH) bis zum Standard-Cap
+#                                  (Tempo 150) – der „Auto 1"-Grind.
+#   darüber:                       sanftes Tail-Wachstum (×SPEED_TAIL_GROWTH). Die höheren Auto-Tiers
+#                                  klettern dieselbe steile Phase hoch und ziehen ihren 3× höheren
+#                                  Cap über das günstige Tail nach (machbar dank größerer Wirtschaft).
+# Der Übergang knüpft am Preis bei SPEED_STEEP_LEVELS an → genau ein ×SPEED_TAIL_GROWTH-Schritt.
 func _speed_cost(level: int) -> int:
-	var d := UPGRADES["speed"]
-	var bc := float(d["base_cost"])
-	var g  := float(d["growth"])
-	if level <= SPEED_EARLY_LEVELS:
-		return int(round(bc * pow(SPEED_EARLY_GROWTH, level)))
-	var early := bc * pow(SPEED_EARLY_GROWTH, SPEED_EARLY_LEVELS)   # Preis am Ende der Einstiegsphase
-	if level <= SPEED_BASE_LEVELS:
-		return int(round(early * pow(g, level - SPEED_EARLY_LEVELS)))
-	var base15 := early * pow(g, SPEED_BASE_LEVELS - SPEED_EARLY_LEVELS)   # Preis bei SPEED_BASE_LEVELS
-	return int(round(base15 * pow(SPEED_TAIL_GROWTH, level - SPEED_BASE_LEVELS)))
+	var bc := float(UPGRADES["speed"]["base_cost"])
+	if level < SPEED_STEEP_LEVELS:
+		return int(round(bc * pow(SPEED_STEEP_GROWTH, level)))
+	var at_cap := bc * pow(SPEED_STEEP_GROWTH, SPEED_STEEP_LEVELS)   # Preis am Standard-Cap (Tempo 150)
+	return int(round(at_cap * pow(SPEED_TAIL_GROWTH, level - SPEED_STEEP_LEVELS)))
+
+
+# Faktor, um den das AKTUELLE Auto-Tier langsamer fährt als das Standard-Auto. Jedes Tier teilt das
+# Tempo erneut durch SUPER_CAR_SPEED_DIV (Tier 0 → 1, Tier 1 → 3, Tier 2 → 9 …) → jedes Auto ist ein
+# Drittel so schnell wie das davor. Dadurch braucht man pro Auto entsprechend mehr Tempo, um dieselbe
+# tatsächliche Höchstgeschwindigkeit (15 m/s) zu erreichen.
+func get_car_speed_div(tier: int = -1) -> float:
+	var t := car_tier if tier < 0 else tier
+	return pow(SUPER_CAR_SPEED_DIV, float(maxi(0, t)))
+
+
+# Tempo-Wert (Stat), bei dem das AKTUELLE Auto seine tatsächliche Höchstgeschwindigkeit (15 m/s)
+# erreicht. Skaliert mit dem Tier: Standard 150, Tier 1 450, Tier 2 1350 … (= SPEED_CAP_TEMPO · div).
+# Bestimmt, wann das Tempo-Upgrade im Shop sperrt.
+func get_speed_cap_tempo(tier: int = -1) -> float:
+	return SPEED_CAP_TEMPO * get_car_speed_div(tier)
+
+
+# Tempo-Effekt (Shop-Speed) bei `level`. STÜCKWEISE linear, damit es nicht zu viele Stufen gibt:
+#   bis Tempo 450  : +5  je Stufe  (Stufe 0..90  → 0..450)
+#   bis Tempo 1350 : +10 je Stufe  (Stufe 90..180 → 450..1350)
+#   darüber        : +15 je Stufe  (Stufe >180)
+func _speed_effect_value(level: int) -> float:
+	if level <= 90:
+		return 5.0 * level
+	if level <= 180:
+		return 450.0 + 10.0 * (level - 90)
+	return 1350.0 + 15.0 * (level - 180)
+
+
+# Umkehrung von _speed_effect_value: kleinste Tempo-Stufe, deren Effekt `target` erreicht.
+func _speed_level_for_effect(target: float) -> int:
+	if target <= 450.0:
+		return maxi(0, int(ceil(target / 5.0)))
+	if target <= 1350.0:
+		return 90 + int(ceil((target - 450.0) / 10.0))
+	return 180 + int(ceil((target - 1350.0) / 15.0))
+
+
+# Kleinste Tempo-Stufe, deren Effekt den Tempo-Cap des AKTUELLEN Autos (get_speed_cap_tempo) erreicht
+# – ab da bringt das Tempo-Upgrade diesem Auto nichts mehr und der Shop sperrt es.
+# Tier 0=30, 1=90, 2=180, 3=360 Stufen.
+func _speed_cap_level() -> int:
+	return _speed_level_for_effect(get_speed_cap_tempo())
+
+
+# Start-Tempo-Stufe je Auto-Tier: so viel, dass die ingame-Speed (Tempo ÷ Tier-Teiler) = 5 ist
+# (Tempo = 5 · 3^t). Diese Stufen bekommt der Spieler GRATIS als Head-Start (get_upgrade_headstart),
+# damit ein frisch aufgestiegenes (3× langsameres) Auto nicht im Schneckentempo startet.
+# Tier 0→1, 1→3, 2→9, 3→27 Stufen.
+func get_speed_tier_start_level() -> int:
+	return _speed_level_for_effect(5.0 * get_car_speed_div())
+
+
+# Erreichbare Höchststufe für den AKTUELLEN Auto-Stand. Beim Tempo ist das der Tier-abhängige Cap
+# (150 / 450 / 1350 …); jenseits davon brächte mehr Tempo dem (immer gedeckelten) Auto nichts.
+# Alle anderen Upgrades: unverändert get_max_level.
+func effective_max_level(id: String) -> int:
+	if id == "speed":
+		return _speed_cap_level()
+	return get_max_level(id)
 
 
 func is_maxed(id: String) -> bool:
 	var d = _def_for(id)
 	if d.is_empty():
 		return true
-	return get_upgrade_level(id) >= get_max_level(id)
+	return get_upgrade_level(id) >= effective_max_level(id)
 
 
 func can_buy(id: String) -> bool:
@@ -1864,9 +1952,9 @@ func effect_text(id: String, level: int) -> String:
 	# Eisgerade: kein Geld-Effekt → Speed-Boost (Tempo-Stufen) + Reichweite zeigen.
 	if id == "icebonus":
 		return "+%.1f Lvl · %d Felder" % [get_ice_boost_levels(level), get_ice_range(level)]
-	# Kleber-Belag: Geld-Grundertrag je Feld + Bremse (Tempo-Stufen, negativ).
+	# Kleber-Belag: Geld-Grundertrag je Feld + prozentuale Bremse.
 	if id == "gluebonus":
-		return "+%s %s · −%d Lvl Tempo" % [format_currency(get_glue_earn(level)), Icons.COIN, get_glue_slow_levels(level)]
+		return "+%s %s · −%d%% Tempo" % [format_currency(get_glue_earn(level)), Icons.COIN, get_glue_slow_pct(level)]
 	# Steilwandkurve: Geld-Grundertrag + Speed-Boost (Tempo-Stufen) + Reichweite.
 	if id == "wallbonus":
 		return "+%s %s · +%.1f Lvl · %d Felder" % [format_currency(get_wall_earn(level)), Icons.COIN, get_wall_boost_levels(level), get_wall_range(level)]
@@ -1883,6 +1971,17 @@ func effect_text(id: String, level: int) -> String:
 	# Tribüne: Multiplikator auf das/die Nachbarfeld(er).
 	if id == "standbonus":
 		return "×%.1f /Nachbarfeld" % get_effect("standbonus", level)
+	# Tile-Bonus: Geld je Feld, wird in hohen Stufen riesig (Lv100 ≈ +1.4e7/Feld). Ab 1000 die
+	# Idle-Kurznotation (K/M/… bzw. wissenschaftlich, je nach money_notation) statt der langen Zahl;
+	# darunter die feinen 0.5-Schritte unverändert lassen.
+	if id == "tilebonus":
+		var tv := _effect_at("tilebonus", level)
+		var tu := get_upgrade_unit(id)
+		if tv >= 1000.0:
+			return "%s%s" % [format_currency(tv), tu]
+		if absf(tv - round(tv)) < 0.001:
+			return "%d%s" % [int(round(tv)), tu]
+		return "%.1f%s" % [tv, tu]
 	var v = _effect_at(id, level)
 	var unit = get_upgrade_unit(id)
 	if id == "endmult":
@@ -2048,15 +2147,18 @@ func get_car_tier() -> int:
 	return car_tier
 
 # Modellpfad der aktuellen (oder einer gegebenen) Stufe; über die definierten Stufen hinaus → letztes Modell.
+# Reihenfolge: 0 default_car, 1 eric ("Renn"auto), 2 Frosch (miata), 3 Blender-Auto (test_car_blender).
 func get_car_tier_model(tier: int = -1) -> String:
 	var t = car_tier if tier < 0 else tier
 	match clampi(t, 0, CAR_TIER_COUNT - 1):
-		0: return Paths.MODEL_TEST_CAR
+		0: return Paths.MODEL_DEFAULT_CAR
 		1: return Paths.MODEL_ERIC_CAR
-		_: return Paths.MODEL_FROSCH_CAR
+		2: return Paths.MODEL_FROSCH_CAR
+		_: return Paths.MODEL_TEST_CAR_BLENDER
 
 
-# Albedo-Textur für die Werkstatt-Lackierung der jeweiligen Stufe (UV-gebunden ans Modell).
+# Albedo-Textur für die Werkstatt-Lackierung der jeweiligen Stufe (UV-gebunden ans Modell). Nur Stufe 2
+# (Frosch) nutzt die Maske; die anderen liefern einen Platzhalter (wird ohne Maske nicht angewandt).
 func get_car_tier_albedo(tier: int = -1) -> String:
 	var t = car_tier if tier < 0 else tier
 	match clampi(t, 0, CAR_TIER_COUNT - 1):
@@ -2064,7 +2166,7 @@ func get_car_tier_albedo(tier: int = -1) -> String:
 		_: return Paths.TEX_CAR_ALBEDO
 
 
-# Umfärb-Maske der jeweiligen Stufe (Rot = umfärbbar). Stufe 1 (eric) hat KEINE Maske.
+# Umfärb-Maske der jeweiligen Stufe (Rot = umfärbbar). Nur Stufe 2 (Frosch) hat eine Maske.
 func get_car_tier_mask(tier: int = -1) -> String:
 	var t = car_tier if tier < 0 else tier
 	match clampi(t, 0, CAR_TIER_COUNT - 1):
@@ -2072,11 +2174,22 @@ func get_car_tier_mask(tier: int = -1) -> String:
 		_: return Paths.TEX_CAR_MASK
 
 
-# Hat die Stufe eine Umfärb-Maske (→ Lack/Muster greifen)? Stufe 0 (Test-Auto) und 2 (Frosch) ja,
-# Stufe 1 (eric/"Renn"auto) nein.
+# Hat die Stufe eine Umfärb-Maske (→ Lack/Muster greifen per Masken-Shader)? Nur Stufe 2 (Frosch).
+# Stufe 0 (default_car) und 1 (eric) haben keine Maske; Stufe 3 (Blender-Auto) wird über den
+# Color-Key umgefärbt (siehe Car3D._color_key), nicht über die Maske.
 func tier_has_mask(tier: int = -1) -> bool:
 	var t = car_tier if tier < 0 else tier
-	return t == 0 or t == 2
+	return t == 2
+
+
+# Wird die Stufe über den Color-Key umgefärbt (statt Maske)? Trifft auf das Blender-Auto zu.
+func tier_is_colorkey(tier: int = -1) -> bool:
+	return get_car_tier_model(tier) == Paths.MODEL_TEST_CAR_BLENDER
+
+
+# Lässt sich die Stufe in der Werkstatt lackieren/mustern (Maske ODER Color-Key)?
+func tier_supports_paint(tier: int = -1) -> bool:
+	return tier_has_mask(tier) or tier_is_colorkey(tier)
 
 # LEGACY/UNGENUTZT: frühere GELD-Schwelle für den Aufstieg. Der Aufstieg läuft jetzt komplett über
 # Prestige-Punkte (get_car_ascend_point_cost / can_ascend_car). Funktion bleibt nur als Referenz.
@@ -2099,24 +2212,29 @@ func get_car_ascend_point_cost() -> float:
 	return last * pow(CAR_ASCEND_POINT_GROWTH, float(car_tier - (CAR_ASCEND_POINT_COSTS.size() - 1)))
 
 func can_ascend_car() -> bool:
+	# Werkstatt ist bei CAR_TIER_COUNT Autos (letzte Stufe) gedeckelt – kein Aufstieg mehr.
+	if car_tier >= CAR_TIER_COUNT - 1:
+		return false
 	return prestige_points >= get_car_ascend_point_cost()
 
 
-# Werkstatt-Ökonomie je Stufe (oben drauf auf die globalen Geld-Upgrades). Wird mit jedem 3. Auto
-# (Frosch) deutlich stärker:
-#  Tier 1 ("Renn"auto): +10k je Feld, ×3 End-Multiplikator.
-#  Tier 2 (Frosch):     +1.000.000 je Feld, ×10 End-Multiplikator.
+# Werkstatt-Ökonomie je Stufe (oben drauf auf die globalen Geld-Upgrades). Wird je Auto deutlich stärker:
+#  Tier 1 ("Renn"auto):  +10k je Feld,        ×3  End-Multiplikator.
+#  Tier 2 (Frosch):      +1.000.000 je Feld,  ×10 End-Multiplikator.
+#  Tier 3 (Blender-Auto):+100.000.000 je Feld,×30 End-Multiplikator.
 func get_tier_tile_bonus(tier: int = -1) -> float:
 	var t = car_tier if tier < 0 else tier
 	match t:
 		2: return 1_000_000.0
-		_: return SUPER_CAR_TILE_BONUS   # 10.000
+		3: return 100_000_000.0
+		_: return SUPER_CAR_TILE_BONUS   # 10.000 (Tier 1)
 
 func get_tier_end_mult(tier: int = -1) -> float:
 	var t = car_tier if tier < 0 else tier
 	match t:
 		1: return 3.0
 		2: return 10.0
+		3: return 30.0
 		_: return SUPER_CAR_END_MULT      # 1.0 (neutral)
 
 # Multiplikator auf verdiente Prestigepunkte (stapelt je Auto-Stufe: ×4, ×16, …).
@@ -2225,21 +2343,23 @@ func get_glue_earn(level: int = -1) -> float:
 	return GLUE_BASE_EARN * pow(GLUE_EARN_GROWTH, level)
 
 
-# Bremse einer Kleber-Straße in „Tempo-Stufen" (positiv = so viel langsamer): Start GLUE_SLOW_BASE,
-# je GLUE_SLOW_PER Upgrade-Stufen −1, nie unter GLUE_SLOW_MIN. Mehr Upgrade = weniger Bremse + mehr Geld.
-func get_glue_slow_levels(level: int = -1) -> int:
+# Prozentualer Tempo-ABZUG auf Kleber-Feldern (positiv = so viel %-Punkte langsamer): Start
+# GLUE_SLOW_PCT_BASE (90 %), je GLUE_SLOW_PCT_STEP Upgrade-Stufen −GLUE_SLOW_PCT_PER, nie unter
+# GLUE_SLOW_PCT_MIN (20 %). Mehr Upgrade = weniger Bremse + mehr Geld.
+func get_glue_slow_pct(level: int = -1) -> int:
 	if level < 0:
 		level = get_upgrade_level("gluebonus")
-	return maxi(GLUE_SLOW_MIN, GLUE_SLOW_BASE - int(level / GLUE_SLOW_PER))
+	return maxi(GLUE_SLOW_PCT_MIN, GLUE_SLOW_PCT_BASE - GLUE_SLOW_PCT_PER * int(level / GLUE_SLOW_PCT_STEP))
 
 
-# Absoluter Geschwindigkeits-ABZUG (m/s) je betroffenem Feld – so viel langsamer wie N Tempo-Stufen
-# (1 Stufe = speed.per_level · SPEED_SCALE m/s), unabhängig vom Grund-Tempo (Gegenstück get_ice_speed_bonus).
-func get_glue_speed_penalty(level: int = -1) -> float:
-	return float(get_glue_slow_levels(level)) * float(UPGRADES["speed"]["per_level"]) * SPEED_SCALE
+# Multiplikativer Tempo-FAKTOR auf Kleber-Feldern (1.0 = normal): 1 − Abzug%. Stufe 0 = 0.10 (10 %
+# Tempo), Max-Stufe = 0.80. Wird in CarController auf das Segment-Tempo multipliziert (Gegenstück zum
+# absoluten Eis-/Steilwand-Bonus). Unabhängig vom Grund-Tempo, daher auch bei schnellen Autos spürbar.
+func get_glue_speed_factor(level: int = -1) -> float:
+	return clampf(1.0 - float(get_glue_slow_pct(level)) / 100.0, 0.01, 1.0)
 
 
-# Reichweite der Kleber-Bremse: das Feld selbst (j=0) + GLUE_BASE_RANGE Folge-Felder.
+# Reichweite der Kleber-Bremse: nur das Feld selbst (j=0), + GLUE_BASE_RANGE (=0) Folge-Felder.
 func get_glue_range(_level: int = -1) -> int:
 	return GLUE_BASE_RANGE
 
@@ -2273,8 +2393,8 @@ func get_wall_range(level: int = -1) -> int:
 	return WALL_BASE_RANGE + int(level / 5)
 
 
-# Looping-Faktor F = 2.0 + 0.2·loopbonus-Level. Gilt für BEIDE Loop-Multiplikatoren (eigener ×F
-# und der Faktor, mit dem jeder andere Feld-Multiplikator multipliziert wird).
+# Looping-Faktor F = 2.0 + 0.1·loopbonus-Level (Stufe 0 → 2.0, Stufe 30 → 5.0). Ganz normaler
+# Multiplikator ×F (seit 2026-06-19 kein Schneeball mehr – der liegt auf der Rampe).
 func get_loop_factor(level: int = -1) -> float:
 	return get_effect("loopbonus", level)
 
@@ -2342,6 +2462,10 @@ func get_prestige_node_cost(id: String) -> int:
 	# Extra-Strecke: eigene Kostenkurve (TRACK_COSTS) – Strecke 3 ist mit 300k ⭐ ein echtes Ziel.
 	if id == "track":
 		return int(TRACK_COSTS[clampi(lvl, 0, TRACK_COSTS.size() - 1)])
+	# Mehrstufige Wert-Knoten: feste, runde ⭐-Kurve (PRESTIGE_COST_TABLE) statt base_cost·growth^level.
+	if PRESTIGE_COST_TABLE.has(id):
+		var tbl: Array = PRESTIGE_COST_TABLE[id]
+		return int(tbl[clampi(lvl, 0, tbl.size() - 1)])
 	return int(round(float(d["base_cost"]) * pow(float(d["growth"]), lvl)))
 
 
