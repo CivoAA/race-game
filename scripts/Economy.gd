@@ -81,8 +81,9 @@ const UPGRADES = {
 	# Fahrzeit: eigene Sequenz (_drive_time_value, special-case in _effect_at): 15,20,25,30,
 	# 40,50,60,90,120,150,… (base/per_level dort ignoriert). Bei 30 s ~1 Mio Kosten.
 	"drive_time": {
-		# Im Shop bis Stufe 9 (= 150 s) kaufbar; die „Stufe 10" (kein Zeitlimit) gibt es nur über den
-		# Prestige-Knoten „Unendliche Fahrzeit" (drive_time_inf, siehe is_endless_run).
+		# Im Shop normal bis Stufe 9 (= 150 s) kaufbar. Der Prestige-Knoten „Unendliche Fahrzeit"
+		# (drive_time_inf) hebt den Cap auf Stufe 10 an (effective_max_level); erst der KAUF dieser
+		# Stufe 10 schaltet das endlose Fahren frei (DRIVE_TIME_INF_LEVEL, is_endless_run).
 		"category": "general", "name": "Fahrzeit",
 		"base_cost": 1000, "growth": 5.6, "max_level": 9,
 		"base": 30.0, "per_level": 15.0, "unit": "s",
@@ -343,13 +344,13 @@ const PRESTIGE_NODES = {
 		"name": "Tile-Bonus-Start", "icon": "", "base_cost": 8, "growth": 1.6, "max_level": 20,
 		"desc": "Je Stufe startet das „Ertrag je Feld\"-Upgrade nach dem Prestige fünf Stufen höher (max. Stufe 20 = Tile-Bonus voll).",
 	},
-	# Unlocks behalten: einmaliger Kauf (max_level 1). Danach bleiben die regulär freischaltbaren
-	# Default-Streckenteile (Gerade/Kurve/Eis) über den Prestige-Reset hinweg gratis nutzbar. Die
-	# Prestige-gegateten Premium-Tiles (Rampe/Steilwand/Looping/Portal/Tribüne) brauchen weiterhin
-	# ihren Geld-Unlock. Siehe is_tile_unlocked().
+	# Unlocks behalten: einmaliger Kauf (max_level 1). Danach bleiben ALLE bereits gekauften
+	# Streckenteil-Freischaltungen über den Prestige-Reset hinweg erhalten – auch die Prestige-gegateten
+	# Premium-Tiles (Rampe/Steilwand/Looping/Portal/Tribüne), sobald sie einmal gekauft wurden.
+	# do_prestige leert unlocked_tiles dann nicht mehr. Siehe is_tile_unlocked().
 	"keep_unlocks": {
 		"name": "Unlocks behalten", "icon": "", "base_cost": 26, "growth": 1.0, "max_level": 1,
-		"desc": "Freigeschaltete Default-Streckenteile bleiben nach dem Prestige gratis.",
+		"desc": "Einmal freigeschaltete Streckenteile bleiben nach dem Prestige freigeschaltet.",
 	},
 	# ×2 Prestige-Punkte: später Multiplikator-Knoten (ersetzt die alten +1-Punkt-Knoten). Je Stufe
 	# verdoppeln sich die Punkte pro Prestige (final mit get_car_point_mult kombiniert).
@@ -371,11 +372,11 @@ const PRESTIGE_NODES = {
 		"name": "× Auto", "icon": "", "base_cost": 8, "growth": 1.0, "max_level": 1,
 		"desc": "Multipliziert die Prestige-Punkte pro Prestige mit der Anzahl deiner Autos.",
 	},
-	# Unendliche Fahrzeit (NEU, einmalig, vor Tempo-Start): hebt das Zeitlimit auf – jede Strecke fährt
-	# endlos weiter, bis man die Fahrt manuell beendet (gleicher Code-Pfad wie endless_mode, is_endless_run).
+	# Unendliche Fahrzeit (NEU, einmalig, vor Tempo-Start): schaltet im Shop die Fahrzeit-Stufe 10 frei.
+	# Erst wenn man diese Stufe kauft, fällt das Zeitlimit weg (is_endless_run / DRIVE_TIME_INF_LEVEL).
 	"drive_time_inf": {
 		"name": "Unendliche Fahrzeit", "icon": "", "base_cost": 10, "growth": 1.0, "max_level": 1,
-		"desc": "Einmalig: hebt das Zeitlimit auf – jede Strecke fährt endlos, bis du die Fahrt beendest.",
+		"desc": "Einmalig: schaltet im Shop die Fahrzeit-Stufe 10 frei. Kaufst du sie, fährt jede Strecke endlos.",
 	},
 	# Tempo-Startlevel (Head-Start auf speed): das Tempo-Upgrade startet höher.
 	"speed_start": {
@@ -806,22 +807,11 @@ func get_tile_unlock_cost(key: String) -> int:
 
 
 func is_tile_unlocked(key: String) -> bool:
-	if key == "" or unlocked_tiles.get(key, false):
-		return true
-	# Prestige-Perk „Unlocks behalten": ist er gekauft, gelten die regulär freischaltbaren
-	# Default-Streckenteile (def_straight/def_curve/ice) dauerhaft als frei – auch nach dem Reset,
-	# ohne dass sie in unlocked_tiles stehen (das wird beim Prestige geleert). AUSNAHME: die im
-	# Prestige-Baum gegateten Premium-Tiles (Rampe/Steilwand/Looping/Portal/Tribüne) brauchen immer
-	# separat ihren Geld-Unlock im Shop (zusätzlich zum Gate-Knoten).
-	if get_prestige_node_level("keep_unlocks") >= 1 and TILE_UNLOCK_COST.has(key) and not _is_tile_gated(key):
-		return true
-	return false
-
-
-# True, wenn dieses Tile erst über einen Prestige-Baum-Knoten freigeschaltet werden muss (Premium-
-# Tiles). Diese sind vom „Unlocks behalten"-Auto-Gratis ausgenommen.
-func _is_tile_gated(key: String) -> bool:
-	return key in TILE_GATE_NODES.values()
+	# Ein Tile ist freigeschaltet, sobald es EINMAL gekauft wurde (steht dann in unlocked_tiles).
+	# Über das Prestige hinweg bleiben diese Käufe erhalten, wenn der Knoten „Unlocks behalten"
+	# (keep_unlocks) gekauft ist – do_prestige leert unlocked_tiles dann nicht (siehe dort). Ohne den
+	# Knoten wird wie bisher alles zurückgesetzt und muss erneut für Geld freigeschaltet werden.
+	return key == "" or bool(unlocked_tiles.get(key, false))
 
 
 # Premium-Tiles (Rampe/Steilwand/Looping/Portal/Tribüne) dürfen im Shop NUR für Geld freigeschaltet
@@ -1846,9 +1836,17 @@ func get_speed_tier_start_level() -> int:
 # Erreichbare Höchststufe für den AKTUELLEN Auto-Stand. Beim Tempo ist das der Tier-abhängige Cap
 # (150 / 450 / 1350 …); jenseits davon brächte mehr Tempo dem (immer gedeckelten) Auto nichts.
 # Alle anderen Upgrades: unverändert get_max_level.
+# Fahrzeit-Shop-Stufe, die das Zeitlimit aufhebt („Unendliche Fahrzeit"). Sie ist nur kaufbar, wenn der
+# gleichnamige Prestige-Knoten (drive_time_inf) gekauft wurde – dann hebt effective_max_level den Cap
+# von 9 auf diese Stufe an. Erst der KAUF dieser Stufe schaltet den Endlos-Modus frei (is_endless_run).
+const DRIVE_TIME_INF_LEVEL = 10
+
 func effective_max_level(id: String) -> int:
 	if id == "speed":
 		return _speed_cap_level()
+	# Fahrzeit: „Stufe 10" (kein Zeitlimit) wird erst durch den Prestige-Knoten drive_time_inf kaufbar.
+	if id == "drive_time" and get_prestige_node_level("drive_time_inf") >= 1:
+		return DRIVE_TIME_INF_LEVEL
 	return get_max_level(id)
 
 
@@ -1982,6 +1980,9 @@ func effect_text(id: String, level: int) -> String:
 		if absf(tv - round(tv)) < 0.001:
 			return "%d%s" % [int(round(tv)), tu]
 		return "%.1f%s" % [tv, tu]
+	# Fahrzeit: die freischaltbare Endlos-Stufe (DRIVE_TIME_INF_LEVEL) zeigt ∞ statt einer Sekundenzahl.
+	if id == "drive_time" and level >= DRIVE_TIME_INF_LEVEL:
+		return Icons.INFINITY
 	var v = _effect_at(id, level)
 	var unit = get_upgrade_unit(id)
 	if id == "endmult":
@@ -2057,10 +2058,12 @@ func get_drive_time() -> float:
 
 
 # Läuft ein Run ohne Zeitlimit? Entweder der Cheat-Toggle (endless_mode) ODER der Prestige-Knoten
-# „Unendliche Fahrzeit" (drive_time_inf = Fahrzeit-Stufe 10). Dann fährt die Strecke bis zum manuellen
-# Beenden weiter (kein run_timer-Ablauf, siehe _process). UI zeigt ∞ statt Restzeit.
+# „Unendliche Fahrzeit": aktiv, sobald die Fahrzeit-Shop-Stufe DRIVE_TIME_INF_LEVEL (10) GEKAUFT ist.
+# Diese Stufe ist ihrerseits nur kaufbar, wenn der Prestige-Knoten drive_time_inf vorhanden ist
+# (effective_max_level) – der Knoten allein macht also noch nicht endlos, erst der Shop-Kauf. Dann fährt
+# die Strecke bis zum manuellen Beenden weiter (kein run_timer-Ablauf, siehe _process). UI zeigt ∞.
 func is_endless_run() -> bool:
-	return endless_mode or get_prestige_node_level("drive_time_inf") >= 1
+	return endless_mode or get_upgrade_level("drive_time") >= DRIVE_TIME_INF_LEVEL
 
 
 func get_total_playtime() -> float:
@@ -2572,7 +2575,8 @@ func prestige_node_effect_text(id: String, level: int) -> String:
 				return "×%d" % (get_upgrade_level("car_count") + 1)
 			return Icons.LOCK + " " + tr("gesperrt")
 		"drive_time_inf":
-			return Icons.CHECK + " " + tr("endlos") if level >= 1 else Icons.LOCK + " " + tr("gesperrt")
+			# Schaltet die Endlos-Stufe im Shop frei (Kauf dort macht erst endlos).
+			return Icons.CHECK + " " + tr("freigeschaltet") if level >= 1 else Icons.LOCK + " " + tr("gesperrt")
 		"points_mult":
 			return tr("×%d Punkte") % int(pow(2.0, float(level)))
 		"tilebonus_start", "speed_start", "endmult_start":
@@ -2661,7 +2665,11 @@ func do_prestige() -> float:
 	_currency      = START_CURRENCY
 	upgrade_levels = {}
 	track          = []
-	unlocked_tiles = {}
+	# „Unlocks behalten" (keep_unlocks): einmal gekaufte Tile-Freischaltungen – inklusive der im
+	# Prestige-Baum gegateten Premium-Tiles (Rampe/Steilwand/Looping/Portal/Tribüne) – überstehen das
+	# Prestige. Ohne den Knoten werden sie wie alles andere geleert und müssen erneut gekauft werden.
+	if get_prestige_node_level("keep_unlocks") < 1:
+		unlocked_tiles = {}
 	prestige_earned = 0
 	_active_track  = 0   # Strecke 2/3 sind wieder gesperrt → zurück auf Strecke 1
 	_init_tracks()
