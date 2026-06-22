@@ -392,8 +392,8 @@ const PRESTIGE_NODES = {
 		"name": "Rampe", "icon": "", "base_cost": 33, "growth": 1.0, "max_level": 1,
 		"desc": "Schaltet die Rampe frei (danach im Shop noch für Geld freischaltbar).",
 	},
-	# Streckengröße: identische Stufen wie GRID_STEPS (4×4 → 4×5 → 4×6 → 5×6). Nur 3 Stufen. Bewusst
-	# hinten (hinter der Rampe), weil es kein „Sofort-Bonus" ist.
+	# Streckengröße: identische Stufen wie GRID_STEPS (4×4 → 4×5 → 4×6 → 5×6). Nur 3 Stufen. Steht
+	# jetzt VOR der Rampe (2026-06-21 getauscht).
 	"grid": {
 		"name": "Streckengröße", "icon": "", "base_cost": 42, "growth": 4.0, "max_level": 3,
 		"desc": "Vergrößert das Baufeld aller Strecken.",
@@ -416,7 +416,7 @@ const PRESTIGE_NODES = {
 }
 # Reihenfolge im Tech-Baum (links → rechts). Position p (1-basiert) ⇒ freigeschaltet nach dem
 # p-ten Prestige (siehe is_prestige_node_unlocked).
-const PRESTIGE_ORDER = ["income", "car_start", "track", "earning", "wall_unlock", "car_points", "tilebonus_start", "loop_unlock", "points_mult", "drive_time_inf", "speed_start", "keep_unlocks", "ramp_unlock", "grid", "endmult_start", "portal_unlock", "stand_unlock"]
+const PRESTIGE_ORDER = ["income", "car_start", "track", "earning", "wall_unlock", "car_points", "tilebonus_start", "loop_unlock", "points_mult", "drive_time_inf", "speed_start", "keep_unlocks", "grid", "ramp_unlock", "endmult_start", "portal_unlock", "stand_unlock"]
 const PRESTIGE_TRACK_BASE = 1   # Strecke 1 ist immer offen; je „track"-Stufe eine weitere.
 
 # Auto-Startlevel: eigene ⭐-Kostenkurve (in get_prestige_node_cost special-cased). Stufe 1 kostet 1
